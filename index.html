@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Driftplanering – utbildningsmodell</title>
   <link rel="stylesheet" href="app/style.css">
+  <link rel="stylesheet" href="app/planering.css">
 </head>
 <body>
   <header class="topp">
@@ -17,21 +18,20 @@
       </select>
     </label>
     <div class="steg">
-      <span class="steg-post aktiv">1 · Byggnaden</span>
-      <span class="steg-post">2 · Planering</span>
-      <a class="steg-post" href="flerbyggnad.html" style="text-decoration:none">3 · Flera byggnader (skiss)</a>
+      <span class="steg-post aktiv">1 · En byggnad</span>
+      <a class="steg-post" href="flerbyggnad.html" style="text-decoration:none">2 · Flera byggnader (skiss)</a>
     </div>
   </header>
 
   <div class="layout">
     <aside class="sidopanel">
       <nav class="flikar">
-        <button class="flik aktiv" data-mal="flik-byggnad">Byggnad</button>
-        <button class="flik" data-mal="flik-atgarder">Åtgärder</button>
+        <button class="flik aktiv" data-mal="flik-planering">Planering</button>
+        <button class="flik" data-mal="flik-byggnad">Byggnad</button>
         <button class="flik" data-mal="flik-begrepp">Begrepp</button>
       </nav>
-      <section id="flik-byggnad" class="flikinnehall"><div id="trad"></div></section>
-      <section id="flik-atgarder" class="flikinnehall" hidden><div id="atgardslista"></div></section>
+      <section id="flik-planering" class="flikinnehall"><div id="flode"></div></section>
+      <section id="flik-byggnad" class="flikinnehall" hidden><div id="trad"></div></section>
       <section id="flik-begrepp" class="flikinnehall" hidden>
         <dl class="begrepp">
           <dt>Byggnad → Plan → Rum</dt>
@@ -45,55 +45,68 @@
           <dt>Åtgärdstext och kontrollpunkter</dt>
           <dd>Åtgärdstexten beskriver vad som ska göras som en lista med kontrollpunkter.</dd>
           <dt>Rond</dt>
-          <dd>Det man planerar mot: en gruppering av åtgärder, t.ex. <i>Brandskydd</i> eller <i>Byggnad invändigt</i>.</dd>
+          <dd>Det man planerar mot: en gruppering av åtgärder, t.ex. <i>Brandskydd</i> eller <i>Byggnad invändigt</i>. Varje rond har en frekvens och en utförare.</dd>
           <dt>Rutintillfälle</dt>
-          <dd>Skapas automatiskt av planeringen: ett per byggnad, utförare, rond och vecka, t.ex. <b>Hangar-Brandskydd-2026v44</b>. Det är det som drifteknikern ser i telefonen.</dd>
+          <dd>Skapas automatiskt av planeringen: ett per byggnad, utförare, rond och vecka, t.ex. <b>Hangar-Brandskydd-2027v05</b>. Det är det som drifteknikern ser i telefonen.</dd>
+          <dt>Frekvens</dt>
+          <dd>Planeras alltid i veckor. "Varje månad" betyder var 4:e vecka (13 gånger per år).</dd>
         </dl>
       </section>
     </aside>
 
-    <main id="vy">
-      <div id="vy3d"></div>
+    <div class="mitten">
+      <main id="vy">
+        <div id="vy3d"></div>
 
-      <div class="verktyg">
-        <div class="grupp">
-          <span class="grupp-namn">Visa</span>
-          <button id="t-ytter" class="chip">Ytterväggar</button>
-          <button id="t-inner" class="chip">Innerväggar</button>
-          <button id="t-tak" class="chip">Tak</button>
-          <button id="t-etikett" class="chip">Rumsnamn</button>
-          <button id="t-rontgen" class="chip" title="Signifikanta installationer syns genom väggar och tak">Röntgen</button>
+        <div class="verktyg">
+          <div class="grupp">
+            <span class="grupp-namn">Visa</span>
+            <button id="t-ytter" class="chip">Ytterväggar</button>
+            <button id="t-inner" class="chip">Innerväggar</button>
+            <button id="t-tak" class="chip">Tak</button>
+            <button id="t-etikett" class="chip">Rumsnamn</button>
+            <button id="t-rontgen" class="chip" title="Signifikanta installationer syns genom väggar och tak">Röntgen</button>
+          </div>
+          <div class="grupp">
+            <span class="grupp-namn">Plan</span>
+            <span id="planknappar"></span>
+          </div>
+          <div class="grupp">
+            <span class="grupp-namn">Vy</span>
+            <button id="v-oversikt" class="chip">Översikt</button>
+            <button id="v-uppifran" class="chip">Uppifrån</button>
+          </div>
         </div>
-        <div class="grupp">
-          <span class="grupp-namn">Plan</span>
-          <span id="planknappar"></span>
+
+        <div id="rumlage" class="rumlage" hidden>
+          <span id="rumlage-namn"></span>
+          <button id="lamna-rum" class="knapp">Lämna rummet (Esc)</button>
         </div>
-        <div class="grupp">
-          <span class="grupp-namn">Vy</span>
-          <button id="v-oversikt" class="chip">Översikt</button>
-          <button id="v-uppifran" class="chip">Uppifrån</button>
+
+        <div id="telefoner" class="telefoner"></div>
+        <div id="infokort" class="infokort" hidden></div>
+        <div id="tips" class="tips" hidden></div>
+
+        <div class="nederkant">
+          <div id="forklaring" class="forklaring"></div>
+          <div class="hjalp">Dra: rotera · Scroll: zoom · Högerdra: panorera · Dubbelklicka på ett golv: gå in i rummet</div>
         </div>
-      </div>
-
-      <div id="rumlage" class="rumlage" hidden>
-        <span id="rumlage-namn"></span>
-        <button id="lamna-rum" class="knapp">Lämna rummet (Esc)</button>
-      </div>
-
-      <div id="infokort" class="infokort" hidden></div>
-      <div id="tips" class="tips" hidden></div>
-
-      <div class="nederkant">
-        <div id="forklaring" class="forklaring"></div>
-        <div class="hjalp">Dra: rotera · Scroll: zoom · Högerdra: panorera · Dubbelklicka på ett golv: gå in i rummet</div>
-      </div>
-    </main>
+      </main>
+      <section id="tidsaxel" class="tidsaxel"></section>
+    </div>
   </div>
+
+  <div id="kontextmeny" class="kontextmeny" hidden></div>
 
   <script src="vendor/three.min.js"></script>
   <script src="vendor/OrbitControls.js"></script>
   <script src="data/hangar.js"></script>
+  <script src="app/planering.js"></script>
+  <script src="app/flyg.js"></script>
   <script src="app/viewer.js"></script>
   <script src="app/ui.js"></script>
+  <script src="app/tidsaxel.js"></script>
+  <script src="app/telefon.js"></script>
+  <script src="app/flode.js"></script>
 </body>
 </html>

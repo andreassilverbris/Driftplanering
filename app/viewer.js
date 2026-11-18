@@ -400,13 +400,17 @@
     obj.rotation.y = rotY;
 
     var self = this;
+    var huvudMat = [];
     obj.traverse(function (m) {
       if (m.isMesh) {
         m.userData.inst = inst;
         self.pickbara.push(m);
+        if (m.material.color && m.material.color.getHex() === farg && huvudMat.indexOf(m.material) < 0) { huvudMat.push(m.material); }
       }
     });
     obj.userData.inst = inst;
+    obj.userData.huvudMat = huvudMat;
+    obj.userData.grundFarg = farg;
     this.planGrupper[r.plan].inst.add(obj);
     this.instObjekt.push({ inst: inst, obj: obj, plan: r.plan });
     this.objFor.set(inst, obj);
@@ -717,9 +721,33 @@
     this.rumMarkering = l;
   };
 
-  // Blinka installationer i grönt genom väggar och tak (används när åtgärder kopplas)
-  Viewer.prototype.blinka = function (instLista, ms) {
+  // Installationer med kopplad åtgärd blir gröna
+  Viewer.prototype.sattKopplade = function (idSet) {
+    this.instObjekt.forEach(function (o) {
+      if (!o.inst.signifikant) { return; }
+      var gron = !!idSet[o.inst.id];
+      o.obj.userData.huvudMat.forEach(function (m) { m.color.setHex(gron ? GRON : o.obj.userData.grundFarg); });
+    });
+  };
+
+  // Installationens mittpunkt i skärmkoordinater (för animeringar)
+  Viewer.prototype.skarmPos = function (inst) {
+    var o = this.objFor.get(inst);
+    if (!o) { return null; }
+    var r = this.rumIndex[inst.rum];
+    if (!this.planSynligt[r.plan]) { return null; }
+    var c = new T.Vector3();
+    new T.Box3().setFromObject(o).getCenter(c);
+    c.project(this.camera);
+    if (c.z > 1 || c.x < -1.05 || c.x > 1.05 || c.y < -1.05 || c.y > 1.05) { return null; }
+    var rect = this.renderer.domElement.getBoundingClientRect();
+    return { x: rect.left + (c.x + 1) / 2 * rect.width, y: rect.top + (1 - c.y) / 2 * rect.height };
+  };
+
+  // Blinka installationer genom väggar och tak (grönt när åtgärder kopplas)
+  Viewer.prototype.blinka = function (instLista, ms, farg) {
     var self = this, nu = performance.now();
+    var BLINK = farg || GRON;
     instLista.forEach(function (inst) {
       var o = self.objFor.get(inst);
       if (!o) { return; }
@@ -730,7 +758,7 @@
       kopia.position.copy(o.position); kopia.rotation.copy(o.rotation);
       o.children.forEach(function (m) {
         if (!m.isMesh) { return; }
-        var g = new T.Mesh(m.geometry, new T.MeshBasicMaterial({ color: GRON, transparent: true, opacity: 0, depthTest: false }));
+        var g = new T.Mesh(m.geometry, new T.MeshBasicMaterial({ color: BLINK, transparent: true, opacity: 0, depthTest: false }));
         g.position.copy(m.position); g.rotation.copy(m.rotation); g.scale.copy(m.scale).multiplyScalar(1.15);
         g.renderOrder = 900;
         kopia.add(g);
@@ -739,7 +767,7 @@
       var bb = new T.Box3().setFromObject(o), storlek = new T.Vector3();
       bb.getSize(storlek);
       var radie = Math.max(0.7, Math.min(3, storlek.length() * 0.55));
-      var gloria = new T.Mesh(new T.SphereGeometry(radie, 20, 14), new T.MeshBasicMaterial({ color: GRON, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+      var gloria = new T.Mesh(new T.SphereGeometry(radie, 20, 14), new T.MeshBasicMaterial({ color: BLINK, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
       gloria.userData.gloria = true;
       gloria.renderOrder = 899;
       var centrum = new T.Vector3(); bb.getCenter(centrum);
@@ -829,4 +857,5 @@
   window.DP = window.DP || {};
   window.DP.Viewer = Viewer;
   window.DP.KATEGORIFARG = KATEGORIFARG;
+  window.DP.GRON = GRON;
 })();

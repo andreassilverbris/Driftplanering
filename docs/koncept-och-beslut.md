@@ -34,7 +34,17 @@ frågor parkeras.
 6. **Ångra och gör om:** alla handlingar sparas som kommandon, så att man kan stega bakåt och framåt.
 7. **Skärm:** 1920×1200 utan scroll i huvudvyn.
 
-## Förslag att bekräfta
+8. **Frekvens i veckor** (förslag A nedan) – bekräftat.
+9. **Utföraren sätts på ronden** (förslag B nedan) – bekräftat. Det ska vara lätt att byta utförare,
+   t.ex. när någon slutar eller är långtidssjuk: steg 4 har ett verktyg som flyttar alla ronder från en
+   utförare till en annan i ett steg.
+10. **Industriportar, utrymningsstegar och huvud-/gruppcentraler är signifikanta** – bekräftat.
+11. **Åtgärder kopplas till ronden**, inte till ett enskilt rutintillfälle. Att tömma ett rutintillfälle
+    (högerklick i telefonvyn) tömmer därför ronden, alltså alla dess rutintillfällen.
+12. **Samma åtgärd delas inte upp på flera ronder.** Om man svarar Nej på "samma tillfälle" visas en förklaring
+    i stället för att det går att genomföra.
+
+## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)
 
@@ -77,7 +87,7 @@ och byggs så att man senare kan välja version.
 ## Etapper
 
 1. **Byggnaden** *(första utkast klart)*: data för hangaren, 3D-vy, lager, plan, gå in i rum, klick på signifikanta installationer, bruttolista med åtgärdstexter, grön blinkning genom väggar.
-2. **Planeringsflödet:** frågorna (frekvens → ronder → samma/olika frekvens), tidsaxeln, Lägg till/Ta bort åtgärder, telefondialoger med rutintillfällen, gröna installationer, ångra/gör om.
+2. **Planeringsflödet** *(första utkast klart)*: fem steg (besöksfrekvens → ronder → frekvens per rond → utförare → koppla åtgärder), tidsaxel för 2027, Lägg till/Ta bort med guide (alla/vissa, rond, samma tillfälle), animering till tidsaxel och modell, telefonvyer med lista och detalj, högerklick för att tömma, gröna installationer, ångra/gör om för allt.
 3. **Åtgärdstexter:** redigering i tre nivåer, symboler för avvikelser, konfliktfrågor, jämförelse.
 4. **Fler typbyggnader:** skola och bostadshus.
 5. **Flera byggnader:** belastning per utförare, provisoriska flyttar, stryka tillfällen *(skiss finns i `flerbyggnad.html`)*.
@@ -85,8 +95,7 @@ och byggs så att man senare kan välja version.
 
 ## Öppna frågor
 
-- Ska "varje månad" vara var 4:e vecka (förslag A), eller behövs exakt 12 per år?
 - Kapacitet i flerbyggnadsvyn: räkna i timmar (kräver tidsuppskattning per rond och byggnad) eller i antal rutintillfällen?
 - Hur många veckor före nästa ordinarie tillfälle ska verktyget föreslå att ett tillfälle stryks? (Skissen använder 1 vecka.)
-- Ska portarna (industriportar) och utrymningsstegarna vara signifikanta? De är det i utkastet.
-- Ska huvud- och gruppcentraler vara signifikanta? De är det i utkastet. Bara jordfelsbrytarna i dem är inte signifikanta.
+- Ska en rond kunna ha en annan utförare för en enskild åtgärd? (Inte byggt – utföraren gäller hela ronden.)
+- Ska planeringsåret vara fast (2027) eller rullande från dagens vecka?

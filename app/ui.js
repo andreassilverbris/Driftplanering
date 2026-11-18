@@ -281,15 +281,35 @@
       k.appendChild(n);
     });
 
+    var P = DP.Plan;
+    var kopplingar = P.kopplingarForInst(inst.id);
     var sek = el('div', 'sektion');
-    sek.appendChild(el('h4', null, 'Kopplade åtgärder'));
-    var tom = el('div', 'tomt');
-    tom.innerHTML = 'Inga ännu. En signifikant installation <b>ska</b> ha en kopplad åtgärd – det görs i planeringsflödet (nästa etapp). När åtgärden är kopplad blir installationen grön i modellen.';
-    sek.appendChild(tom);
+    sek.appendChild(el('h4', null, 'Kopplade åtgärder (' + kopplingar.length + ')'));
+    if (!kopplingar.length) {
+      var tom = el('div', 'tomt');
+      tom.innerHTML = 'Inga ännu. En signifikant installation <b>ska</b> ha en kopplad åtgärd. Koppla den i steg 5 i planeringen, så blir installationen grön i modellen.';
+      sek.appendChild(tom);
+    }
+    kopplingar.forEach(function (kp) {
+      var at = P.atgard(kp.atgard);
+      var rond = P.state().ronder.filter(function (r) { return r.id === kp.rond; })[0];
+      var rt = P.rutintillfallen().filter(function (t) { return t.rond === kp.rond; });
+      var box = el('div', 'koppling');
+      box.innerHTML = '<div class="kp-titel"><span class="prick" style="background:#22b45a"></span><b>' + at.namn + '</b></div>' +
+        '<div class="kp-rad">Rond <b>' + P.rondNamn(kp.rond) + '</b> · ' + P.freqText(rond.freq, true).toLowerCase() + ' · utförare ' + P.utforare(rond.utforare).namn + '</div>' +
+        '<div class="kp-rad">Ingår i ' + rt.length + ' rutintillfällen: ' + rt.slice(0, 3).map(function (t) { return t.namn; }).join(', ') + (rt.length > 3 ? ' …' : '') + '</div>';
+      if (rt.length) {
+        var oppna = el('button', 'lank', 'Visa första rutintillfället i telefonen');
+        oppna.addEventListener('click', function () { DP.Telefon.oppna(rt[0].nyckel, true); });
+        box.appendChild(oppna);
+      }
+      box.appendChild(atgardstext(at.kontrollpunkter));
+      sek.appendChild(box);
+    });
     k.appendChild(sek);
 
     var a = atgardForTyp(inst.typ);
-    if (a) {
+    if (a && !kopplingar.length) {
       var sek2 = el('div', 'sektion');
       sek2.appendChild(el('h4', null, 'Matchande åtgärd i bruttolistan'));
       var rad = el('div', 'a-rad');
@@ -377,13 +397,27 @@
     var o = el('span', 'f-post');
     o.innerHTML = '<span class="prick ovr"></span>Ej signifikant (ej klickbar)';
     f.appendChild(o);
-    var g = el('span', 'f-post kommande');
+    var g = el('span', 'f-post');
     g.innerHTML = '<span class="prick" style="background:#22b45a"></span>Har kopplad åtgärd';
-    g.title = 'Används i nästa etapp när åtgärder kopplas';
     f.appendChild(g);
   }
 
   byggTrad();
-  byggAtgarder();
   byggForklaring();
+
+  // Öppet informationskort ritas om när planeringen ändras
+  var visas = null;
+  var gammalInst = visaInstKort, gammalRum = visaRumKort;
+  visaInstKort = function (i) { visas = { inst: i }; gammalInst(i); };
+  visaRumKort = function (r) { visas = { rum: r }; gammalRum(r); };
+  DP.ui = {
+    atgardstext: atgardstext,
+    visaInstKort: function (i) { visaInstKort(i); },
+    uppdatera: function () {
+      if (kort.hidden || !visas) { return; }
+      var skroll = kort.scrollTop;
+      if (visas.inst) { gammalInst(visas.inst); } else if (visas.rum) { gammalRum(visas.rum); }
+      kort.scrollTop = skroll;
+    }
+  };
 })();
