@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Driftplanering – flera byggnader (skiss)</title>
+  <link rel="stylesheet" href="app/style.css">
+  <style>
+    .fb { display: flex; height: calc(100% - 52px); }
+    .fb-main { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px 40px; }
+    .fb-sida { width: 340px; flex: none; background: #fff; border-left: 1px solid var(--linje); padding: 16px; overflow-y: auto; }
+    .fb h2 { font-size: 15px; margin: 6px 0 8px; display: flex; align-items: baseline; gap: 10px; }
+    .fb h2 small { font-weight: 400; color: var(--dov); font-size: 13px; }
+    .tabell { display: grid; grid-template-columns: 250px repeat(13, minmax(0, 1fr)); background: #fff; border: 1px solid var(--linje); border-radius: 10px; overflow: hidden; }
+    .tabell > div { border-bottom: 1px solid #edf0f3; min-height: 36px; display: flex; align-items: center; justify-content: center; position: relative; }
+    .tabell .hc { background: #f8f9fb; font-size: 12px; color: var(--dov); font-weight: 600; flex-direction: column; line-height: 1.2; min-height: 40px; }
+    .tabell .hc.nu { color: var(--accent); }
+    .tabell .hc .ar { font-weight: 400; font-size: 10px; color: var(--svag); }
+    .tabell .namn { justify-content: flex-start; padding: 0 12px; gap: 8px; font-size: 13px; }
+    .tabell .bygg { background: #f3f5f8; font-weight: 700; justify-content: flex-start; padding: 0 12px; grid-column: 1 / -1; min-height: 30px; font-size: 13px; }
+    .cell { border-left: 1px solid #f1f3f5; }
+    .cell.over { background: var(--accent-svag); }
+    .cell.markvecka { background: #fff8e1; }
+    .avatar { width: 22px; height: 22px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+    .rt { width: 30px; height: 22px; border-radius: 6px; cursor: grab; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,.15); user-select: none; }
+    .rt.flyttad { outline: 2px dashed #1f2833; outline-offset: 1px; }
+    .rt:active { cursor: grabbing; }
+    .spoke { width: 30px; height: 22px; border-radius: 6px; border: 2px dashed #b8c0c8; color: #9aa3ad; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+    .spoke.struken { border-color: #d64541; color: #d64541; background: repeating-linear-gradient(45deg, #fff, #fff 4px, #fde8e7 4px, #fde8e7 8px); }
+    .belast { font-size: 12px; font-weight: 700; border-radius: 6px; width: 46px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .belast.l0 { color: #b5bcc4; }
+    .belast.l1 { background: #e3f4e8; color: #237a43; }
+    .belast.l2 { background: #fff1cc; color: #8a6100; }
+    .belast.l3 { background: #fde2e0; color: #b3261e; }
+    .belast.vald { outline: 2px solid var(--accent); }
+    .kontroller { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+    .fb-sida h3 { font-size: 13px; margin: 18px 0 6px; }
+    .fb-sida p, .fb-sida li { font-size: 13px; color: var(--dov); line-height: 1.5; }
+    .fb-sida ul { padding-left: 18px; margin: 4px 0; }
+    .logg { list-style: none; padding: 0; margin: 0; }
+    .logg li { border: 1px solid var(--linje); border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; color: var(--text); }
+    .logg li small { color: var(--dov); display: block; }
+    .logg a { color: var(--accent); cursor: pointer; font-size: 12px; }
+    .modal-bak { position: fixed; inset: 0; background: rgba(20,30,40,.35); display: flex; align-items: center; justify-content: center; }
+    .modal-bak[hidden] { display: none; }
+    .modal { background: #fff; border-radius: 12px; width: 460px; padding: 18px 20px; box-shadow: 0 16px 40px rgba(0,0,0,.2); }
+    .modal h3 { margin: 0 0 8px; font-size: 16px; }
+    .modal p { color: var(--dov); line-height: 1.5; margin: 6px 0; }
+    .modal textarea { width: 100%; height: 70px; font: inherit; border: 1px solid var(--linje); border-radius: 6px; padding: 6px 8px; margin-top: 6px; }
+    .forkl { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--dov); align-items: center; }
+    .forkl span { display: inline-flex; align-items: center; gap: 6px; }
+    a.steg-post { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header class="topp">
+    <div class="logo">Driftplanering <span>utbildningsmodell</span></div>
+    <div class="steg">
+      <a class="steg-post" href="index.html">1 · Byggnaden</a>
+      <span class="steg-post">2 · Planering</span>
+      <span class="steg-post aktiv">3 · Flera byggnader (skiss)</span>
+    </div>
+  </header>
+
+  <div class="fb">
+    <main class="fb-main">
+      <div class="kontroller">
+        <button id="visa-ord" class="chip">Visa ordinarie plan</button>
+        <span class="forkl">
+          <span><span class="rt" style="background:#5b7bd5;cursor:default">BS</span> Rutintillfälle</span>
+          <span><span class="rt flyttad" style="background:#5b7bd5;cursor:default">BS</span> Provisoriskt flyttat</span>
+          <span><span class="spoke">·</span> Ordinarie plats</span>
+          <span><span class="spoke struken">✕</span> Struket tillfälle</span>
+        </span>
+      </div>
+
+      <h2>Belastning per utförare <small>timmar per vecka · kapacitet för ronder: 8 h · klicka på en vecka för att se vad som ligger där</small></h2>
+      <div id="belastning" class="tabell"></div>
+
+      <h2 style="margin-top:22px">Planering per byggnad och rond <small>dra ett rutintillfälle till en annan vecka för att flytta det provisoriskt</small></h2>
+      <div id="plan" class="tabell"></div>
+    </main>
+
+    <aside class="fb-sida">
+      <h3 style="margin-top:0">Så är skissen tänkt</h3>
+      <ul>
+        <li><b>Börja i belastningen.</b> Röda veckor betyder att en utförare har mer än kapaciteten. Klicka på en röd vecka så markeras den i planeringen.</li>
+        <li><b>En rad per byggnad och rond.</b> Utföraren sätts på ronden (avatar), inte på varje åtgärd.</li>
+        <li><b>Planering i veckor.</b> Varje rond har ett rullande intervall, t.ex. var 4:e vecka. Det blir inga problem med 4- och 5-veckorsmånader eller 52- och 53-veckorsår.</li>
+        <li><b>Provisorisk flytt</b> ändrar inte planen. Ordinarie plats visas som ett spöke.</li>
+        <li><b>Nära nästa ordinarie tillfälle?</b> Då föreslås att tillfället stryks i stället, med en kort motivering (riskbedömning).</li>
+      </ul>
+      <h3>Ändringslogg</h3>
+      <ul id="logg" class="logg"><li><small>Inga provisoriska ändringar ännu.</small></li></ul>
+    </aside>
+  </div>
+
+  <div id="modal" class="modal-bak" hidden>
+    <div class="modal">
+      <h3 id="m-titel"></h3>
+      <p id="m-text"></p>
+      <div id="m-motiv" hidden>
+        <label style="font-size:13px;font-weight:600">Motivering (riskbedömning)</label>
+        <textarea id="m-motivering" placeholder="T.ex. Brandlarmsprov utfört v50 i samband med service. Ingen risk att hoppa över."></textarea>
+      </div>
+      <div class="knapprad" id="m-knappar"></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  // 13 veckor från 2026v47 (2026 har 53 ISO-veckor)
+  var VECKOR = [];
+  for (var i = 0; i < 13; i++) {
+    var v = 47 + i, ar = 2026;
+    if (v > 53) { v -= 53; ar = 2027; }
+    VECKOR.push({ ar: ar, v: v, namn: ar + 'v' + (v < 10 ? '0' : '') + v });
+  }
+  var KAPACITET = 8;
+  var UTFORARE = {
+    A: { namn: 'Anna', farg: '#5b7bd5' },
+    B: { namn: 'Bertil', farg: '#d0703c' },
+    C: { namn: 'Cecilia', farg: '#3c9a72' }
+  };
+  var RONDKORT = { BI: 'Byggnad invändigt', BU: 'Byggnad utvändigt', BS: 'Brandskydd', VE: 'Ventilation', EL: 'El', HI: 'Hiss' };
+  // intervall i veckor, start = index för första veckan i fönstret, h = uppskattad tid
+  var BYGGNADER = [
+    { namn: 'Hangar', ronder: [
+      { r: 'BI', iv: 4, start: 0, h: 3, u: 'A' }, { r: 'BU', iv: 13, start: 2, h: 2, u: 'A' }, { r: 'BS', iv: 4, start: 1, h: 2.5, u: 'B' }, { r: 'VE', iv: 13, start: 5, h: 3, u: 'B' } ] },
+    { namn: 'Skola Norra', ronder: [
+      { r: 'BI', iv: 4, start: 1, h: 4, u: 'C' }, { r: 'BU', iv: 13, start: 6, h: 2, u: 'C' }, { r: 'BS', iv: 4, start: 1, h: 2, u: 'B' }, { r: 'VE', iv: 13, start: 9, h: 3, u: 'B' } ] },
+    { namn: 'Bostadshus Ekbacken', ronder: [
+      { r: 'BI', iv: 8, start: 3, h: 3, u: 'A' }, { r: 'BU', iv: 13, start: 7, h: 2, u: 'A' }, { r: 'BS', iv: 13, start: 1, h: 1.5, u: 'B' }, { r: 'HI', iv: 4, start: 2, h: 1, u: 'A' } ] },
+    { namn: 'Kontor Väst', ronder: [
+      { r: 'BI', iv: 4, start: 2, h: 3, u: 'C' }, { r: 'BS', iv: 4, start: 1, h: 1.5, u: 'B' }, { r: 'VE', iv: 26, start: 5, h: 3, u: 'B' }, { r: 'EL', iv: 26, start: 10, h: 2, u: 'C' } ] },
+    { namn: 'Verkstad Öst', ronder: [
+      { r: 'BI', iv: 4, start: 3, h: 2, u: 'A' }, { r: 'BS', iv: 4, start: 3, h: 1.5, u: 'B' }, { r: 'BU', iv: 26, start: 8, h: 2, u: 'A' } ] },
+    { namn: 'Förråd Syd', ronder: [
+      { r: 'BI', iv: 13, start: 4, h: 1, u: 'C' }, { r: 'BU', iv: 26, start: 4, h: 1, u: 'C' } ] }
+  ];
+
+  // Rutintillfällen genereras från planen (byggnad × rond × utförare × vecka)
+  var tillfallen = [], nextId = 1;
+  BYGGNADER.forEach(function (b, bi) {
+    b.ronder.forEach(function (rd, ri) {
+      for (var w = rd.start; w < VECKOR.length; w += rd.iv) {
+        tillfallen.push({ id: nextId++, bi: bi, ri: ri, ord: w, vecka: w, status: 'ordinarie', motivering: '' });
+      }
+    });
+  });
+  var logg = [], visaOrd = false, markVecka = null;
+
+  function rond(t) { return BYGGNADER[t.bi].ronder[t.ri]; }
+  function nastaOrd(t) { return t.ord + rond(t).iv; }
+  function rtNamn(t) { return BYGGNADER[t.bi].namn + '-' + RONDKORT[rond(t).r] + '-' + VECKOR[t.ord].namn; }
+
+  function belastning() {
+    var b = {};
+    Object.keys(UTFORARE).forEach(function (u) { b[u] = VECKOR.map(function () { return 0; }); });
+    tillfallen.forEach(function (t) {
+      if (t.status === 'struken') { return; }
+      var w = visaOrd ? t.ord : t.vecka;
+      if (w >= 0 && w < VECKOR.length) { b[rond(t).u][w] += rond(t).h; }
+    });
+    return b;
+  }
+
+  function huvud(rot, etikett) {
+    var h = document.createElement('div'); h.className = 'hc'; h.style.justifyContent = 'center'; h.style.alignItems = 'flex-start'; h.style.paddingLeft = '12px'; h.textContent = etikett; rot.appendChild(h);
+    VECKOR.forEach(function (v, i) {
+      var c = document.createElement('div'); c.className = 'hc' + (i === 0 ? ' nu' : '');
+      c.innerHTML = 'v' + v.v + '<span class="ar">' + (i === 0 ? 'nu' : v.ar) + '</span>';
+      rot.appendChild(c);
+    });
+  }
+
+  function ritaBelastning() {
+    var rot = document.getElementById('belastning'); rot.innerHTML = '';
+    huvud(rot, 'Utförare');
+    var b = belastning();
+    Object.keys(UTFORARE).forEach(function (u) {
+      var n = document.createElement('div'); n.className = 'namn';
+      n.innerHTML = '<span class="avatar" style="background:' + UTFORARE[u].farg + '">' + UTFORARE[u].namn[0] + '</span>' + UTFORARE[u].namn;
+      rot.appendChild(n);
+      b[u].forEach(function (h, w) {
+        var c = document.createElement('div'); c.className = 'cell';
+        var k = document.createElement('div');
+        var niva = h === 0 ? 0 : h <= KAPACITET * 0.75 ? 1 : h <= KAPACITET ? 2 : 3;
+        k.className = 'belast l' + niva + (markVecka === w ? ' vald' : '');
+        k.textContent = h ? (Math.round(h * 10) / 10).toString().replace('.', ',') : '–';
+        k.title = UTFORARE[u].namn + ' ' + VECKOR[w].namn + ': ' + h + ' h av ' + KAPACITET + ' h';
+        k.addEventListener('click', function () { markVecka = markVecka === w ? null : w; rita(); });
+        c.appendChild(k); rot.appendChild(c);
+      });
+    });
+  }
+
+  function ritaPlan() {
+    var rot = document.getElementById('plan'); rot.innerHTML = '';
+    huvud(rot, 'Byggnad / rond');
+    BYGGNADER.forEach(function (b, bi) {
+      var bh = document.createElement('div'); bh.className = 'bygg'; bh.textContent = b.namn; rot.appendChild(bh);
+      b.ronder.forEach(function (rd, ri) {
+        var n = document.createElement('div'); n.className = 'namn';
+        n.innerHTML = '<span class="avatar" style="background:' + UTFORARE[rd.u].farg + '" title="Utförare: ' + UTFORARE[rd.u].namn + '">' + UTFORARE[rd.u].namn[0] + '</span>' +
+          RONDKORT[rd.r] + '<span style="margin-left:auto;color:#9aa3ad;font-size:11px">var ' + rd.iv + ':e v</span>';
+        rot.appendChild(n);
+        VECKOR.forEach(function (v, w) {
+          var c = document.createElement('div'); c.className = 'cell' + (markVecka === w ? ' markvecka' : '');
+          c.addEventListener('dragover', function (e) { if (dragId && dragRad === bi + ':' + ri) { e.preventDefault(); c.classList.add('over'); } });
+          c.addEventListener('dragleave', function () { c.classList.remove('over'); });
+          c.addEventListener('drop', function (e) { e.preventDefault(); c.classList.remove('over'); slapp(dragId, w); });
+          tillfallen.filter(function (t) { return t.bi === bi && t.ri === ri; }).forEach(function (t) {
+            if (visaOrd) { if (t.ord === w) { c.appendChild(chip(t)); } return; }
+            if (t.status === 'struken' && t.ord === w) {
+              var s = document.createElement('div'); s.className = 'spoke struken'; s.textContent = '✕';
+              s.title = 'Struket: ' + rtNamn(t) + '\nMotivering: ' + (t.motivering || '–') + '\nKlicka för att återställa';
+              s.style.cursor = 'pointer';
+              s.addEventListener('click', function () { aterstall(t); });
+              c.appendChild(s);
+            } else if (t.status === 'flyttad' && t.ord === w) {
+              var g = document.createElement('div'); g.className = 'spoke'; g.textContent = '·';
+              g.title = 'Ordinarie plats för ' + rtNamn(t) + ' (flyttad till ' + VECKOR[t.vecka].namn + ')';
+              c.appendChild(g);
+            }
+            if (t.status !== 'struken' && t.vecka === w) { c.appendChild(chip(t)); }
+          });
+          rot.appendChild(c);
+        });
+      });
+    });
+  }
+
+  var dragId = null, dragRad = null;
+  function chip(t) {
+    var rd = rond(t);
+    var k = document.createElement('div');
+    k.className = 'rt' + (t.status === 'flyttad' && !visaOrd ? ' flyttad' : '');
+    k.style.background = UTFORARE[rd.u].farg;
+    k.textContent = rd.r;
+    k.title = 'Rutintillfälle ' + rtNamn(t) + '\nUtförare: ' + UTFORARE[rd.u].namn + ' · ca ' + rd.h + ' h' +
+      (t.status === 'flyttad' ? '\nProvisoriskt flyttat till ' + VECKOR[t.vecka].namn + ' – klicka för att återställa' : '\nDra för att flytta provisoriskt');
+    if (!visaOrd) {
+      k.draggable = true;
+      k.addEventListener('dragstart', function (e) { dragId = t.id; dragRad = t.bi + ':' + t.ri; e.dataTransfer.setData('text/plain', String(t.id)); });
+      k.addEventListener('dragend', function () { dragId = null; dragRad = null; });
+      if (t.status === 'flyttad') { k.addEventListener('click', function () { aterstall(t); }); }
+    }
+    return k;
+  }
+
+  function hitta(id) { return tillfallen.filter(function (t) { return t.id === id; })[0]; }
+
+  function slapp(id, w) {
+    var t = hitta(id);
+    if (!t || w === t.vecka) { return; }
+    var nasta = nastaOrd(t);
+    var avstand = nasta - w;
+    if (w > t.ord && avstand <= 1) {
+      fraga('Nära nästa ordinarie tillfälle',
+        'Du flyttar <b>' + rtNamn(t) + '</b> till ' + VECKOR[w].namn + '. Nästa ordinarie tillfälle är ' +
+        (nasta < VECKOR.length ? VECKOR[nasta].namn : 'vecka ' + nasta) + ', bara ' + Math.max(0, avstand) + ' vecka efter. ' +
+        'Det blir två ronder i följd. Vill du <b>stryka</b> tillfället i stället?', true,
+        [
+          { text: 'Stryk tillfället', prim: true, gor: function (motiv) { t.status = 'struken'; t.vecka = t.ord; t.motivering = motiv; logga(t, 'Struket', motiv); } },
+          { text: 'Flytta ändå', gor: function () { flytta(t, w); } },
+          { text: 'Avbryt' }
+        ]);
+      return;
+    }
+    flytta(t, w);
+  }
+
+  function flytta(t, w) {
+    t.vecka = w;
+    t.status = (w === t.ord) ? 'ordinarie' : 'flyttad';
+    if (t.status === 'flyttad') { logga(t, 'Flyttat ' + VECKOR[t.ord].namn + ' → ' + VECKOR[w].namn); }
+    rita();
+  }
+  function aterstall(t) {
+    t.vecka = t.ord; t.status = 'ordinarie'; t.motivering = '';
+    logg = logg.filter(function (l) { return l.id !== t.id; });
+    rita();
+  }
+  function logga(t, vad, motiv) {
+    logg = logg.filter(function (l) { return l.id !== t.id; });
+    logg.unshift({ id: t.id, text: rtNamn(t), vad: vad, motiv: motiv });
+    rita();
+  }
+
+  function ritaLogg() {
+    var ul = document.getElementById('logg'); ul.innerHTML = '';
+    if (!logg.length) { ul.innerHTML = '<li><small>Inga provisoriska ändringar ännu.</small></li>'; return; }
+    logg.forEach(function (l) {
+      var li = document.createElement('li');
+      li.innerHTML = '<b>' + l.text + '</b><small>' + l.vad + (l.motiv ? ' · ' + l.motiv : '') + '</small>';
+      var a = document.createElement('a'); a.textContent = 'Ångra';
+      a.addEventListener('click', function () { aterstall(hitta(l.id)); });
+      li.appendChild(a); ul.appendChild(li);
+    });
+  }
+
+  function fraga(titel, text, motiv, knappar) {
+    var m = document.getElementById('modal');
+    document.getElementById('m-titel').textContent = titel;
+    document.getElementById('m-text').innerHTML = text;
+    document.getElementById('m-motiv').hidden = !motiv;
+    document.getElementById('m-motivering').value = '';
+    var kr = document.getElementById('m-knappar'); kr.innerHTML = '';
+    knappar.forEach(function (k) {
+      var b = document.createElement('button'); b.className = 'knapp' + (k.prim ? '' : ' sekundar'); b.textContent = k.text;
+      b.addEventListener('click', function () { m.hidden = true; if (k.gor) { k.gor(document.getElementById('m-motivering').value.trim()); } rita(); });
+      kr.appendChild(b);
+    });
+    m.hidden = false;
+  }
+
+  document.getElementById('visa-ord').addEventListener('click', function () {
+    visaOrd = !visaOrd; this.classList.toggle('pa', visaOrd); rita();
+  });
+
+  function rita() { ritaBelastning(); ritaPlan(); ritaLogg(); }
+  rita();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Driftplanering – utbildningsmodell</title>
+  <link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+  <header class="topp">
+    <div class="logo">Driftplanering <span>utbildningsmodell</span></div>
+    <label class="byggval">Typbyggnad
+      <select id="byggnad">
+        <option value="hangar" selected>Hangar</option>
+        <option disabled>Skola (kommer)</option>
+        <option disabled>Bostadshus (kommer)</option>
+      </select>
+    </label>
+    <div class="steg">
+      <span class="steg-post aktiv">1 · Byggnaden</span>
+      <span class="steg-post">2 · Planering</span>
+      <a class="steg-post" href="flerbyggnad.html" style="text-decoration:none">3 · Flera byggnader (skiss)</a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidopanel">
+      <nav class="flikar">
+        <button class="flik aktiv" data-mal="flik-byggnad">Byggnad</button>
+        <button class="flik" data-mal="flik-atgarder">Åtgärder</button>
+        <button class="flik" data-mal="flik-begrepp">Begrepp</button>
+      </nav>
+      <section id="flik-byggnad" class="flikinnehall"><div id="trad"></div></section>
+      <section id="flik-atgarder" class="flikinnehall" hidden><div id="atgardslista"></div></section>
+      <section id="flik-begrepp" class="flikinnehall" hidden>
+        <dl class="begrepp">
+          <dt>Byggnad → Plan → Rum</dt>
+          <dd>Den fysiska strukturen. Plan och rum har var sitt id och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>2010 – Konferensrum</b>.</dd>
+          <dt>Signifikant installation</dt>
+          <dd>Registreras som individ med ett id på 8 siffror, t.ex. <b>00000089</b>. Ska alltid ha minst en kopplad åtgärd. Klickbar i modellen.</dd>
+          <dt>Övrig installation</dt>
+          <dd>Registreras inte som individ, t.ex. lysrörsarmaturer, väggbrytare och toalettstolar. Kontrolleras översiktligt i <i>Kontroll byggnad invändigt</i>. Syns i modellen men går inte att klicka på.</dd>
+          <dt>Åtgärd</dt>
+          <dd>Något som ska göras, t.ex. <i>Kontroll handbrandsläckare</i>. Alla åtgärder finns i en bruttolista.</dd>
+          <dt>Åtgärdstext och kontrollpunkter</dt>
+          <dd>Åtgärdstexten beskriver vad som ska göras som en lista med kontrollpunkter.</dd>
+          <dt>Rond</dt>
+          <dd>Det man planerar mot: en gruppering av åtgärder, t.ex. <i>Brandskydd</i> eller <i>Byggnad invändigt</i>.</dd>
+          <dt>Rutintillfälle</dt>
+          <dd>Skapas automatiskt av planeringen: ett per byggnad, utförare, rond och vecka, t.ex. <b>Hangar-Brandskydd-2026v44</b>. Det är det som drifteknikern ser i telefonen.</dd>
+        </dl>
+      </section>
+    </aside>
+
+    <main id="vy">
+      <div id="vy3d"></div>
+
+      <div class="verktyg">
+        <div class="grupp">
+          <span class="grupp-namn">Visa</span>
+          <button id="t-ytter" class="chip">Ytterväggar</button>
+          <button id="t-inner" class="chip">Innerväggar</button>
+          <button id="t-tak" class="chip">Tak</button>
+          <button id="t-etikett" class="chip">Rumsnamn</button>
+          <button id="t-rontgen" class="chip" title="Signifikanta installationer syns genom väggar och tak">Röntgen</button>
+        </div>
+        <div class="grupp">
+          <span class="grupp-namn">Plan</span>
+          <span id="planknappar"></span>
+        </div>
+        <div class="grupp">
+          <span class="grupp-namn">Vy</span>
+          <button id="v-oversikt" class="chip">Översikt</button>
+          <button id="v-uppifran" class="chip">Uppifrån</button>
+        </div>
+      </div>
+
+      <div id="rumlage" class="rumlage" hidden>
+        <span id="rumlage-namn"></span>
+        <button id="lamna-rum" class="knapp">Lämna rummet (Esc)</button>
+      </div>
+
+      <div id="infokort" class="infokort" hidden></div>
+      <div id="tips" class="tips" hidden></div>
+
+      <div class="nederkant">
+        <div id="forklaring" class="forklaring"></div>
+        <div class="hjalp">Dra: rotera · Scroll: zoom · Högerdra: panorera · Dubbelklicka på ett golv: gå in i rummet</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/OrbitControls.js"></script>
+  <script src="data/hangar.js"></script>
+  <script src="app/viewer.js"></script>
+  <script src="app/ui.js"></script>
+</body>
+</html>
