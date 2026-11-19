@@ -7,7 +7,7 @@ byggnad → installationer → åtgärder → ronder → rutintillfällen.
 
 Öppna `index.html` i en webbläsare. Ingen server och ingen installation behövs, och allt ligger lokalt.
 
-- `index.html`: 3D-modell av typbyggnaden Hangar och planeringsflödet (etapp 1–2)
+- `index.html`: 3D-modell av typbyggnaden Hangar, planeringsflödet och åtgärdstexter (etapp 1–3)
 - `flerbyggnad.html`: skiss på planering för flera byggnader med provisoriska flyttar
 
 ## Struktur
@@ -21,6 +21,8 @@ byggnad → installationer → åtgärder → ronder → rutintillfällen.
 | `app/flode.js` | Frågeflödet i fem steg, bruttolistan och animeringar vid ändringar |
 | `app/tidsaxel.js` | Tidsaxeln med rutintillfällen och mediaspelaren (ångra/gör om) |
 | `app/telefon.js` | Telefonvyer för rutintillfällen och högerklicksmeny |
+| `app/dialog.js` | Dialogruta, jämförelse av åtgärdstexter och textredigerare |
+| `app/texter.js` | Flöden för att ändra åtgärdstexter på tre nivåer, med konfliktfrågor |
 | `app/flyg.js` | Animering av brickor som flyger till tidsaxel och modell |
 | `app/style.css`, `app/planering.css` | Stil |
 | `vendor/` | three.js r147 och OrbitControls (MIT-licens) |

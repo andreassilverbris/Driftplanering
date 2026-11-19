@@ -722,6 +722,37 @@
   };
 
   // Installationer med kopplad åtgärd blir gröna
+  // Symbol ✎ ovanför installationer med avvikande åtgärdstext (syns genom väggar)
+  Viewer.prototype.sattAvvikande = function (idSet) {
+    var self = this;
+    if (!this._avvikTex) {
+      var c = document.createElement('canvas'); c.width = c.height = 96;
+      var x = c.getContext('2d');
+      x.fillStyle = '#e8a317'; x.beginPath(); x.arc(48, 48, 44, 0, Math.PI * 2); x.fill();
+      x.strokeStyle = '#fff'; x.lineWidth = 6; x.stroke();
+      x.fillStyle = '#fff'; x.font = 'bold 56px Segoe UI Symbol, Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('✎', 48, 52);
+      this._avvikTex = new T.CanvasTexture(c);
+    }
+    this.instObjekt.forEach(function (o) {
+      if (!o.inst.signifikant) { return; }
+      var pa = !!idSet[o.inst.id];
+      var s = o.obj.userData.avvikSprite;
+      if (pa && !s) {
+        // Fast storlek på skärmen så att symbolen syns även på avstånd
+        s = new T.Sprite(new T.SpriteMaterial({ map: self._avvikTex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+        s.renderOrder = 950;
+        var bb = new T.Box3().setFromObject(o.obj), c = new T.Vector3();
+        bb.getCenter(c);
+        s.position.set(c.x, bb.max.y + 0.3, c.z);
+        s.scale.set(0.032, 0.032, 1);
+        o.obj.parent.add(s);
+        o.obj.userData.avvikSprite = s;
+      }
+      if (s) { s.visible = pa; }
+    });
+  };
+
   Viewer.prototype.sattKopplade = function (idSet) {
     this.instObjekt.forEach(function (o) {
       if (!o.inst.signifikant) { return; }

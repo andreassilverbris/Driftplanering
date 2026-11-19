@@ -107,6 +107,10 @@
     k.style.setProperty('--u', u.farg);
     k.textContent = t.atgarder.length ? String(t.atgarder.length) : '';
     k.title = 'Rutintillfälle ' + t.namn + '\nUtförare: ' + u.namn + '\n' + (t.atgarder.length ? t.atgarder.length + ' åtgärder' : 'Tomt – inga åtgärder ännu');
+    if (P.rutintillfalleAvviker(t)) {
+      k.appendChild(el('span', 'avvik-symbol mark', '✎'));
+      k.title += '\n✎ Innehåller avvikande åtgärdstext';
+    }
     k.addEventListener('click', function () { DP.Telefon.oppna(t.nyckel, true); });
     return k;
   }

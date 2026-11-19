@@ -94,7 +94,9 @@
       var h = el('div', 'tf-rubrik');
       h.appendChild(el('div', 'tf-titel', t.namn));
       var under = el('div', 'tf-under');
-      under.innerHTML = '<span class="avatar liten" style="background:' + u.farg + '">' + u.namn[0] + '</span>' + u.namn + ' · ' + lista.length + ' åtgärder';
+      var nAvv = lista.filter(function (k) { return P.textFor(k, t.vecka).niva !== 'standard'; }).length;
+      under.innerHTML = '<span class="avatar liten" style="background:' + u.farg + '">' + u.namn[0] + '</span>' + u.namn + ' · ' + lista.length + ' åtgärder' +
+        (nAvv ? ' · <span class="avvik-symbol liten">✎</span>' + nAvv + ' avvikande' : '');
       h.appendChild(under);
       skarm.appendChild(h);
       var inn = el('div', 'tf-innehall');
@@ -106,9 +108,10 @@
       lista.forEach(function (k, idx) {
         var a = P.atgard(k.atgard), info = installationsInfo(k);
         var rad = el('div', 'tf-rad');
-        rad.innerHTML = '<div class="tf-a">' + a.namn + '</div><div class="tf-i">' + (info.bet ? info.bet + ' · ' : '') + info.namn + '</div><span class="tf-pil">›</span>';
+        var avviker = P.textFor(k, t.vecka).niva !== 'standard';
+        rad.innerHTML = '<div class="tf-a">' + a.namn + (avviker ? ' <span class="avvik-symbol liten" title="Avvikande åtgärdstext">✎</span>' : '') + '</div><div class="tf-i">' + (info.bet ? info.bet + ' · ' : '') + info.namn + '</div><span class="tf-pil">›</span>';
         rad.addEventListener('click', function () {
-          o.vy = 'detalj'; o.index = idx;
+          o.vy = 'detalj'; o.index = idx; o.redigerar = false;
           if (info.inst && DP.viewer) { DP.viewer.valjInstallation(info.inst, false); }
           rita();
         });
@@ -143,12 +146,37 @@
     falt('Rum', info.rum);
     falt('Åtgärd', a.namn);
     inn.appendChild(el('div', 'tf-falt-rub', 'Åtgärdstext'));
-    var txt = el('div', 'tf-falt');
-    txt.appendChild(el('div', 'tf-kontrollera', 'Kontrollera:'));
-    var ul = el('ul');
-    a.kontrollpunkter.forEach(function (p) { ul.appendChild(el('li', null, p)); });
-    txt.appendChild(ul);
-    inn.appendChild(txt);
+    var gall = P.textFor(k, t.vecka);
+    if (o.redigerar) {
+      inn.appendChild(DP.Dialog.redigerare({
+        punkter: gall.punkter, kompakt: true,
+        onSpara: function (punkter, kn) {
+          o.redigerar = false;
+          if (P.lika(punkter, gall.punkter)) { rita(); return; }
+          rita();
+          DP.Texter.sparaTillfalle(k, t.vecka, punkter, DP.mitt(kn));
+        },
+        onAvbryt: function () { o.redigerar = false; rita(); }
+      }));
+    } else {
+      if (gall.niva !== 'standard') {
+        var av = el('div', 'tf-avvik');
+        av.innerHTML = '<span class="avvik-symbol">✎</span> Avvikande åtgärdstext – gäller ' + (gall.niva === 'tillfalle' ? 'bara detta rutintillfälle' : 'denna installation i alla rutintillfällen');
+        var jmf = el('button', 'tf-lank', 'Jämför');
+        jmf.addEventListener('click', function () { DP.Texter.jamforNivaer(k, t.vecka); });
+        av.appendChild(jmf);
+        inn.appendChild(av);
+      }
+      var txt = el('div', 'tf-falt');
+      txt.appendChild(el('div', 'tf-kontrollera', 'Kontrollera:'));
+      var ul = el('ul');
+      gall.punkter.forEach(function (p) { ul.appendChild(el('li', null, p)); });
+      txt.appendChild(ul);
+      inn.appendChild(txt);
+      var andra = el('button', 'tf-knapp', 'Ändra åtgärdstext');
+      andra.addEventListener('click', function () { o.redigerar = true; rita(); });
+      inn.appendChild(andra);
+    }
     if (info.inst) {
       var visa = el('button', 'tf-knapp', 'Visa installationen i modellen');
       visa.addEventListener('click', function () { DP.viewer.valjInstallation(info.inst, true); });

@@ -315,6 +315,46 @@ details.atgard.irrelevant { opacity: .55; }
 .koppling .atgardstext { margin: 6px 0 0; background: #fff; }
 .infokort { max-height: calc(100% - 120px); }
 
+/* ---------- Etapp 3: åtgärdstexter ---------- */
+.avvik-symbol { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #e8a317; color: #fff; font-size: 11px; font-weight: 700; flex: none; vertical-align: -3px; }
+.avvik-symbol.liten { width: 14px; height: 14px; font-size: 9px; margin-right: 3px; vertical-align: -2px; }
+.avvik-symbol.mark { position: absolute; top: -7px; right: -7px; width: 13px; height: 13px; font-size: 8px; border: 1.5px solid #fff; }
+.rt-mark { position: relative; }
+.avvik-info { background: #fff8e6; border: 1px solid #f3dfa6; border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45; margin: 6px 0; }
+.avvik-info .lank { margin-left: 6px; padding: 0; font-size: 12px; }
+.lankrad { display: flex; gap: 14px; flex-wrap: wrap; }
+.koppling .knapp { margin-top: 8px; }
+
+.redigerare { margin: 8px 0; }
+.redigerare textarea { width: 100%; font: inherit; font-size: 13px; line-height: 1.5; border: 1px solid #b8cff8; border-radius: 6px; padding: 6px 8px; resize: vertical; margin-top: 4px; background: #fff; }
+.redigerare.kompakt textarea { font-size: 12px; }
+.redigerare .knapprad { margin-top: 6px; }
+.liten-text.fel { color: #b3261e; }
+
+.tf-avvik { background: #fff4d6; border-radius: 8px; padding: 6px 8px; font-size: 11.5px; line-height: 1.4; margin: 6px 0 2px; }
+.tf-lank { border: 0; background: none; color: #0a84ff; font-size: 11.5px; padding: 0 0 0 6px; }
+
+.dlg-bak { position: fixed; inset: 0; z-index: 80; background: rgba(20,30,40,.38); display: flex; align-items: center; justify-content: center; }
+.dlg { background: #fff; border-radius: 12px; width: 520px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px); overflow-y: auto; padding: 18px 20px 16px; box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+.dlg-titel { margin: 0 0 10px; font-size: 17px; }
+.dlg-kropp p { margin: 6px 0; line-height: 1.5; color: #2b3340; }
+.dlg-knappar { margin-top: 16px; justify-content: flex-end; }
+.vchips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.vchip { font-size: 11px; background: #eef1f4; border-radius: 999px; padding: 1px 8px; color: var(--dov); }
+.notis.konflikt { background: #fff8e6; }
+.konflikt-rad { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.konflikt-rad label { display: flex; align-items: center; gap: 4px; font-weight: 600; }
+
+.jmf { display: grid; gap: 12px; }
+.jmf-kol { border: 1px solid var(--linje); border-radius: 8px; padding: 10px 12px; background: #fff; }
+.jmf-kol.bas { background: #f8f9fb; }
+.jmf-rubrik { font-weight: 700; }
+.jmf-under { font-size: 12px; color: var(--dov); margin-bottom: 6px; }
+.jmf-lista { margin: 0 0 8px; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.jmf-ny { background: #e3f4e8; color: #1d6b3a; border-radius: 3px; padding: 0 3px; }
+.jmf-borta { color: #b3261e; text-decoration: line-through; }
+.jmf-forklaring { font-size: 12px; color: var(--dov); margin-top: 10px; }
+
 </style>
 </head>
 <body>
@@ -2030,7 +2070,11 @@ details.atgard.irrelevant { opacity: .55; }
     return {
       bas: null,          // { typ, startManad } – hur ofta byggnaden besöks
       ronder: [],         // { id, freq, foljerBas, besvarad, utforare }
-      kopplingar: []      // { atgard, inst, rond }  (inst = installations-id eller 'BYGGNAD')
+      kopplingar: [],     // { atgard, inst, rond }  (inst = installations-id eller 'BYGGNAD')
+      // Åtgärdstexter i tre nivåer. Den mest specifika vinner: rutintillfälle > installation > standard.
+      standardTexter: {}, // atgardId -> [kontrollpunkter]   (ändrad standard i bruttolistan, gäller sessionen)
+      instTexter: {},     // 'atgard|inst' -> [kontrollpunkter]
+      tillfalleTexter: {} // 'atgard|inst|rond|vecka' -> [kontrollpunkter]
     };
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
@@ -2048,6 +2092,7 @@ details.atgard.irrelevant { opacity: .55; }
     var fore = state();
     var ny = klona(fore);
     if (fn(ny) === false) { return; }
+    rensaTexter(ny);
     historik = historik.slice(0, pos + 1);
     historik.push({ s: ny, text: text });
     pos = historik.length - 1;
@@ -2108,7 +2153,111 @@ details.atgard.irrelevant { opacity: .55; }
     return Object.keys(set).map(Number).sort(function (a, c) { return a - c; });
   }
 
+  // ------------------------------------------------------------------
+  // Åtgärdstexter
+  // ------------------------------------------------------------------
+  function lika(a, c) { return JSON.stringify(a) === JSON.stringify(c); }
+  function instNyckel(a, i) { return a + '|' + i; }
+  function tillfNyckel(a, i, r, v) { return a + '|' + i + '|' + r + '|' + v; }
+
+  function standardText(atgId, s) {
+    s = s || state();
+    return (s.standardTexter && s.standardTexter[atgId]) || atgard(atgId).kontrollpunkter;
+  }
+  function instText(atgId, instId, s) {
+    s = s || state();
+    return s.instTexter[instNyckel(atgId, instId)] || standardText(atgId, s);
+  }
+  // Gällande text för en koppling, i ett visst rutintillfälle (vecka) eller generellt (vecka = null)
+  function textFor(k, vecka, s) {
+    s = s || state();
+    if (vecka !== null && vecka !== undefined) {
+      var t = s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, vecka)];
+      if (t) { return { punkter: t, niva: 'tillfalle' }; }
+    }
+    var it = s.instTexter[instNyckel(k.atgard, k.inst)];
+    if (it) { return { punkter: it, niva: 'installation' }; }
+    return { punkter: standardText(k.atgard, s), niva: 'standard' };
+  }
+  function rondVeckor(rondId, s) {
+    var r = s.ronder.filter(function (x) { return x.id === rondId; })[0];
+    return r && freqKomplett(r.freq) ? veckorFor(r.freq) : [];
+  }
+  // Rutintillfällen där en koppling har en egen text
+  function tillfalleAvvikelser(k, s) {
+    s = s || state();
+    return rondVeckor(k.rond, s).filter(function (v) { return !!s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)]; })
+      .map(function (v) { return { vecka: v, namn: rutintillfalleNamn(k.rond, v), punkter: s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)] }; });
+  }
+  function kopplingAvviker(k, s) {
+    s = s || state();
+    return !!s.instTexter[instNyckel(k.atgard, k.inst)] || tillfalleAvvikelser(k, s).length > 0;
+  }
+  function rutintillfalleAvviker(t, s) {
+    return t.atgarder.some(function (k) { return textFor(k, t.vecka, s).niva !== 'standard'; });
+  }
+  function avvikandeInst(s) {
+    s = s || state();
+    var set = {};
+    s.kopplingar.forEach(function (k) { if (kopplingAvviker(k, s)) { set[k.inst] = true; } });
+    return set;
+  }
+
+  // Används inuti andra(): sparar bara texter som faktiskt avviker från nivån ovanför
+  function sattStandard(st, atgId, punkter) {
+    if (lika(punkter, atgard(atgId).kontrollpunkter)) { delete st.standardTexter[atgId]; } else { st.standardTexter[atgId] = punkter; }
+  }
+  function sattInst(st, atgId, instId, punkter) {
+    var n = instNyckel(atgId, instId);
+    if (lika(punkter, standardText(atgId, st))) { delete st.instTexter[n]; } else { st.instTexter[n] = punkter; }
+  }
+  function sattTillfalle(st, k, vecka, punkter) {
+    var n = tillfNyckel(k.atgard, k.inst, k.rond, vecka);
+    if (lika(punkter, instText(k.atgard, k.inst, st))) { delete st.tillfalleTexter[n]; } else { st.tillfalleTexter[n] = punkter; }
+  }
+  function rensaTillfallen(st, atgId, instId) {
+    Object.keys(st.tillfalleTexter).forEach(function (n) {
+      var d = n.split('|');
+      if (d[0] === atgId && (instId === undefined || d[1] === instId)) { delete st.tillfalleTexter[n]; }
+    });
+  }
+  function rensaInst(st, atgId) {
+    Object.keys(st.instTexter).forEach(function (n) { if (n.split('|')[0] === atgId) { delete st.instTexter[n]; } });
+  }
+  // Avvikelser försvinner när kopplingen tas bort (annars dyker de upp igen vid ny koppling)
+  function rensaTexter(st) {
+    var finns = {}, finnsRond = {};
+    st.kopplingar.forEach(function (k) { finns[instNyckel(k.atgard, k.inst)] = true; finnsRond[k.atgard + '|' + k.inst + '|' + k.rond] = true; });
+    Object.keys(st.instTexter).forEach(function (n) { if (!finns[n]) { delete st.instTexter[n]; } });
+    Object.keys(st.tillfalleTexter).forEach(function (n) {
+      var d = n.split('|');
+      if (!finnsRond[d[0] + '|' + d[1] + '|' + d[2]] || rondVeckor(d[2], st).indexOf(Number(d[3])) < 0) { delete st.tillfalleTexter[n]; }
+    });
+  }
+
+  // Vilka rutintillfällen och installationer fick ändrad gällande text mellan två tillstånd
+  function textSkillnad(fore, efter) {
+    var nycklar = {}, inst = {};
+    var foreK = {};
+    fore.kopplingar.forEach(function (k) { foreK[k.atgard + '|' + k.inst + '|' + k.rond] = true; });
+    efter.kopplingar.forEach(function (k) {
+      if (!foreK[k.atgard + '|' + k.inst + '|' + k.rond]) { return; }
+      rondVeckor(k.rond, efter).forEach(function (v) {
+        if (rondVeckor(k.rond, fore).indexOf(v) < 0) { return; }
+        if (!lika(textFor(k, v, fore).punkter, textFor(k, v, efter).punkter)) {
+          nycklar[k.rond + ':' + v] = true;
+          inst[k.inst] = true;
+        }
+      });
+    });
+    return { nycklar: Object.keys(nycklar), inst: Object.keys(inst) };
+  }
+
   window.DP.Plan = {
+    standardText: standardText, instText: instText, textFor: textFor, tillfalleAvvikelser: tillfalleAvvikelser,
+    kopplingAvviker: kopplingAvviker, rutintillfalleAvviker: rutintillfalleAvviker, avvikandeInst: avvikandeInst,
+    sattStandard: sattStandard, sattInst: sattInst, sattTillfalle: sattTillfalle, rensaTillfallen: rensaTillfallen, rensaInst: rensaInst,
+    textSkillnad: textSkillnad, lika: lika,
     AR: AR, ANTAL_VECKOR: ANTAL_VECKOR, FREKVENSER: FREKVENSER, MANADER: MANADER, UTFORARE: UTFORARE,
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
@@ -2180,6 +2329,145 @@ details.atgard.irrelevant { opacity: .55; }
   window.DP.flyg = flyg;
   window.DP.mitt = mitt;
   window.DP.puls = puls;
+})();
+
+</script>
+  <script>
+/*
+ * Gemensamma komponenter: dialogruta, jämförelse av åtgärdstexter och textredigerare.
+ *
+ * Jämförelsen tar emot en lista med versioner och kan i en senare etapp låta användaren välja
+ * version: skicka med opts.onValj(index) så får varje kolumn knappen "Använd denna".
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP;
+  var stack = [];
+
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (html !== undefined && html !== null) { e.innerHTML = html; }
+    return e;
+  }
+
+  // opts: { titel, html | nod, knappar: [{ text, prim, gor, stangInte }], bredd }
+  function visa(opts) {
+    var bak = el('div', 'dlg-bak');
+    var d = el('div', 'dlg');
+    if (opts.bredd) { d.style.width = opts.bredd + 'px'; }
+    d.appendChild(el('h3', 'dlg-titel', opts.titel || ''));
+    var kropp = el('div', 'dlg-kropp');
+    if (opts.html) { kropp.innerHTML = opts.html; }
+    if (opts.nod) { kropp.appendChild(opts.nod); }
+    d.appendChild(kropp);
+    var kr = el('div', 'knapprad dlg-knappar');
+    (opts.knappar || [{ text: 'Stäng', prim: true }]).forEach(function (k) {
+      var b = el('button', 'knapp' + (k.prim ? '' : ' sekundar'), k.text);
+      b.addEventListener('click', function (e) {
+        var p = DP.mitt(b);
+        if (!k.stangInte) { stang(bak); }
+        if (k.gor) { k.gor(p, e); }
+      });
+      kr.appendChild(b);
+    });
+    d.appendChild(kr);
+    bak.appendChild(d);
+    bak.addEventListener('mousedown', function (e) { if (e.target === bak) { stang(bak); } });
+    document.body.appendChild(bak);
+    stack.push(bak);
+    var forsta = kr.querySelector('.knapp:not(.sekundar)');
+    if (forsta) { forsta.focus(); }
+    return { kropp: kropp, stang: function () { stang(bak); } };
+  }
+
+  function stang(bak) {
+    bak = bak || stack[stack.length - 1];
+    if (!bak) { return; }
+    bak.remove();
+    stack = stack.filter(function (x) { return x !== bak; });
+  }
+  window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && stack.length) { e.stopPropagation(); stang(); } }, true);
+
+  // ------------------------------------------------------------------
+  // Jämför åtgärdstexter
+  //   versioner: [{ rubrik, under, punkter }]
+  //   opts: { titel, bas (index att jämföra mot, standard 0), onValj(index) – för senare etapp }
+  // ------------------------------------------------------------------
+  function jamfor(versioner, opts) {
+    opts = opts || {};
+    var bas = opts.bas || 0;
+    var basSet = versioner[bas].punkter;
+    var w = el('div', 'jmf');
+    w.style.gridTemplateColumns = 'repeat(' + versioner.length + ', minmax(0, 1fr))';
+    versioner.forEach(function (v, i) {
+      var k = el('div', 'jmf-kol' + (i === bas ? ' bas' : ''));
+      k.appendChild(el('div', 'jmf-rubrik', v.rubrik));
+      k.appendChild(el('div', 'jmf-under', (v.under || '') + (i === bas && versioner.length > 1 ? ' · jämförs mot' : '')));
+      var ul = el('ul', 'jmf-lista');
+      v.punkter.forEach(function (p) {
+        var ny = i !== bas && basSet.indexOf(p) < 0;
+        ul.appendChild(el('li', ny ? 'jmf-ny' : null, esc(p)));
+      });
+      if (i !== bas) {
+        basSet.filter(function (p) { return v.punkter.indexOf(p) < 0; }).forEach(function (p) {
+          ul.appendChild(el('li', 'jmf-borta', esc(p)));
+        });
+      }
+      k.appendChild(ul);
+      if (opts.onValj) {
+        var b = el('button', 'knapp sekundar liten-knapp', 'Använd denna');
+        b.addEventListener('click', function () { stang(); opts.onValj(i); });
+        k.appendChild(b);
+      }
+      w.appendChild(k);
+    });
+    var fork = el('div', 'jmf-forklaring', '<span class="jmf-ny">Grönt</span> finns inte i den version som jämförs mot. <span class="jmf-borta">Överstruket</span> saknas i versionen.');
+    var nod = el('div');
+    nod.appendChild(w);
+    nod.appendChild(fork);
+    return visa({ titel: opts.titel || 'Jämför åtgärdstexter', nod: nod, bredd: Math.min(1100, 260 + versioner.length * 250), knappar: [{ text: 'Stäng', prim: true }] });
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  // ------------------------------------------------------------------
+  // Redigerare för åtgärdstext: en kontrollpunkt per rad
+  //   opts: { punkter, onSpara(punkter, knappEl), onAvbryt, kompakt }
+  // ------------------------------------------------------------------
+  function redigerare(opts) {
+    var w = el('div', 'redigerare' + (opts.kompakt ? ' kompakt' : ''));
+    w.appendChild(el('div', 'etikett', 'Åtgärdstext – Kontrollera:'));
+    var ta = document.createElement('textarea');
+    ta.value = opts.punkter.join('\n');
+    ta.rows = Math.min(12, opts.punkter.length + 1);
+    ta.spellcheck = false;
+    w.appendChild(ta);
+    var tips = el('div', 'liten-text', 'En kontrollpunkt per rad.');
+    w.appendChild(tips);
+    var kr = el('div', 'knapprad');
+    var spara = el('button', 'knapp liten-knapp', 'Spara');
+    var avbryt = el('button', 'knapp sekundar liten-knapp', 'Avbryt');
+    spara.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var p = tolka(ta.value);
+      if (!p.length) { tips.textContent = 'Åtgärdstexten måste ha minst en kontrollpunkt.'; tips.classList.add('fel'); return; }
+      opts.onSpara(p, spara);
+    });
+    avbryt.addEventListener('click', function (e) { e.stopPropagation(); if (opts.onAvbryt) { opts.onAvbryt(); } });
+    ta.addEventListener('keydown', function (e) { e.stopPropagation(); });
+    kr.appendChild(spara); kr.appendChild(avbryt);
+    w.appendChild(kr);
+    setTimeout(function () { ta.focus(); }, 0);
+    return w;
+  }
+
+  function tolka(text) {
+    return text.split('\n').map(function (r) { return r.replace(/^\s*[-•*]\s*/, '').trim(); }).filter(Boolean);
+  }
+
+  DP.Dialog = { visa: visa, stang: stang, jamfor: jamfor, redigerare: redigerare, esc: esc };
 })();
 
 </script>
@@ -2908,6 +3196,37 @@ details.atgard.irrelevant { opacity: .55; }
   };
 
   // Installationer med kopplad åtgärd blir gröna
+  // Symbol ✎ ovanför installationer med avvikande åtgärdstext (syns genom väggar)
+  Viewer.prototype.sattAvvikande = function (idSet) {
+    var self = this;
+    if (!this._avvikTex) {
+      var c = document.createElement('canvas'); c.width = c.height = 96;
+      var x = c.getContext('2d');
+      x.fillStyle = '#e8a317'; x.beginPath(); x.arc(48, 48, 44, 0, Math.PI * 2); x.fill();
+      x.strokeStyle = '#fff'; x.lineWidth = 6; x.stroke();
+      x.fillStyle = '#fff'; x.font = 'bold 56px Segoe UI Symbol, Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('✎', 48, 52);
+      this._avvikTex = new T.CanvasTexture(c);
+    }
+    this.instObjekt.forEach(function (o) {
+      if (!o.inst.signifikant) { return; }
+      var pa = !!idSet[o.inst.id];
+      var s = o.obj.userData.avvikSprite;
+      if (pa && !s) {
+        // Fast storlek på skärmen så att symbolen syns även på avstånd
+        s = new T.Sprite(new T.SpriteMaterial({ map: self._avvikTex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+        s.renderOrder = 950;
+        var bb = new T.Box3().setFromObject(o.obj), c = new T.Vector3();
+        bb.getCenter(c);
+        s.position.set(c.x, bb.max.y + 0.3, c.z);
+        s.scale.set(0.032, 0.032, 1);
+        o.obj.parent.add(s);
+        o.obj.userData.avvikSprite = s;
+      }
+      if (s) { s.visible = pa; }
+    });
+  };
+
   Viewer.prototype.sattKopplade = function (idSet) {
     this.instObjekt.forEach(function (o) {
       if (!o.inst.signifikant) { return; }
@@ -3353,7 +3672,37 @@ details.atgard.irrelevant { opacity: .55; }
         oppna.addEventListener('click', function () { DP.Telefon.oppna(rt[0].nyckel, true); });
         box.appendChild(oppna);
       }
-      box.appendChild(atgardstext(at.kontrollpunkter));
+      var gall = P.textFor(kp, null);
+      var avvT = P.tillfalleAvvikelser(kp);
+      var nyckel = kp.atgard + '|' + kp.inst;
+      if (redigerar === nyckel) {
+        box.appendChild(DP.Dialog.redigerare({
+          punkter: gall.punkter,
+          onSpara: function (punkter, kn) {
+            redigerar = null;
+            var kalla = DP.mitt(kn);
+            DP.ui.uppdatera();
+            DP.Texter.sparaInst(kp, punkter, kalla);
+          },
+          onAvbryt: function () { redigerar = null; DP.ui.uppdatera(); }
+        }));
+      } else {
+        if (gall.niva === 'installation' || avvT.length) {
+          var av = el('div', 'avvik-info');
+          var delar = [];
+          if (gall.niva === 'installation') { delar.push('denna installation har en egen åtgärdstext i alla rutintillfällen'); }
+          if (avvT.length) { delar.push(avvT.length + ' rutintillfälle' + (avvT.length > 1 ? 'n' : '') + ' har egen text (' + avvT.map(function (x) { return 'v' + x.vecka; }).join(', ') + ')'); }
+          av.innerHTML = '<span class="avvik-symbol">✎</span> Avvikande åtgärdstext: ' + delar.join('; ') + '.';
+          var jmf = el('button', 'lank', 'Jämför');
+          jmf.addEventListener('click', function () { DP.Texter.jamforNivaer(kp, null); });
+          av.appendChild(jmf);
+          box.appendChild(av);
+        }
+        box.appendChild(atgardstext(gall.punkter));
+        var andra = el('button', 'knapp sekundar liten-knapp', 'Ändra åtgärdstext för ' + inst.beteckning);
+        andra.addEventListener('click', function () { redigerar = nyckel; DP.ui.uppdatera(); });
+        box.appendChild(andra);
+      }
       sek.appendChild(box);
     });
     k.appendChild(sek);
@@ -3365,7 +3714,7 @@ details.atgard.irrelevant { opacity: .55; }
       var rad = el('div', 'a-rad');
       rad.innerHTML = '<b>' + a.namn + '</b> · föreslagen rond <i>' + rondNamn(a.foreslagenRond) + '</i>';
       sek2.appendChild(rad);
-      sek2.appendChild(atgardstext(a.kontrollpunkter));
+      sek2.appendChild(atgardstext(DP.Plan.standardText(a.id)));
       k.appendChild(sek2);
     }
 
@@ -3450,6 +3799,9 @@ details.atgard.irrelevant { opacity: .55; }
     var g = el('span', 'f-post');
     g.innerHTML = '<span class="prick" style="background:#22b45a"></span>Har kopplad åtgärd';
     f.appendChild(g);
+    var av = el('span', 'f-post');
+    av.innerHTML = '<span class="avvik-symbol liten">✎</span>&nbsp;Avvikande åtgärdstext';
+    f.appendChild(av);
   }
 
   byggTrad();
@@ -3457,8 +3809,9 @@ details.atgard.irrelevant { opacity: .55; }
 
   // Öppet informationskort ritas om när planeringen ändras
   var visas = null;
+  var redigerar = null; // 'atgard|inst' som redigeras i informationskortet
   var gammalInst = visaInstKort, gammalRum = visaRumKort;
-  visaInstKort = function (i) { visas = { inst: i }; gammalInst(i); };
+  visaInstKort = function (i) { if (!visas || visas.inst !== i) { redigerar = null; } visas = { inst: i }; gammalInst(i); };
   visaRumKort = function (r) { visas = { rum: r }; gammalRum(r); };
   DP.ui = {
     atgardstext: atgardstext,
@@ -3470,6 +3823,173 @@ details.atgard.irrelevant { opacity: .55; }
       kort.scrollTop = skroll;
     }
   };
+})();
+
+</script>
+  <script>
+/*
+ * Flöden för att ändra åtgärdstexter på de tre nivåerna:
+ *   standard (bruttolistan) · installation (modellen / alla rutintillfällen) · rutintillfälle (telefonen)
+ * Varje flöde ställer sina frågor i en dialog och gör sedan ändringen som ett steg i historiken.
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP, P = DP.Plan, D = DP.Dialog;
+  var b = DP.byggnader.hangar;
+
+  function instNamn(instId) {
+    if (instId === 'BYGGNAD') { return b.namn + ' (hela byggnaden)'; }
+    var i = P.instIndex[instId];
+    return i.beteckning + ' ' + i.benamning;
+  }
+  function kortNamn(instId) { return instId === 'BYGGNAD' ? b.namn : P.instIndex[instId].beteckning; }
+
+  function veckoChips(lista) {
+    return '<div class="vchips">' + lista.map(function (t) { return '<span class="vchip">' + t + '</span>'; }).join('') + '</div>';
+  }
+
+  // Gemensam del: rad med kryssruta + Jämför-knapp när det finns avvikelser som krockar
+  function konfliktRuta(text, versioner, kryssText) {
+    var w = document.createElement('div');
+    w.className = 'notis konflikt';
+    w.innerHTML = text;
+    var rad = document.createElement('div');
+    rad.className = 'konflikt-rad';
+    var lab = document.createElement('label');
+    var cb = document.createElement('input'); cb.type = 'checkbox';
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' ' + kryssText));
+    rad.appendChild(lab);
+    var jmf = document.createElement('button');
+    jmf.className = 'knapp sekundar liten-knapp';
+    jmf.textContent = 'Jämför åtgärdstexter';
+    jmf.addEventListener('click', function () { D.jamfor(versioner); });
+    rad.appendChild(jmf);
+    w.appendChild(rad);
+    return { nod: w, skrivOver: function () { return cb.checked; } };
+  }
+
+  // ------------------------------------------------------------------
+  // 1. Standardtext i bruttolistan
+  // ------------------------------------------------------------------
+  function sparaStandard(atgId, punkter, kalla) {
+    var a = P.atgard(atgId), s = P.state();
+    if (P.lika(punkter, P.standardText(atgId))) { return; }
+    var kopp = s.kopplingar.filter(function (k) { return k.atgard === atgId; });
+    var text = 'Ändrade standardtexten för ' + a.namn;
+    if (!kopp.length) {
+      P.andra(text, function (st) { P.sattStandard(st, atgId, punkter); }, { kalla: kalla });
+      return;
+    }
+    var ronder = kopp.map(function (k) { return P.rondNamn(k.rond); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
+    var antalRt = P.rutintillfallen().filter(function (t) { return kopp.some(function (k) { return k.rond === t.rond; }); }).length;
+    var avv = kopp.filter(function (k) { return P.kopplingAvviker(k); });
+
+    var nod = document.createElement('div');
+    nod.innerHTML = '<p><b>' + a.namn + '</b> är redan kopplad till ' + (kopp[0].inst === 'BYGGNAD' ? 'byggnaden' : kopp.length + ' installationer') +
+      ' i ronden ' + ronder.join(', ') + ' och ingår i ' + antalRt + ' rutintillfällen.</p><p>Ska alla redan kopplade åtgärder uppdateras med den nya åtgärdstexten?</p>';
+    var konflikt = null;
+    if (avv.length) {
+      var versioner = [{ rubrik: 'Ny standardtext', under: 'bruttolistan', punkter: punkter }, { rubrik: 'Nuvarande standardtext', under: 'bruttolistan', punkter: P.standardText(atgId) }];
+      avv.slice(0, 2).forEach(function (k) {
+        var t = P.textFor(k, null);
+        if (t.niva === 'installation') { versioner.push({ rubrik: 'Avvikande för ' + kortNamn(k.inst), under: 'alla rutintillfällen', punkter: t.punkter }); }
+        else { var ta = P.tillfalleAvvikelser(k)[0]; versioner.push({ rubrik: 'Avvikande för ' + kortNamn(k.inst), under: ta.namn, punkter: ta.punkter }); }
+      });
+      konflikt = konfliktRuta('<b>' + avv.length + ' av de kopplade åtgärderna har redan en avvikande åtgärdstext</b> (' + avv.map(function (k) { return kortNamn(k.inst); }).join(', ') +
+        '). De behåller sin avvikande text om du inte väljer att skriva över dem.', versioner, 'Skriv även över de avvikande åtgärdstexterna');
+      nod.appendChild(konflikt.nod);
+    }
+    D.visa({
+      titel: 'Uppdatera kopplade åtgärder?', nod: nod, bredd: 560,
+      knappar: [
+        { text: 'Ja, uppdatera', prim: true, gor: function () {
+          var over = konflikt && konflikt.skrivOver();
+          P.andra(text + (over ? ' (även avvikande)' : ''), function (st) {
+            P.sattStandard(st, atgId, punkter);
+            if (over) { P.rensaInst(st, atgId); P.rensaTillfallen(st, atgId); }
+          }, { kalla: kalla });
+        } },
+        { text: 'Avbryt' }
+      ]
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 2. Installationens åtgärdstext (gäller alla rutintillfällen där åtgärden ingår för installationen)
+  // ------------------------------------------------------------------
+  // franVecka: ändringen gjordes i ett rutintillfälle – det tillfällets egen text ersätts alltid
+  function sparaInst(k, punkter, kalla, franVecka) {
+    var a = P.atgard(k.atgard);
+    var avv = P.tillfalleAvvikelser(k).filter(function (x) { return x.vecka !== franVecka; });
+    if (P.lika(punkter, P.textFor(k, null).punkter) && !avv.length && franVecka === undefined) { return; }
+    var rt = P.rutintillfallen().filter(function (t) { return t.rond === k.rond; });
+    var nod = document.createElement('div');
+    nod.innerHTML = '<p>Du ändrar åtgärdstexten för <b>' + a.namn + '</b> på just <b>' + instNamn(k.inst) + '</b>. ' +
+      'Övriga installationer behåller standardtexten.</p><p>Installationens åtgärd ingår i ' + rt.length + ' rutintillfällen i ronden ' + P.rondNamn(k.rond) + ':</p>' +
+      veckoChips(rt.map(function (t) { return 'v' + t.vecka; }));
+    var konflikt = null;
+    if (avv.length) {
+      var versioner = [{ rubrik: 'Ny text', under: 'för ' + kortNamn(k.inst), punkter: punkter }];
+      avv.forEach(function (x) { versioner.push({ rubrik: 'Avvikande text', under: x.namn, punkter: x.punkter }); });
+      versioner.push({ rubrik: 'Standardtext', under: 'bruttolistan', punkter: P.standardText(k.atgard) });
+      konflikt = konfliktRuta('<b>' + avv.length + ' av rutintillfällena har redan en egen avvikande åtgärdstext</b> för installationen (' +
+        avv.map(function (x) { return 'v' + x.vecka; }).join(', ') + '). Vill du uppdatera även den avvikande texten?', versioner, 'Ja, uppdatera även dessa');
+      nod.appendChild(konflikt.nod);
+    }
+    D.visa({
+      titel: 'Ändra åtgärdstexten för ' + kortNamn(k.inst) + '?', nod: nod, bredd: 560,
+      knappar: [
+        { text: 'Spara', prim: true, gor: function () {
+          var over = konflikt && konflikt.skrivOver();
+          P.andra('Avvikande åtgärdstext för ' + kortNamn(k.inst) + ' (' + a.namn + ')', function (st) {
+            P.sattInst(st, k.atgard, k.inst, punkter);
+            if (over) { P.rensaTillfallen(st, k.atgard, k.inst); }
+            if (franVecka !== undefined) { delete st.tillfalleTexter[k.atgard + '|' + k.inst + '|' + k.rond + '|' + franVecka]; }
+          }, { kalla: kalla });
+        } },
+        { text: 'Avbryt' }
+      ]
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 3. Ändring i ett rutintillfälle (telefonen): bara detta eller alla rutintillfällen
+  // ------------------------------------------------------------------
+  function sparaTillfalle(k, vecka, punkter, kalla) {
+    var a = P.atgard(k.atgard);
+    var namn = P.rutintillfalleNamn(k.rond, vecka);
+    var antal = P.rutintillfallen().filter(function (t) { return t.rond === k.rond; }).length;
+    D.visa({
+      titel: 'Var ska den nya åtgärdstexten gälla?', bredd: 560,
+      html: '<p>Du har ändrat åtgärdstexten för <b>' + a.namn + '</b> på <b>' + instNamn(k.inst) + '</b>.</p>' +
+        '<p>Ska ändringen bara gälla i det här rutintillfället, eller i alla ' + antal + ' rutintillfällen där åtgärden ingår?</p>',
+      knappar: [
+        { text: 'Bara i ' + namn, prim: true, gor: function () {
+          P.andra('Avvikande åtgärdstext i ' + namn + ' (' + kortNamn(k.inst) + ')', function (st) { P.sattTillfalle(st, k, vecka, punkter); }, { kalla: kalla });
+        } },
+        { text: 'I alla ' + antal + ' rutintillfällen', gor: function (p) { sparaInst(k, punkter, p, vecka); } },
+        { text: 'Avbryt' }
+      ]
+    });
+  }
+
+  // Jämför gällande text med nivåerna ovanför
+  function jamforNivaer(k, vecka) {
+    var v = [];
+    var t = P.textFor(k, vecka);
+    if (t.niva === 'tillfalle') { v.push({ rubrik: 'Detta rutintillfälle', under: P.rutintillfalleNamn(k.rond, vecka), punkter: t.punkter }); }
+    var it = P.textFor(k, null);
+    if (it.niva === 'installation') { v.push({ rubrik: 'Installationen', under: 'alla rutintillfällen för ' + kortNamn(k.inst), punkter: it.punkter }); }
+    if (vecka === null || vecka === undefined) {
+      P.tillfalleAvvikelser(k).forEach(function (x) { v.push({ rubrik: 'Avvikande text', under: x.namn, punkter: x.punkter }); });
+    }
+    v.push({ rubrik: 'Standardtext', under: 'bruttolistan', punkter: P.standardText(k.atgard) });
+    D.jamfor(v, { bas: v.length - 1 });
+  }
+
+  DP.Texter = { sparaStandard: sparaStandard, sparaInst: sparaInst, sparaTillfalle: sparaTillfalle, jamforNivaer: jamforNivaer, kortNamn: kortNamn };
 })();
 
 </script>
@@ -3583,6 +4103,10 @@ details.atgard.irrelevant { opacity: .55; }
     k.style.setProperty('--u', u.farg);
     k.textContent = t.atgarder.length ? String(t.atgarder.length) : '';
     k.title = 'Rutintillfälle ' + t.namn + '\nUtförare: ' + u.namn + '\n' + (t.atgarder.length ? t.atgarder.length + ' åtgärder' : 'Tomt – inga åtgärder ännu');
+    if (P.rutintillfalleAvviker(t)) {
+      k.appendChild(el('span', 'avvik-symbol mark', '✎'));
+      k.title += '\n✎ Innehåller avvikande åtgärdstext';
+    }
     k.addEventListener('click', function () { DP.Telefon.oppna(t.nyckel, true); });
     return k;
   }
@@ -3719,7 +4243,9 @@ details.atgard.irrelevant { opacity: .55; }
       var h = el('div', 'tf-rubrik');
       h.appendChild(el('div', 'tf-titel', t.namn));
       var under = el('div', 'tf-under');
-      under.innerHTML = '<span class="avatar liten" style="background:' + u.farg + '">' + u.namn[0] + '</span>' + u.namn + ' · ' + lista.length + ' åtgärder';
+      var nAvv = lista.filter(function (k) { return P.textFor(k, t.vecka).niva !== 'standard'; }).length;
+      under.innerHTML = '<span class="avatar liten" style="background:' + u.farg + '">' + u.namn[0] + '</span>' + u.namn + ' · ' + lista.length + ' åtgärder' +
+        (nAvv ? ' · <span class="avvik-symbol liten">✎</span>' + nAvv + ' avvikande' : '');
       h.appendChild(under);
       skarm.appendChild(h);
       var inn = el('div', 'tf-innehall');
@@ -3731,9 +4257,10 @@ details.atgard.irrelevant { opacity: .55; }
       lista.forEach(function (k, idx) {
         var a = P.atgard(k.atgard), info = installationsInfo(k);
         var rad = el('div', 'tf-rad');
-        rad.innerHTML = '<div class="tf-a">' + a.namn + '</div><div class="tf-i">' + (info.bet ? info.bet + ' · ' : '') + info.namn + '</div><span class="tf-pil">›</span>';
+        var avviker = P.textFor(k, t.vecka).niva !== 'standard';
+        rad.innerHTML = '<div class="tf-a">' + a.namn + (avviker ? ' <span class="avvik-symbol liten" title="Avvikande åtgärdstext">✎</span>' : '') + '</div><div class="tf-i">' + (info.bet ? info.bet + ' · ' : '') + info.namn + '</div><span class="tf-pil">›</span>';
         rad.addEventListener('click', function () {
-          o.vy = 'detalj'; o.index = idx;
+          o.vy = 'detalj'; o.index = idx; o.redigerar = false;
           if (info.inst && DP.viewer) { DP.viewer.valjInstallation(info.inst, false); }
           rita();
         });
@@ -3768,12 +4295,37 @@ details.atgard.irrelevant { opacity: .55; }
     falt('Rum', info.rum);
     falt('Åtgärd', a.namn);
     inn.appendChild(el('div', 'tf-falt-rub', 'Åtgärdstext'));
-    var txt = el('div', 'tf-falt');
-    txt.appendChild(el('div', 'tf-kontrollera', 'Kontrollera:'));
-    var ul = el('ul');
-    a.kontrollpunkter.forEach(function (p) { ul.appendChild(el('li', null, p)); });
-    txt.appendChild(ul);
-    inn.appendChild(txt);
+    var gall = P.textFor(k, t.vecka);
+    if (o.redigerar) {
+      inn.appendChild(DP.Dialog.redigerare({
+        punkter: gall.punkter, kompakt: true,
+        onSpara: function (punkter, kn) {
+          o.redigerar = false;
+          if (P.lika(punkter, gall.punkter)) { rita(); return; }
+          rita();
+          DP.Texter.sparaTillfalle(k, t.vecka, punkter, DP.mitt(kn));
+        },
+        onAvbryt: function () { o.redigerar = false; rita(); }
+      }));
+    } else {
+      if (gall.niva !== 'standard') {
+        var av = el('div', 'tf-avvik');
+        av.innerHTML = '<span class="avvik-symbol">✎</span> Avvikande åtgärdstext – gäller ' + (gall.niva === 'tillfalle' ? 'bara detta rutintillfälle' : 'denna installation i alla rutintillfällen');
+        var jmf = el('button', 'tf-lank', 'Jämför');
+        jmf.addEventListener('click', function () { DP.Texter.jamforNivaer(k, t.vecka); });
+        av.appendChild(jmf);
+        inn.appendChild(av);
+      }
+      var txt = el('div', 'tf-falt');
+      txt.appendChild(el('div', 'tf-kontrollera', 'Kontrollera:'));
+      var ul = el('ul');
+      gall.punkter.forEach(function (p) { ul.appendChild(el('li', null, p)); });
+      txt.appendChild(ul);
+      inn.appendChild(txt);
+      var andra = el('button', 'tf-knapp', 'Ändra åtgärdstext');
+      andra.addEventListener('click', function () { o.redigerar = true; rita(); });
+      inn.appendChild(andra);
+    }
     if (info.inst) {
       var visa = el('button', 'tf-knapp', 'Visa installationen i modellen');
       visa.addEventListener('click', function () { DP.viewer.valjInstallation(info.inst, true); });
@@ -4161,6 +4713,9 @@ details.atgard.irrelevant { opacity: .55; }
       var ronder = kopp.map(function (x) { return P.rondNamn(x.rond); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
       status = (a.generell ? 'Kopplad till byggnaden' : kopp.length + ' av ' + tot + ' kopplade') + ' · ' + ronder.join(', ');
     } else { status = a.generell ? 'Gäller hela byggnaden' : tot + ' ' + typNamn(a, tot); }
+    var nAvv = kopp.filter(function (x) { return P.kopplingAvviker(x, s); }).length;
+    if (nAvv) { status += ' · <span class="avvik-symbol liten">✎</span>' + nAvv + ' avvikande'; }
+    if (s.standardTexter[a.id]) { status += ' · <span class="tagg">ändrad text</span>'; }
     namn.innerHTML = '<div class="atg-titel">' + (kopp.length ? '<span class="bock">✓</span>' : '') + a.namn + '</div><div class="atg-status">' + status + '</div>';
     namn.addEventListener('click', function () { ui.expanderad = ui.expanderad === a.id ? null : a.id; rita(); });
     topp.appendChild(namn);
@@ -4180,12 +4735,33 @@ details.atgard.irrelevant { opacity: .55; }
     rad.appendChild(topp);
 
     if (ui.guide && ui.guide.atgard === a.id) { rad.appendChild(guide(a, s)); }
-    else if (ui.expanderad === a.id) {
-      var txt = DP.ui.atgardstext(a.kontrollpunkter);
-      rad.appendChild(txt);
-      if (relevant && !a.generell) {
-        rad.appendChild(knapp('Visa installationerna i modellen', 'lank', function () { DP.viewer.blinka(matchande(a)); }));
+    else if (ui.redigerarText === a.id) {
+      rad.appendChild(DP.Dialog.redigerare({
+        punkter: P.standardText(a.id),
+        onSpara: function (punkter, kn) {
+          ui.redigerarText = null;
+          var kalla = DP.mitt(kn);
+          rita();
+          DP.Texter.sparaStandard(a.id, punkter, kalla);
+        },
+        onAvbryt: function () { ui.redigerarText = null; rita(); }
+      }));
+    } else if (ui.expanderad === a.id) {
+      if (s.standardTexter[a.id]) {
+        var andrad = el('div', 'avvik-info', 'Standardtexten är ändrad i den här sessionen. ');
+        andrad.appendChild(knapp('Jämför med ursprunglig', 'lank', function () {
+          DP.Dialog.jamfor([{ rubrik: 'Ursprunglig standardtext', under: 'bruttolistan', punkter: a.kontrollpunkter },
+            { rubrik: 'Ändrad standardtext', under: 'denna session', punkter: P.standardText(a.id) }]);
+        }));
+        rad.appendChild(andrad);
       }
+      rad.appendChild(DP.ui.atgardstext(P.standardText(a.id)));
+      var lankar = el('div', 'lankrad');
+      lankar.appendChild(knapp('Ändra åtgärdstext', 'lank', function () { ui.redigerarText = a.id; rita(); }));
+      if (relevant && !a.generell) {
+        lankar.appendChild(knapp('Visa installationerna i modellen', 'lank', function () { DP.viewer.blinka(matchande(a)); }));
+      }
+      rad.appendChild(lankar);
     }
     return rad;
   }
@@ -4328,6 +4904,18 @@ details.atgard.irrelevant { opacity: .55; }
     var borttagna = fore.kopplingar.filter(function (k) { return !eset[nyckel(k)]; });
 
     var kalla = info.kalla || DP.mitt(document.querySelector('.sidopanel'));
+    DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+
+    // Ändrade åtgärdstexter: samma visualisering som när åtgärder läggs till
+    var ts = P.textSkillnad(fore, efter);
+    if (ts.nycklar.length && !tillagda.length) {
+      var markorer = ts.nycklar.map(function (n) { return document.querySelector('.rt-mark[data-nyckel="' + n + '"]'); }).filter(Boolean);
+      DP.flyg(kalla, markorer.map(function (m) { var p = DP.mitt(m); p.klar = function () { DP.puls(m); }; return p; }), { text: '✎', farg: '#22b45a' });
+      var ti = ts.inst.map(function (id) { return P.instIndex[id]; }).filter(Boolean);
+      var m3 = ti.map(function (i) { return DP.viewer.skarmPos(i); }).filter(Boolean);
+      var t3 = m3.length ? DP.flyg(kalla, m3, { text: '', farg: '#22b45a', max: 30 }) : 0;
+      setTimeout(function () { DP.viewer.blinka(ti, 1600); }, Math.min(Math.max(t3, 300), 1100));
+    }
 
     if (borttagna.length) {
       DP.viewer.sattKopplade(set);

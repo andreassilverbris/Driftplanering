@@ -337,6 +337,9 @@
       var ronder = kopp.map(function (x) { return P.rondNamn(x.rond); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
       status = (a.generell ? 'Kopplad till byggnaden' : kopp.length + ' av ' + tot + ' kopplade') + ' · ' + ronder.join(', ');
     } else { status = a.generell ? 'Gäller hela byggnaden' : tot + ' ' + typNamn(a, tot); }
+    var nAvv = kopp.filter(function (x) { return P.kopplingAvviker(x, s); }).length;
+    if (nAvv) { status += ' · <span class="avvik-symbol liten">✎</span>' + nAvv + ' avvikande'; }
+    if (s.standardTexter[a.id]) { status += ' · <span class="tagg">ändrad text</span>'; }
     namn.innerHTML = '<div class="atg-titel">' + (kopp.length ? '<span class="bock">✓</span>' : '') + a.namn + '</div><div class="atg-status">' + status + '</div>';
     namn.addEventListener('click', function () { ui.expanderad = ui.expanderad === a.id ? null : a.id; rita(); });
     topp.appendChild(namn);
@@ -356,12 +359,33 @@
     rad.appendChild(topp);
 
     if (ui.guide && ui.guide.atgard === a.id) { rad.appendChild(guide(a, s)); }
-    else if (ui.expanderad === a.id) {
-      var txt = DP.ui.atgardstext(a.kontrollpunkter);
-      rad.appendChild(txt);
-      if (relevant && !a.generell) {
-        rad.appendChild(knapp('Visa installationerna i modellen', 'lank', function () { DP.viewer.blinka(matchande(a)); }));
+    else if (ui.redigerarText === a.id) {
+      rad.appendChild(DP.Dialog.redigerare({
+        punkter: P.standardText(a.id),
+        onSpara: function (punkter, kn) {
+          ui.redigerarText = null;
+          var kalla = DP.mitt(kn);
+          rita();
+          DP.Texter.sparaStandard(a.id, punkter, kalla);
+        },
+        onAvbryt: function () { ui.redigerarText = null; rita(); }
+      }));
+    } else if (ui.expanderad === a.id) {
+      if (s.standardTexter[a.id]) {
+        var andrad = el('div', 'avvik-info', 'Standardtexten är ändrad i den här sessionen. ');
+        andrad.appendChild(knapp('Jämför med ursprunglig', 'lank', function () {
+          DP.Dialog.jamfor([{ rubrik: 'Ursprunglig standardtext', under: 'bruttolistan', punkter: a.kontrollpunkter },
+            { rubrik: 'Ändrad standardtext', under: 'denna session', punkter: P.standardText(a.id) }]);
+        }));
+        rad.appendChild(andrad);
       }
+      rad.appendChild(DP.ui.atgardstext(P.standardText(a.id)));
+      var lankar = el('div', 'lankrad');
+      lankar.appendChild(knapp('Ändra åtgärdstext', 'lank', function () { ui.redigerarText = a.id; rita(); }));
+      if (relevant && !a.generell) {
+        lankar.appendChild(knapp('Visa installationerna i modellen', 'lank', function () { DP.viewer.blinka(matchande(a)); }));
+      }
+      rad.appendChild(lankar);
     }
     return rad;
   }
@@ -504,6 +528,18 @@
     var borttagna = fore.kopplingar.filter(function (k) { return !eset[nyckel(k)]; });
 
     var kalla = info.kalla || DP.mitt(document.querySelector('.sidopanel'));
+    DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+
+    // Ändrade åtgärdstexter: samma visualisering som när åtgärder läggs till
+    var ts = P.textSkillnad(fore, efter);
+    if (ts.nycklar.length && !tillagda.length) {
+      var markorer = ts.nycklar.map(function (n) { return document.querySelector('.rt-mark[data-nyckel="' + n + '"]'); }).filter(Boolean);
+      DP.flyg(kalla, markorer.map(function (m) { var p = DP.mitt(m); p.klar = function () { DP.puls(m); }; return p; }), { text: '✎', farg: '#22b45a' });
+      var ti = ts.inst.map(function (id) { return P.instIndex[id]; }).filter(Boolean);
+      var m3 = ti.map(function (i) { return DP.viewer.skarmPos(i); }).filter(Boolean);
+      var t3 = m3.length ? DP.flyg(kalla, m3, { text: '', farg: '#22b45a', max: 30 }) : 0;
+      setTimeout(function () { DP.viewer.blinka(ti, 1600); }, Math.min(Math.max(t3, 300), 1100));
+    }
 
     if (borttagna.length) {
       DP.viewer.sattKopplade(set);

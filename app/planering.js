@@ -85,7 +85,11 @@
     return {
       bas: null,          // { typ, startManad } – hur ofta byggnaden besöks
       ronder: [],         // { id, freq, foljerBas, besvarad, utforare }
-      kopplingar: []      // { atgard, inst, rond }  (inst = installations-id eller 'BYGGNAD')
+      kopplingar: [],     // { atgard, inst, rond }  (inst = installations-id eller 'BYGGNAD')
+      // Åtgärdstexter i tre nivåer. Den mest specifika vinner: rutintillfälle > installation > standard.
+      standardTexter: {}, // atgardId -> [kontrollpunkter]   (ändrad standard i bruttolistan, gäller sessionen)
+      instTexter: {},     // 'atgard|inst' -> [kontrollpunkter]
+      tillfalleTexter: {} // 'atgard|inst|rond|vecka' -> [kontrollpunkter]
     };
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
@@ -103,6 +107,7 @@
     var fore = state();
     var ny = klona(fore);
     if (fn(ny) === false) { return; }
+    rensaTexter(ny);
     historik = historik.slice(0, pos + 1);
     historik.push({ s: ny, text: text });
     pos = historik.length - 1;
@@ -163,7 +168,111 @@
     return Object.keys(set).map(Number).sort(function (a, c) { return a - c; });
   }
 
+  // ------------------------------------------------------------------
+  // Åtgärdstexter
+  // ------------------------------------------------------------------
+  function lika(a, c) { return JSON.stringify(a) === JSON.stringify(c); }
+  function instNyckel(a, i) { return a + '|' + i; }
+  function tillfNyckel(a, i, r, v) { return a + '|' + i + '|' + r + '|' + v; }
+
+  function standardText(atgId, s) {
+    s = s || state();
+    return (s.standardTexter && s.standardTexter[atgId]) || atgard(atgId).kontrollpunkter;
+  }
+  function instText(atgId, instId, s) {
+    s = s || state();
+    return s.instTexter[instNyckel(atgId, instId)] || standardText(atgId, s);
+  }
+  // Gällande text för en koppling, i ett visst rutintillfälle (vecka) eller generellt (vecka = null)
+  function textFor(k, vecka, s) {
+    s = s || state();
+    if (vecka !== null && vecka !== undefined) {
+      var t = s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, vecka)];
+      if (t) { return { punkter: t, niva: 'tillfalle' }; }
+    }
+    var it = s.instTexter[instNyckel(k.atgard, k.inst)];
+    if (it) { return { punkter: it, niva: 'installation' }; }
+    return { punkter: standardText(k.atgard, s), niva: 'standard' };
+  }
+  function rondVeckor(rondId, s) {
+    var r = s.ronder.filter(function (x) { return x.id === rondId; })[0];
+    return r && freqKomplett(r.freq) ? veckorFor(r.freq) : [];
+  }
+  // Rutintillfällen där en koppling har en egen text
+  function tillfalleAvvikelser(k, s) {
+    s = s || state();
+    return rondVeckor(k.rond, s).filter(function (v) { return !!s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)]; })
+      .map(function (v) { return { vecka: v, namn: rutintillfalleNamn(k.rond, v), punkter: s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)] }; });
+  }
+  function kopplingAvviker(k, s) {
+    s = s || state();
+    return !!s.instTexter[instNyckel(k.atgard, k.inst)] || tillfalleAvvikelser(k, s).length > 0;
+  }
+  function rutintillfalleAvviker(t, s) {
+    return t.atgarder.some(function (k) { return textFor(k, t.vecka, s).niva !== 'standard'; });
+  }
+  function avvikandeInst(s) {
+    s = s || state();
+    var set = {};
+    s.kopplingar.forEach(function (k) { if (kopplingAvviker(k, s)) { set[k.inst] = true; } });
+    return set;
+  }
+
+  // Används inuti andra(): sparar bara texter som faktiskt avviker från nivån ovanför
+  function sattStandard(st, atgId, punkter) {
+    if (lika(punkter, atgard(atgId).kontrollpunkter)) { delete st.standardTexter[atgId]; } else { st.standardTexter[atgId] = punkter; }
+  }
+  function sattInst(st, atgId, instId, punkter) {
+    var n = instNyckel(atgId, instId);
+    if (lika(punkter, standardText(atgId, st))) { delete st.instTexter[n]; } else { st.instTexter[n] = punkter; }
+  }
+  function sattTillfalle(st, k, vecka, punkter) {
+    var n = tillfNyckel(k.atgard, k.inst, k.rond, vecka);
+    if (lika(punkter, instText(k.atgard, k.inst, st))) { delete st.tillfalleTexter[n]; } else { st.tillfalleTexter[n] = punkter; }
+  }
+  function rensaTillfallen(st, atgId, instId) {
+    Object.keys(st.tillfalleTexter).forEach(function (n) {
+      var d = n.split('|');
+      if (d[0] === atgId && (instId === undefined || d[1] === instId)) { delete st.tillfalleTexter[n]; }
+    });
+  }
+  function rensaInst(st, atgId) {
+    Object.keys(st.instTexter).forEach(function (n) { if (n.split('|')[0] === atgId) { delete st.instTexter[n]; } });
+  }
+  // Avvikelser försvinner när kopplingen tas bort (annars dyker de upp igen vid ny koppling)
+  function rensaTexter(st) {
+    var finns = {}, finnsRond = {};
+    st.kopplingar.forEach(function (k) { finns[instNyckel(k.atgard, k.inst)] = true; finnsRond[k.atgard + '|' + k.inst + '|' + k.rond] = true; });
+    Object.keys(st.instTexter).forEach(function (n) { if (!finns[n]) { delete st.instTexter[n]; } });
+    Object.keys(st.tillfalleTexter).forEach(function (n) {
+      var d = n.split('|');
+      if (!finnsRond[d[0] + '|' + d[1] + '|' + d[2]] || rondVeckor(d[2], st).indexOf(Number(d[3])) < 0) { delete st.tillfalleTexter[n]; }
+    });
+  }
+
+  // Vilka rutintillfällen och installationer fick ändrad gällande text mellan två tillstånd
+  function textSkillnad(fore, efter) {
+    var nycklar = {}, inst = {};
+    var foreK = {};
+    fore.kopplingar.forEach(function (k) { foreK[k.atgard + '|' + k.inst + '|' + k.rond] = true; });
+    efter.kopplingar.forEach(function (k) {
+      if (!foreK[k.atgard + '|' + k.inst + '|' + k.rond]) { return; }
+      rondVeckor(k.rond, efter).forEach(function (v) {
+        if (rondVeckor(k.rond, fore).indexOf(v) < 0) { return; }
+        if (!lika(textFor(k, v, fore).punkter, textFor(k, v, efter).punkter)) {
+          nycklar[k.rond + ':' + v] = true;
+          inst[k.inst] = true;
+        }
+      });
+    });
+    return { nycklar: Object.keys(nycklar), inst: Object.keys(inst) };
+  }
+
   window.DP.Plan = {
+    standardText: standardText, instText: instText, textFor: textFor, tillfalleAvvikelser: tillfalleAvvikelser,
+    kopplingAvviker: kopplingAvviker, rutintillfalleAvviker: rutintillfalleAvviker, avvikandeInst: avvikandeInst,
+    sattStandard: sattStandard, sattInst: sattInst, sattTillfalle: sattTillfalle, rensaTillfallen: rensaTillfallen, rensaInst: rensaInst,
+    textSkillnad: textSkillnad, lika: lika,
     AR: AR, ANTAL_VECKOR: ANTAL_VECKOR, FREKVENSER: FREKVENSER, MANADER: MANADER, UTFORARE: UTFORARE,
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,

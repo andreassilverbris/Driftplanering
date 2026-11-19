@@ -303,7 +303,37 @@
         oppna.addEventListener('click', function () { DP.Telefon.oppna(rt[0].nyckel, true); });
         box.appendChild(oppna);
       }
-      box.appendChild(atgardstext(at.kontrollpunkter));
+      var gall = P.textFor(kp, null);
+      var avvT = P.tillfalleAvvikelser(kp);
+      var nyckel = kp.atgard + '|' + kp.inst;
+      if (redigerar === nyckel) {
+        box.appendChild(DP.Dialog.redigerare({
+          punkter: gall.punkter,
+          onSpara: function (punkter, kn) {
+            redigerar = null;
+            var kalla = DP.mitt(kn);
+            DP.ui.uppdatera();
+            DP.Texter.sparaInst(kp, punkter, kalla);
+          },
+          onAvbryt: function () { redigerar = null; DP.ui.uppdatera(); }
+        }));
+      } else {
+        if (gall.niva === 'installation' || avvT.length) {
+          var av = el('div', 'avvik-info');
+          var delar = [];
+          if (gall.niva === 'installation') { delar.push('denna installation har en egen åtgärdstext i alla rutintillfällen'); }
+          if (avvT.length) { delar.push(avvT.length + ' rutintillfälle' + (avvT.length > 1 ? 'n' : '') + ' har egen text (' + avvT.map(function (x) { return 'v' + x.vecka; }).join(', ') + ')'); }
+          av.innerHTML = '<span class="avvik-symbol">✎</span> Avvikande åtgärdstext: ' + delar.join('; ') + '.';
+          var jmf = el('button', 'lank', 'Jämför');
+          jmf.addEventListener('click', function () { DP.Texter.jamforNivaer(kp, null); });
+          av.appendChild(jmf);
+          box.appendChild(av);
+        }
+        box.appendChild(atgardstext(gall.punkter));
+        var andra = el('button', 'knapp sekundar liten-knapp', 'Ändra åtgärdstext för ' + inst.beteckning);
+        andra.addEventListener('click', function () { redigerar = nyckel; DP.ui.uppdatera(); });
+        box.appendChild(andra);
+      }
       sek.appendChild(box);
     });
     k.appendChild(sek);
@@ -315,7 +345,7 @@
       var rad = el('div', 'a-rad');
       rad.innerHTML = '<b>' + a.namn + '</b> · föreslagen rond <i>' + rondNamn(a.foreslagenRond) + '</i>';
       sek2.appendChild(rad);
-      sek2.appendChild(atgardstext(a.kontrollpunkter));
+      sek2.appendChild(atgardstext(DP.Plan.standardText(a.id)));
       k.appendChild(sek2);
     }
 
@@ -400,6 +430,9 @@
     var g = el('span', 'f-post');
     g.innerHTML = '<span class="prick" style="background:#22b45a"></span>Har kopplad åtgärd';
     f.appendChild(g);
+    var av = el('span', 'f-post');
+    av.innerHTML = '<span class="avvik-symbol liten">✎</span>&nbsp;Avvikande åtgärdstext';
+    f.appendChild(av);
   }
 
   byggTrad();
@@ -407,8 +440,9 @@
 
   // Öppet informationskort ritas om när planeringen ändras
   var visas = null;
+  var redigerar = null; // 'atgard|inst' som redigeras i informationskortet
   var gammalInst = visaInstKort, gammalRum = visaRumKort;
-  visaInstKort = function (i) { visas = { inst: i }; gammalInst(i); };
+  visaInstKort = function (i) { if (!visas || visas.inst !== i) { redigerar = null; } visas = { inst: i }; gammalInst(i); };
   visaRumKort = function (r) { visas = { rum: r }; gammalRum(r); };
   DP.ui = {
     atgardstext: atgardstext,
