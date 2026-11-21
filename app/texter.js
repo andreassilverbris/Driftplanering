@@ -7,14 +7,12 @@
   'use strict';
 
   var DP = window.DP, P = DP.Plan, D = DP.Dialog;
-  var b = DP.byggnader.hangar;
-
   function instNamn(instId) {
-    if (instId === 'BYGGNAD') { return b.namn + ' (hela byggnaden)'; }
+    if (instId === 'BYGGNAD') { return P.byggnad().namn + ' (hela byggnaden)'; }
     var i = P.instIndex[instId];
     return i.beteckning + ' ' + i.benamning;
   }
-  function kortNamn(instId) { return instId === 'BYGGNAD' ? b.namn : P.instIndex[instId].beteckning; }
+  function kortNamn(instId) { return instId === 'BYGGNAD' ? P.byggnad().namn : P.instIndex[instId].beteckning; }
 
   function veckoChips(lista) {
     return '<div class="vchips">' + lista.map(function (t) { return '<span class="vchip">' + t + '</span>'; }).join('') + '</div>';

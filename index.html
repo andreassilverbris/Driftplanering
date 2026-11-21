@@ -10,12 +10,8 @@
 <body>
   <header class="topp">
     <div class="logo">Driftplanering <span>utbildningsmodell</span></div>
-    <label class="byggval">Typbyggnad
-      <select id="byggnad">
-        <option value="hangar" selected>Hangar</option>
-        <option disabled>Skola (kommer)</option>
-        <option disabled>Bostadshus (kommer)</option>
-      </select>
+    <label class="byggval">Byggnad
+      <select id="byggnad"></select>
     </label>
     <div class="steg">
       <span class="steg-post aktiv">1 · En byggnad</span>
@@ -101,6 +97,9 @@
   <script src="vendor/three.min.js"></script>
   <script src="vendor/OrbitControls.js"></script>
   <script src="data/hangar.js"></script>
+  <script src="data/katalog.js"></script>
+  <script src="data/garage.js"></script>
+  <script src="data/kasern.js"></script>
   <script src="app/planering.js"></script>
   <script src="app/flyg.js"></script>
   <script src="app/dialog.js"></script>

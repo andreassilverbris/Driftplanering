@@ -94,44 +94,65 @@
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
 
-  var historik = [{ s: tomtTillstand(), text: 'Start' }];
+  // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
+  // planering och vilken byggnad steget gällde. Ångra växlar till den byggnaden.
+  var BYGGNADSORDNING = ['garage', 'kasern1', 'kasern2', 'hangar'].filter(function (id) { return DP.byggnader[id]; });
+  var aktiv = BYGGNADSORDNING[0];
+  function allaTomma() {
+    var a = {};
+    BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
+    return a;
+  }
+  var historik = [{ alla: allaTomma(), text: 'Start', byggnad: null }];
   var pos = 0;
-  var lyssnare = [];
+  var lyssnare = [], byteLyssnare = [];
 
-  function state() { return historik[pos].s; }
+  function state() { return historik[pos].alla[aktiv]; }
+  function stateFor(id) { return historik[pos].alla[id]; }
+  function B() { return DP.byggnader[aktiv]; }
   function meddela(fore, efter, info) {
     lyssnare.forEach(function (fn) { fn(fore, efter, info || {}); });
   }
-  // Gör en ändring som ett steg i historiken
+  // Gör en ändring i den aktiva byggnaden som ett steg i historiken
   function andra(text, fn, info) {
     var fore = state();
-    var ny = klona(fore);
+    var alla = klona(historik[pos].alla);
+    var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
     rensaTexter(ny);
     historik = historik.slice(0, pos + 1);
-    historik.push({ s: ny, text: text });
+    historik.push({ alla: alla, text: B().namn + ': ' + text, byggnad: aktiv });
     pos = historik.length - 1;
     meddela(fore, ny, info);
   }
   function ga(till, info) {
     if (till < 0 || till >= historik.length || till === pos) { return; }
+    // Vilken byggnad gäller steget? Byt dit först så att man ser vad som ändras.
+    var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
+    if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
     pos = till;
     meddela(fore, state(), info || { historik: true });
+  }
+  function vaxlaByggnad(id) {
+    if (!DP.byggnader[id] || id === aktiv) { return; }
+    aktiv = id;
+    byteLyssnare.forEach(function (fn) { fn(id); });
   }
 
   // ------------------------------------------------------------------
   // Härledda uppgifter
   // ------------------------------------------------------------------
-  var b = DP.byggnader.hangar;
-  var instIndex = {};
-  b.installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
+  var instIndex = {}; // alla byggnaders signifikanta installationer (id är unika)
+  BYGGNADSORDNING.forEach(function (id) {
+    DP.byggnader[id].installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
+  });
 
   function rondNamn(id) { return (DP.ronder.filter(function (r) { return r.id === id; })[0] || {}).namn || id; }
   function utforare(id) { return UTFORARE.filter(function (u) { return u.id === id; })[0] || UTFORARE[0]; }
   function atgard(id) { return DP.atgarder.filter(function (a) { return a.id === id; })[0]; }
 
-  function rutintillfalleNamn(rondId, v) { return b.namn + '-' + rondNamn(rondId) + '-' + veckoNamn(v); }
+  function rutintillfalleNamn(rondId, v) { return B().namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v); }
 
   // Alla rutintillfällen som planeringen genererar
   function rutintillfallen(s) {
@@ -276,7 +297,9 @@
     AR: AR, ANTAL_VECKOR: ANTAL_VECKOR, FREKVENSER: FREKVENSER, MANADER: MANADER, UTFORARE: UTFORARE,
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
-    state: state, andra: andra,
+    state: state, stateFor: stateFor, andra: andra, klona: klona,
+    byggnad: B, aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
+    vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
     gaTill: ga,

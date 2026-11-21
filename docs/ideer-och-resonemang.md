@@ -18,6 +18,10 @@ Skola och bostadshus är struken. I stället:
   på hangaren, som har hög installationstäthet. Troligen räcker två ronder (Byggnad invändigt och Byggnad
   utvändigt) och ett eller två besök per år.
 
+**Antaganden i garaget:** portarna är manuella (utan motor) och därför inte signifikanta. De kontrolleras i
+Kontroll byggnad utvändigt. Självdragsventilationen (galler) är inte heller signifikant. Den enda signifikanta
+installationen är handbrandsläckaren.
+
 ### Hur en klassisk kasern är byggd (underlag för modellen)
 
 - Lång, smal byggnad i tegel med sadeltak, tre våningar ovan mark, källare och vind.

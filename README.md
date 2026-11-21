@@ -7,14 +7,17 @@ byggnad → installationer → åtgärder → ronder → rutintillfällen.
 
 Öppna `index.html` i en webbläsare. Ingen server och ingen installation behövs, och allt ligger lokalt.
 
-- `index.html`: 3D-modell av typbyggnaden Hangar, planeringsflödet och åtgärdstexter (etapp 1–3)
+- `index.html`: 3D-modeller av Garage, Kasern 1, Kasern 2 och Hangar, planeringsflödet, åtgärdstexter, standardplanering och kopiering av planering (etapp 1–4)
 - `flerbyggnad.html`: skiss på planering för flera byggnader med provisoriska flyttar
 
 ## Struktur
 
 | Sökväg | Innehåll |
 |---|---|
-| `data/hangar.js` | Plan, rum, installationer, ronder och åtgärdskatalog (bruttolista) |
+| `data/hangar.js` | Hangaren samt grundkatalogen: installationstyper, ronder och åtgärder (bruttolista) |
+| `data/katalog.js` | Fler installationstyper och åtgärder, byggnadstyper med standardplanering, generering av ej signifikanta installationer |
+| `data/kasern.js` | Kasern 1 och Kasern 2 (samma ritning, små skillnader) |
+| `data/garage.js` | Garaget – den enklaste byggnaden |
 | `app/viewer.js` | 3D-vyn (three.js): bygger modellen, navigering, lager, val och blinkning |
 | `app/ui.js` | Byggnadsträd, verktygsfält och informationskort |
 | `app/planering.js` | Planeringens logik: tillstånd, frekvenser i veckor, rutintillfällen, historik |
@@ -27,5 +30,7 @@ byggnad → installationer → åtgärder → ronder → rutintillfällen.
 | `app/style.css`, `app/planering.css` | Stil |
 | `vendor/` | three.js r147 och OrbitControls (MIT-licens) |
 | `docs/koncept-och-beslut.md` | Begrepp, beslut, förslag och etapper |
+| `docs/ideer-och-resonemang.md` | Idéer: kopiera planering, standardplanering, import från Excel/IFC och genererad 3D-modell |
+| `verktyg/bygg-enfil.js` | Bygger den fristående filen `dist/driftplanering.html` |
 
 All data är påhittad.

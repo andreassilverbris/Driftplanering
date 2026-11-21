@@ -355,17 +355,26 @@ details.atgard.irrelevant { opacity: .55; }
 .jmf-borta { color: #b3261e; text-decoration: line-through; }
 .jmf-forklaring { font-size: 12px; color: var(--dov); margin-top: 10px; }
 
+/* ---------- Etapp 4: snabbstart, standardplanering och kopiering ---------- */
+.snabbstart { border: 1px dashed #b8cff8; background: #f6f9ff; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.ss-rubrik { font-size: 13px; }
+.ss-text { font-size: 12px; color: var(--dov); margin: 2px 0 4px; }
+.snabbstart .knapprad { margin-top: 6px; gap: 6px; }
+.dlg-lista { margin: 4px 0 8px; padding-left: 20px; line-height: 1.5; color: #2b3340; }
+.kopiera-sammanf { border: 1px solid var(--linje); border-radius: 8px; overflow: hidden; margin: 8px 0; }
+.ks-rad { padding: 7px 10px; font-size: 13px; line-height: 1.45; border-bottom: 1px solid var(--linje); }
+.ks-rad:last-child { border-bottom: 0; }
+.ks-rad.ok { background: #f3fbf6; }
+.ks-rad.varn { background: #fff8e6; }
+.byggval select { min-width: 130px; }
+
 </style>
 </head>
 <body>
   <header class="topp">
     <div class="logo">Driftplanering <span>utbildningsmodell</span></div>
-    <label class="byggval">Typbyggnad
-      <select id="byggnad">
-        <option value="hangar" selected>Hangar</option>
-        <option disabled>Skola (kommer)</option>
-        <option disabled>Bostadshus (kommer)</option>
-      </select>
+    <label class="byggval">Byggnad
+      <select id="byggnad"></select>
     </label>
     <div class="steg">
       <span class="steg-post aktiv">1 · En byggnad</span>
@@ -1968,6 +1977,9 @@ details.atgard.irrelevant { opacity: .55; }
   window.DP.byggnader.hangar = {
     id: 'hangar',
     namn: 'Hangar',
+    typ: 'hangar',
+    beskrivning: 'Komplex byggnad med hög installationstäthet: kontorsdel i tre plan och en stor hall för fordon.',
+    stil: { tak: 'platt', motX: 12, dekor: 'hangar' },
     konstanter: { PLANHOJD: PLANHOJD, BJALKLAG: BJALKLAG, FRIHOJD: FRIHOJD, HANGARHOJD: HANGARHOJD },
     yttermatt: { x0: 0, z0: 0, x1: 76, z1: 30, kontorX1: 12 },
     plan: plan,
@@ -1979,6 +1991,347 @@ details.atgard.irrelevant { opacity: .55; }
   window.DP.ejSignifikantForklaring = ejSignifikantForklaring;
   window.DP.ronder = ronder;
   window.DP.atgarder = atgarder;
+})();
+
+</script>
+  <script>
+/*
+ * Utökning av den gemensamma katalogen: fler installationstyper och åtgärder för kaserner och garage,
+ * byggnadstyper med standardplanering, och en hjälpfunktion som genererar ej signifikanta installationer.
+ * Laddas efter data/hangar.js (som innehåller grundkatalogen).
+ */
+(function () {
+  'use strict';
+  var DP = window.DP;
+
+  // ---------------- Installationstyper ----------------
+  var nyaTyper = {
+    undercentral:       { namn: 'Undercentral fjärrvärme', kategori: 'vvs',     montage: 'golv' },
+    tvattmaskin:        { namn: 'Tvättmaskin',             kategori: 'maskin',  montage: 'vagg' },
+    torkskap:           { namn: 'Torkskåp',                kategori: 'maskin',  montage: 'vagg' },
+    skyddsrumsaggregat: { namn: 'Skyddsrumsaggregat',      kategori: 'vvs',     montage: 'vagg' },
+    brandgaslucka:      { namn: 'Brandgaslucka',           kategori: 'brand',   montage: 'tak' },
+    dorrautomatik:      { namn: 'Dörrautomatik',           kategori: 'byggnad', montage: 'vagg' },
+    nodbelysning:       { namn: 'Nödbelysningsarmatur',    kategori: 'brand',   montage: 'vagg' },
+    // Ej signifikanta
+    garageport:         { namn: 'Garageport (manuell)',    kategori: 'ovrig',   montage: 'fasad' },
+    ventilationsgaller: { namn: 'Ventilationsgaller',      kategori: 'ovrig',   montage: 'vagg' }
+  };
+  Object.keys(nyaTyper).forEach(function (k) { DP.installationstyper[k] = nyaTyper[k]; });
+
+  DP.ejSignifikantForklaring.garageport = 'Manuell port utan motor. Kontrolleras i åtgärden Kontroll byggnad utvändigt.';
+  DP.ejSignifikantForklaring.ventilationsgaller = 'Självdragsventilation utan fläkt. Kontrolleras i åtgärden Kontroll byggnad invändigt.';
+
+  // ---------------- Åtgärder ----------------
+  [
+    { id: 'A045', namn: 'Kontroll brandgaslucka', galler: ['brandgaslucka'], foreslagenRond: 'BS',
+      kontrollpunkter: ['Att luckan öppnar vid provning', 'Att manöverdon och skylt finns i trapphusets nedre del', 'Att luckan stänger och tätar', 'Att inga hinder finns runt luckan'] },
+    { id: 'A052', namn: 'Kontroll dörrautomatik', galler: ['dorrautomatik'], foreslagenRond: 'BI',
+      kontrollpunkter: ['Att dörren öppnar och stänger mjukt', 'Att närvarogivare och klämskydd fungerar', 'Att nödöppning fungerar', 'Att manöverknapp är hel'] },
+    { id: 'A075', namn: 'Kontroll skyddsrum', galler: ['skyddsrumsaggregat'], foreslagenRond: 'BI',
+      kontrollpunkter: ['Att aggregatet startar vid provkörning', 'Att filter och tätningar är hela', 'Att gastäta dörrar går att stänga', 'Att utrustningsförteckning finns', 'Att skyddsrummet är fritt från otillåtet förråd'] },
+    { id: 'A092', namn: 'Kontroll torkskåp', galler: ['torkskap'], foreslagenRond: 'BI',
+      kontrollpunkter: ['Att värme och fläkt fungerar', 'Att timer fungerar', 'Att luddfilter är rent', 'Att dörren stänger tätt'] }
+  ].forEach(function (a) { DP.atgarder.push(a); });
+
+  // ---------------- Byggnadstyper och standardplanering ----------------
+  //   freq: 'bas' = samma som besöken, annars { typ, startManad }
+  DP.byggnadstyper = {
+    garage: {
+      namn: 'Garage',
+      standard: {
+        bas: { typ: 'halvar', startManad: 4 },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: 'bas', utforare: 'anna' }
+        ]
+      },
+      motivering: 'En enkel byggnad med få installationer. Två besök per år räcker. Allt görs i två ronder.'
+    },
+    kasern: {
+      namn: 'Kasern',
+      standard: {
+        bas: { typ: 'manad', startManad: null },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: { typ: 'kvartal', startManad: null }, utforare: 'anna' },
+          { id: 'BS', freq: 'bas', utforare: 'bertil' },
+          { id: 'VE', freq: { typ: 'kvartal', startManad: null }, utforare: 'cecilia' },
+          { id: 'EL', freq: { typ: 'halvar', startManad: 3 }, utforare: 'cecilia' }
+        ]
+      },
+      motivering: 'Bostadsliknande byggnad med många människor. Brandskydd och invändig kontroll varje månad, ventilation och utvändigt varje kvartal, el varje halvår.'
+    },
+    hangar: {
+      namn: 'Hangar',
+      standard: {
+        bas: { typ: 'manad', startManad: null },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: { typ: 'kvartal', startManad: null }, utforare: 'anna' },
+          { id: 'BS', freq: 'bas', utforare: 'bertil' },
+          { id: 'VE', freq: { typ: 'kvartal', startManad: null }, utforare: 'cecilia' },
+          { id: 'EL', freq: { typ: 'halvar', startManad: 2 }, utforare: 'cecilia' },
+          { id: 'HI', freq: 'bas', utforare: 'david' }
+        ]
+      },
+      motivering: 'Hög installationstäthet. Egna ronder för brandskydd, ventilation, el och hiss.'
+    }
+  };
+
+  // ---------------- Generering av ej signifikanta installationer ----------------
+  // Standardutrustning per rum: belysning, brytare, uttag och rökdetektor, plus sanitet i WC/dusch.
+  DP.genereraOvriga = function (rum, opts) {
+    opts = opts || {};
+    var lista = [];
+    function ovr(typ, nr, x, z, h) { lista.push({ typ: typ, rum: nr, x: x, z: z, h: h || 0, signifikant: false }); }
+    var cz = opts.mittZ;
+    rum.forEach(function (r) {
+      var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3];
+      var w = x1 - x0, d = z1 - z0, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+      // Belysning: ungefär en armatur per 3 m
+      var nx = Math.max(1, Math.round(w / 3)), nz = Math.max(1, Math.round(d / 3));
+      if (r.namn === 'Trapphus') {
+        ovr('lysrorsarmatur', r.nr, mx, mz, 0);
+        ovr('vaggarmatur', r.nr, x0, z0 + d * 0.5, 2.2);
+      } else {
+        for (var ix = 0; ix < nx; ix++) {
+          for (var iz = 0; iz < nz; iz++) { ovr('lysrorsarmatur', r.nr, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0); }
+        }
+      }
+      if (r.utanInstallationer) { return; }
+      // Brytare vid väggen mot korridoren (mot byggnadens mittlinje), uttag mot motsatt vägg
+      var dorrZ = (cz !== undefined && mz < cz) ? z1 : z0;
+      var andraZ = dorrZ === z1 ? z0 : z1;
+      if (r.namn.indexOf('Korridor') === 0) { dorrZ = z0; andraZ = z1; }
+      ovr('vaggbrytare', r.nr, x0 + Math.min(0.6, w / 3), dorrZ, 1.1);
+      ovr('vagguttag', r.nr, x0 + w * 0.3, andraZ, 0.3);
+      ovr('vagguttag', r.nr, x0 + w * 0.7, andraZ, 0.3);
+      if (opts.rokdetektor !== false) { ovr('rokdetektor', r.nr, mx + 0.4, mz + 0.3, 0); }
+      if (r.namn.indexOf('WC') === 0) {
+        ovr('toalettstol', r.nr, x0 + 1.0, andraZ, 0);
+        ovr('toalettstol', r.nr, x0 + 2.2, andraZ, 0);
+        ovr('handfat', r.nr, x1, mz - 0.6, 0.8);
+        ovr('handfat', r.nr, x1, mz + 0.6, 0.8);
+        ovr('dusch', r.nr, x0 + 3.4, andraZ, 0);
+        ovr('dusch', r.nr, x0 + 4.5, andraZ, 0);
+      }
+    });
+    return lista;
+  };
+})();
+
+</script>
+  <script>
+/*
+ * Typbyggnad: Garage
+ * ------------------
+ * Enkel byggnad att börja lära sig på: ett rum för två bilar, två manuella portar,
+ * självdragsventilation, lite belysning och en handbrandsläckare (den enda signifikanta installationen).
+ * Koordinater (meter): x 0–8, z 0–7 (7 = framsida med portarna).
+ */
+(function () {
+  'use strict';
+  var DP = window.DP;
+
+  var HOJD = 2.8;
+  var rum = [{ nr: '1001', namn: 'Garage', plan: '01', typ: 'forrad', rect: [0, 0, 8, 7], hojd: HOJD }];
+
+  function ovr(typ, x, z, h) { return { typ: typ, rum: '1001', x: x, z: z, h: h || 0, signifikant: false }; }
+
+  DP.byggnader.garage = {
+    id: 'garage',
+    namn: 'Garage',
+    typ: 'garage',
+    beskrivning: 'Enkel byggnad för två bilar. Bra att börja med: bara en signifikant installation.',
+    stil: { tak: 'sadel', sadel: { bas: HOJD, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N', dekor: 'garage', fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
+    konstanter: { PLANHOJD: HOJD, BJALKLAG: 0.2, FRIHOJD: HOJD },
+    plan: [{ id: '01', namn: 'Garageplan', elev: 0 }],
+    rum: rum,
+    installationer: [
+      { id: '00000301', typ: 'handbrandslackare', nr: 1, benamning: 'Handbrandsläckare 1', fabrikat: 'Presto', modell: 'P6kg', beteckning: 'HB01', externtId: null, rum: '1001', x: 0, z: 5.5, h: 0.5, signifikant: true },
+      ovr('garageport', 2.1, 7, 0), ovr('garageport', 5.9, 7, 0),
+      ovr('ventilationsgaller', 0, 1.2, 0.25), ovr('ventilationsgaller', 8, 1.2, 2.4),
+      ovr('lysrorsarmatur', 2.2, 3.5, 0), ovr('lysrorsarmatur', 5.8, 3.5, 0),
+      ovr('vaggbrytare', 0, 6.4, 1.1), ovr('vagguttag', 8, 2.5, 0.3), ovr('vagguttag', 8, 5, 0.3)
+    ]
+  };
+})();
+
+</script>
+  <script>
+/*
+ * Typbyggnad: Kasern (klassisk stil)
+ * ----------------------------------
+ * Lång tegelbyggnad med sadeltak: källare, tre våningar och vind. Mittkorridor med logement på båda
+ * sidor och två trapphus. Två kaserner skapas från samma ritning. Kasern 2 skiljer sig med flit lite
+ * (en hiss är inbyggd i efterhand och tvättstugan har en tvättmaskin mindre) så att det syns vad som
+ * behöver justeras när man kopierar planering mellan byggnaderna.
+ *
+ * Koordinater (meter): x 0–48 längs byggnaden, z 0–14 på djupet (14 = framsida med entré).
+ * Korridor z 6–8, rum på södra sidan z 0–6 och norra sidan z 8–14.
+ */
+(function () {
+  'use strict';
+  var DP = window.DP;
+
+  var PLANHOJD = 3.3, BJALKLAG = 0.2, FRIHOJD = PLANHOJD - BJALKLAG;
+
+  var plan = [
+    { id: '00', namn: 'Källarplan',  elev: -2.8 },
+    { id: '01', namn: 'Entréplan',   elev: 0 },
+    { id: '02', namn: 'Plan 2',      elev: PLANHOJD },
+    { id: '03', namn: 'Plan 3',      elev: 2 * PLANHOJD },
+    { id: '04', namn: 'Vindsplan',   elev: 3 * PLANHOJD }
+  ];
+
+  function rum(nr, namn, planId, typ, rect, extra) {
+    var r = { nr: nr, namn: namn, plan: planId, typ: typ, rect: rect };
+    if (extra) { for (var k in extra) { r[k] = extra[k]; } }
+    return r;
+  }
+
+  function byggRum() {
+    var R = [];
+    var KH = { hojd: 2.6 };
+    // Källarplan
+    R.push(rum('0001', 'Korridor', '00', 'kommunikation', [0, 6, 48, 8], KH));
+    R.push(rum('0002', 'Trapphus', '00', 'kommunikation', [8, 0, 12, 6], KH));
+    R.push(rum('0003', 'Trapphus', '00', 'kommunikation', [36, 0, 40, 6], KH));
+    R.push(rum('0004', 'Undercentral', '00', 'teknik', [0, 0, 8, 6], KH));
+    R.push(rum('0005', 'Tvättstuga', '00', 'personal', [12, 0, 20, 6], KH));
+    R.push(rum('0006', 'Torkrum', '00', 'personal', [20, 0, 24, 6], KH));
+    R.push(rum('0007', 'Förråd', '00', 'forrad', [24, 0, 36, 6], KH));
+    R.push(rum('0008', 'Förråd', '00', 'forrad', [40, 0, 48, 6], KH));
+    R.push(rum('0009', 'Elcentral', '00', 'teknik', [0, 8, 6, 14], KH));
+    R.push(rum('0010', 'Skyddsrum', '00', 'teknik', [6, 8, 20, 14], KH));
+    R.push(rum('0011', 'Förråd', '00', 'forrad', [20, 8, 34, 14], KH));
+    R.push(rum('0012', 'Cykelförråd', '00', 'forrad', [34, 8, 48, 14], KH));
+    // Entréplan
+    R.push(rum('1001', 'Entré', '01', 'kommunikation', [20, 8, 28, 14]));
+    R.push(rum('1002', 'Korridor', '01', 'kommunikation', [0, 6, 48, 8]));
+    R.push(rum('1003', 'Trapphus', '01', 'kommunikation', [8, 0, 12, 6]));
+    R.push(rum('1004', 'Trapphus', '01', 'kommunikation', [36, 0, 40, 6]));
+    R.push(rum('1005', 'Kompaniexpedition', '01', 'kontor', [0, 0, 8, 6]));
+    R.push(rum('1006', 'Dagrum', '01', 'personal', [12, 0, 24, 6]));
+    R.push(rum('1007', 'Lektionssal', '01', 'kontor', [24, 0, 36, 6]));
+    R.push(rum('1008', 'Kontor', '01', 'kontor', [40, 0, 48, 6]));
+    R.push(rum('1009', 'Vaktrum', '01', 'kontor', [0, 8, 8, 14]));
+    R.push(rum('1010', 'WC/Dusch', '01', 'personal', [8, 8, 14, 14]));
+    R.push(rum('1011', 'WC/Dusch', '01', 'personal', [14, 8, 20, 14]));
+    R.push(rum('1012', 'Städ', '01', 'teknik', [28, 8, 31, 14]));
+    R.push(rum('1013', 'Elrum', '01', 'teknik', [31, 8, 34, 14]));
+    R.push(rum('1014', 'Materielförråd', '01', 'forrad', [34, 8, 48, 14]));
+    // Logementsplan 2 och 3
+    ['02', '03'].forEach(function (p) {
+      var s = p.slice(1); // '2' / '3'
+      var n = 0;
+      function log(lnr, rect) { n++; R.push(rum(s + pad(lnr), 'Logement ' + s + ':' + n, p, 'kontor', rect)); }
+      R.push(rum(s + '001', 'Korridor', p, 'kommunikation', [0, 6, 48, 8]));
+      R.push(rum(s + '002', 'Trapphus', p, 'kommunikation', [8, 0, 12, 6]));
+      R.push(rum(s + '003', 'Trapphus', p, 'kommunikation', [36, 0, 40, 6]));
+      log(4, [0, 0, 8, 6]); log(5, [12, 0, 18, 6]); log(6, [18, 0, 24, 6]); log(7, [24, 0, 30, 6]);
+      log(8, [30, 0, 36, 6]); log(9, [40, 0, 48, 6]); log(10, [0, 8, 8, 14]);
+      R.push(rum(s + '011', 'WC/Dusch', p, 'personal', [8, 8, 14, 14]));
+      R.push(rum(s + '012', 'Torkrum', p, 'personal', [14, 8, 18, 14]));
+      log(13, [18, 8, 24, 14]); log(14, [24, 8, 30, 14]);
+      R.push(rum(s + '015', 'Städ', p, 'teknik', [30, 8, 33, 14]));
+      R.push(rum(s + '016', 'Elrum', p, 'teknik', [33, 8, 36, 14]));
+      log(17, [36, 8, 42, 14]); log(18, [42, 8, 48, 14]);
+    });
+    // Vindsplan (indragen under sadeltaket)
+    R.push(rum('4001', 'Kallvind', '04', 'forrad', [0, 3, 16, 11], { hojd: 2.4, utanInstallationer: true }));
+    R.push(rum('4002', 'Fläktrum', '04', 'teknik', [16, 3, 32, 11], { hojd: 2.4 }));
+    R.push(rum('4003', 'Kallvind', '04', 'forrad', [32, 3, 48, 11], { hojd: 2.4, utanInstallationer: true }));
+    return R;
+  }
+  function pad(n) { return ('000' + n).slice(-3); }
+
+  // ---------------- Signifikanta installationer ----------------
+  function byggInstallationer(nr) {
+    var lista = [];
+    var lopnr = nr * 100; // Kasern 1: 00000101…, Kasern 2: 00000201…
+    var ext = 800000 + nr * 10000;
+    function sig(typ, n, benamning, fabrikat, modell, bet, harExt, rumNr, x, z, h, extra) {
+      lopnr++; ext += 7;
+      var o = {
+        id: ('00000000' + lopnr).slice(-8), typ: typ, nr: n, benamning: benamning, fabrikat: fabrikat, modell: modell,
+        beteckning: bet, externtId: harExt ? 'L' + ext : null, rum: rumNr, x: x, z: z, h: h || 0, signifikant: true
+      };
+      if (extra) { for (var k in extra) { o[k] = extra[k]; } }
+      lista.push(o);
+    }
+    function nn(n) { return (n < 10 ? '0' : '') + n; }
+
+    sig('brandlarmscentral', 1, 'Brandlarmscentral 1', 'Securia', 'BC-200', 'BLC01', true, '1001', 20, 12, 1.3);
+    sig('dorrautomatik', 1, 'Dörrautomatik 1', 'Dorma', 'ED-100', 'DA01', true, '1001', 24, 14, 2.25);
+
+    // Brandposter: en per plan i korridoren
+    [['0001', 1], ['1002', 2], ['2001', 3], ['3001', 4]].forEach(function (b) {
+      sig('brandpost', b[1], 'Brandpost ' + b[1], 'Nordhydrant', 'NH-25', 'BP' + nn(b[1]), true, b[0], 16, 6, 0.9);
+    });
+
+    // Handbrandsläckare
+    var hb = 0;
+    function hbs(rumNr, x, z, modell) { hb++; sig('handbrandslackare', hb, 'Handbrandsläckare ' + hb, 'Presto', modell || 'P6kg', 'HB' + nn(hb), false, rumNr, x, z, 0.5); }
+    hbs('0001', 30, 8); hbs('0004', 7.8, 3, 'K5kg'); hbs('0009', 5.8, 11, 'K5kg'); hbs('0005', 19.8, 3);
+    ['1002', '2001', '3001'].forEach(function (k) { hbs(k, 6, 8); hbs(k, 42, 8); });
+    hbs('4002', 16.2, 7, 'K5kg');
+
+    // Nödbelysning i korridorerna
+    var nb = 0;
+    ['0001', '1002', '2001', '3001'].forEach(function (k) {
+      [12, 36].forEach(function (x) { nb++; sig('nodbelysning', nb, 'Nödbelysningsarmatur ' + nb, 'Lumen', 'NL-3h', 'NB' + nn(nb), false, k, x, 8, 2.3); });
+    });
+
+    // Brandgasluckor överst i trapphusen
+    sig('brandgaslucka', 1, 'Brandgaslucka 1', 'Brandskydd Nord', 'BGL-1010', 'BGL01', true, '3002', 10, 3, 0);
+    sig('brandgaslucka', 2, 'Brandgaslucka 2', 'Brandskydd Nord', 'BGL-1010', 'BGL02', true, '3003', 38, 3, 0);
+
+    // Värme och ventilation
+    sig('undercentral', 1, 'Undercentral 1', 'Termex', 'UC-150', 'UC01', true, '0004', 4, 1.5, 0);
+    sig('luftbehandlingsaggregat', 1, 'Luftbehandlingsaggregat 1', 'Fahoma', 'FTX0840', 'LB01', true, '4002', 24, 7, 0);
+    sig('apparatskap', 1, 'Apparatskåp 1', 'Regulia', 'RS-400', 'AS01', true, '4002', 32, 5, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] });
+    sig('skyddsrumsaggregat', 1, 'Skyddsrumsaggregat 1', 'Skyddsteknik', 'SRV-300', 'SRA01', true, '0010', 6, 11, 0);
+
+    // El
+    sig('huvudcentral', 1, 'Huvudcentral 1', 'Elektra', 'HC-250', 'HC01', true, '0009', 0, 11, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 4 }] });
+    [['1013', 1, 31], ['2016', 2, 33], ['3016', 3, 33]].forEach(function (g) {
+      sig('gruppcentral', g[1], 'Gruppcentral ' + g[1], 'Elektra', 'GC-63', 'GC' + nn(g[1]), true, g[0], g[2], 11, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] });
+    });
+    sig('jordfelsbrytare', 1, 'Jordfelsbrytare 1', 'Elektra', 'JF-25/30mA', 'JFB01', false, '0005', 16, 0, 1.5, { placering: 'Bakom tvättmaskinerna' });
+
+    // Tvätt och tork
+    sig('tvattmaskin', 1, 'Tvättmaskin 1', 'Tvättex', 'TX-8', 'TM01', true, '0005', 13.5, 0, 0);
+    if (nr === 1) { sig('tvattmaskin', 2, 'Tvättmaskin 2', 'Tvättex', 'TX-8', 'TM02', true, '0005', 14.8, 0, 0); }
+    sig('torkskap', 1, 'Torkskåp 1', 'Tvättex', 'TS-18', 'TS01', true, '0006', 22, 0, 0);
+    sig('torkskap', 2, 'Torkskåp 2', 'Tvättex', 'TS-18', 'TS02', true, '2012', 16, 14, 0);
+    sig('torkskap', 3, 'Torkskåp 3', 'Tvättex', 'TS-18', 'TS03', true, '3012', 16, 14, 0);
+
+    // Kasern 2: hiss inbyggd i trapphusöga vid renovering
+    if (nr === 2) { sig('personhiss', 1, 'Personhiss 1', 'Schindler', '3000', 'HISS01', true, '1003', 10, 3, 0); }
+    return lista;
+  }
+
+  function skapa(nr) {
+    var rumLista = byggRum();
+    return {
+      id: 'kasern' + nr,
+      namn: 'Kasern ' + nr,
+      typ: 'kasern',
+      beskrivning: nr === 1
+        ? 'Klassisk kasern i tegel från 1900-talets början: källare, tre våningar och vind. Logement längs en mittkorridor.'
+        : 'Likadan som Kasern 1, men renoverad: en hiss har byggts in i trapphuset och tvättstugan har en tvättmaskin.',
+      stil: { tak: 'sadel', sadel: { bas: 3 * PLANHOJD, hojd: 6.5 }, ytterFarg: 0xa8604a, takFarg: 0x5b4a44, fonster: { bredd: 1.2, steg: 3, hojd: 1.6, brost: 0.9 } },
+      konstanter: { PLANHOJD: PLANHOJD, BJALKLAG: BJALKLAG, FRIHOJD: FRIHOJD },
+      plan: plan,
+      rum: rumLista,
+      installationer: byggInstallationer(nr).concat(DP.genereraOvriga(rumLista, { mittZ: 7 }))
+    };
+  }
+
+  DP.byggnader.kasern1 = skapa(1);
+  DP.byggnader.kasern2 = skapa(2);
 })();
 
 </script>
@@ -2079,44 +2432,65 @@ details.atgard.irrelevant { opacity: .55; }
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
 
-  var historik = [{ s: tomtTillstand(), text: 'Start' }];
+  // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
+  // planering och vilken byggnad steget gällde. Ångra växlar till den byggnaden.
+  var BYGGNADSORDNING = ['garage', 'kasern1', 'kasern2', 'hangar'].filter(function (id) { return DP.byggnader[id]; });
+  var aktiv = BYGGNADSORDNING[0];
+  function allaTomma() {
+    var a = {};
+    BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
+    return a;
+  }
+  var historik = [{ alla: allaTomma(), text: 'Start', byggnad: null }];
   var pos = 0;
-  var lyssnare = [];
+  var lyssnare = [], byteLyssnare = [];
 
-  function state() { return historik[pos].s; }
+  function state() { return historik[pos].alla[aktiv]; }
+  function stateFor(id) { return historik[pos].alla[id]; }
+  function B() { return DP.byggnader[aktiv]; }
   function meddela(fore, efter, info) {
     lyssnare.forEach(function (fn) { fn(fore, efter, info || {}); });
   }
-  // Gör en ändring som ett steg i historiken
+  // Gör en ändring i den aktiva byggnaden som ett steg i historiken
   function andra(text, fn, info) {
     var fore = state();
-    var ny = klona(fore);
+    var alla = klona(historik[pos].alla);
+    var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
     rensaTexter(ny);
     historik = historik.slice(0, pos + 1);
-    historik.push({ s: ny, text: text });
+    historik.push({ alla: alla, text: B().namn + ': ' + text, byggnad: aktiv });
     pos = historik.length - 1;
     meddela(fore, ny, info);
   }
   function ga(till, info) {
     if (till < 0 || till >= historik.length || till === pos) { return; }
+    // Vilken byggnad gäller steget? Byt dit först så att man ser vad som ändras.
+    var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
+    if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
     pos = till;
     meddela(fore, state(), info || { historik: true });
+  }
+  function vaxlaByggnad(id) {
+    if (!DP.byggnader[id] || id === aktiv) { return; }
+    aktiv = id;
+    byteLyssnare.forEach(function (fn) { fn(id); });
   }
 
   // ------------------------------------------------------------------
   // Härledda uppgifter
   // ------------------------------------------------------------------
-  var b = DP.byggnader.hangar;
-  var instIndex = {};
-  b.installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
+  var instIndex = {}; // alla byggnaders signifikanta installationer (id är unika)
+  BYGGNADSORDNING.forEach(function (id) {
+    DP.byggnader[id].installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
+  });
 
   function rondNamn(id) { return (DP.ronder.filter(function (r) { return r.id === id; })[0] || {}).namn || id; }
   function utforare(id) { return UTFORARE.filter(function (u) { return u.id === id; })[0] || UTFORARE[0]; }
   function atgard(id) { return DP.atgarder.filter(function (a) { return a.id === id; })[0]; }
 
-  function rutintillfalleNamn(rondId, v) { return b.namn + '-' + rondNamn(rondId) + '-' + veckoNamn(v); }
+  function rutintillfalleNamn(rondId, v) { return B().namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v); }
 
   // Alla rutintillfällen som planeringen genererar
   function rutintillfallen(s) {
@@ -2261,7 +2635,9 @@ details.atgard.irrelevant { opacity: .55; }
     AR: AR, ANTAL_VECKOR: ANTAL_VECKOR, FREKVENSER: FREKVENSER, MANADER: MANADER, UTFORARE: UTFORARE,
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
-    state: state, andra: andra,
+    state: state, stateFor: stateFor, andra: andra, klona: klona,
+    byggnad: B, aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
+    vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
     gaTill: ga,
@@ -2503,32 +2879,56 @@ details.atgard.irrelevant { opacity: .55; }
 
   function Viewer(container, byggnad, callbacks) {
     this.container = container;
-    this.b = byggnad;
     this.cb = callbacks || {};
-    this.planGrupper = {};      // planId -> { grupp, ytter, inner, inst, etiketter }
+    this.lager = { ytterVaggar: true, innerVaggar: true, tak: true, etiketter: true, rontgen: false };
+    this.lage = 'oversikt';     // 'oversikt' | 'rum'
+    this.anim = null;
+
+    this._initRenderer();
+    this._initInteraktion();
+    this.sattByggnad(byggnad);
+    this._loop();
+  }
+
+  // Byt byggnad: rensa scenen och bygg den nya
+  Viewer.prototype.sattByggnad = function (byggnad) {
+    var self = this;
+    if (this.lage === 'rum') { this.lamnaRum(true); }
+    if (this.root) { this.scene.remove(this.root); }
+    if (this.markor) { this.scene.remove(this.markor); }
+    this.b = byggnad;
+    this.planGrupper = {};      // planId -> { grupp, ytter, inner, inst, etiketter, golv }
     this.rumIndex = {};
     this.planIndex = {};
     this.instObjekt = [];       // { inst, obj }
     this.objFor = new Map();    // inst -> 3D-objekt
     this.pickbara = [];
-    this.lager = { ytterVaggar: true, innerVaggar: true, tak: true, etiketter: true, rontgen: false };
     this.planSynligt = {};
-    this.lage = 'oversikt';     // 'oversikt' | 'rum'
     this.aktuelltRum = null;
     this.valdInst = null;
     this.blinkar = [];
-    this.anim = null;
-
-    var self = this;
+    this.rumMarkering = null;
     this.b.plan.forEach(function (p) { self.planIndex[p.id] = p; self.planSynligt[p.id] = true; });
     this.b.rum.forEach(function (r) { self.rumIndex[r.nr] = r; });
 
-    this._initRenderer();
+    // Byggnadens mått räknas fram från rummen
+    var M = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, topp: 0 };
+    this.b.rum.forEach(function (r) {
+      M.x0 = Math.min(M.x0, r.rect[0]); M.z0 = Math.min(M.z0, r.rect[1]);
+      M.x1 = Math.max(M.x1, r.rect[2]); M.z1 = Math.max(M.z1, r.rect[3]);
+      if (!r.iRum) { M.topp = Math.max(M.topp, self.planIndex[r.plan].elev + self._rumHojd(r)); }
+    });
+    // Ytterväggarna är de som ligger på byggnadens yttre gränser (vindsrum med indrag räknas inte)
+    this.M = M;
+    this.stil = this.b.stil || {};
+    this.centrum = new T.Vector3((M.x0 + M.x1) / 2, 0, (M.z0 + M.z1) / 2);
+    this.storlek = Math.max(M.x1 - M.x0, M.z1 - M.z0, 10);
+    this.rutnat.position.set(this.centrum.x, -0.01, this.centrum.z);
+
     this._byggScen();
-    this._initInteraktion();
+    this._uppdateraSynlighet();
     this.aterstallVy(false);
-    this._loop();
-  }
+  };
 
   // ------------------------------------------------------------------
   // Grund
@@ -2557,9 +2957,10 @@ details.atgard.irrelevant { opacity: .55; }
     mark.rotation.x = -Math.PI / 2;
     mark.position.y = -0.02;
     this.scene.add(mark);
+    this.mark = mark;
     var rutnat = new T.GridHelper(300, 60, 0xd2d7db, 0xd9dee1);
-    rutnat.position.set(38, -0.01, 15);
     this.scene.add(rutnat);
+    this.rutnat = rutnat;
 
     this.controls = new T.OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -2610,6 +3011,7 @@ details.atgard.irrelevant { opacity: .55; }
     this.root = new T.Group();
     this.scene.add(this.root);
 
+    var bjalkTj = K.BJALKLAG || 0.2;
     this.b.plan.forEach(function (p) {
       var g = { grupp: new T.Group(), ytter: new T.Group(), inner: new T.Group(), inst: new T.Group(), etiketter: new T.Group(), golv: new T.Group() };
       g.grupp.add(g.ytter, g.inner, g.inst, g.etiketter, g.golv);
@@ -2617,16 +3019,15 @@ details.atgard.irrelevant { opacity: .55; }
       self.root.add(g.grupp);
       self.planGrupper[p.id] = g;
 
-      // Bjälklag under planet (kontorsdelen)
-      var bjalk = box(self.b.yttermatt.kontorX1, K.BJALKLAG, 30, mat(0xc9ced3));
-      bjalk.position.set(self.b.yttermatt.kontorX1 / 2, p.elev - K.BJALKLAG / 2, 15);
+      // Bjälklag under planet: täcker planets rum
+      var rr = self.b.rum.filter(function (r) { return r.plan === p.id && !r.iRum; });
+      if (!rr.length) { return; }
+      var x0 = Math.min.apply(null, rr.map(function (r) { return r.rect[0]; })), x1 = Math.max.apply(null, rr.map(function (r) { return r.rect[2]; }));
+      var z0 = Math.min.apply(null, rr.map(function (r) { return r.rect[1]; })), z1 = Math.max.apply(null, rr.map(function (r) { return r.rect[3]; }));
+      var bjalk = box(x1 - x0 + VAGG_TJ, bjalkTj, z1 - z0 + VAGG_TJ, mat(0xc9ced3));
+      bjalk.position.set((x0 + x1) / 2, p.elev - bjalkTj / 2, (z0 + z1) / 2);
       g.golv.add(bjalk);
     });
-
-    // Hangarens golvplatta
-    var hp = box(64, 0.2, 30, mat(0xc9ced3));
-    hp.position.set(44, -0.1, 15);
-    this.planGrupper['01'].golv.add(hp);
 
     // Rum: golv + etiketter
     this.b.rum.forEach(function (r) { self._byggRumGolv(r); });
@@ -2634,15 +3035,31 @@ details.atgard.irrelevant { opacity: .55; }
     // Väggar per plan
     this.b.plan.forEach(function (p) { self._byggVaggar(p); });
 
-    // Tak
+    // Tak: platt eller sadeltak
     this.takGrupp = new T.Group();
-    var tak = box(76.3, 0.25, 30.3, mat(0x8d969e));
-    tak.position.set(38, K.HANGARHOJD + 0.12, 15);
-    this.takGrupp.add(tak);
+    var M = this.M, takFarg = this.stil.takFarg || 0x8d969e;
+    if (this.stil.tak === 'sadel') {
+      var s = this.stil.sadel, ut = 0.35;
+      var form = new T.Shape();
+      form.moveTo(-(M.z0 - ut), 0);
+      form.lineTo(-(M.z1 + ut), 0);
+      form.lineTo(-(M.z0 + M.z1) / 2, s.hojd);
+      form.lineTo(-(M.z0 - ut), 0);
+      var geo = new T.ExtrudeGeometry(form, { depth: M.x1 - M.x0 + 2 * ut, bevelEnabled: false });
+      var tak = new T.Mesh(geo, mat(takFarg, { side: T.DoubleSide }));
+      tak.rotation.y = Math.PI / 2;
+      tak.position.set(M.x0 - ut, s.bas, 0);
+      this.takGrupp.add(tak);
+    } else {
+      var platt = box(M.x1 - M.x0 + 0.3, 0.25, M.z1 - M.z0 + 0.3, mat(takFarg));
+      platt.position.set((M.x0 + M.x1) / 2, M.topp + 0.12, (M.z0 + M.z1) / 2);
+      this.takGrupp.add(platt);
+    }
     this.root.add(this.takGrupp);
 
-    // Hangarens inredning (golvmarkeringar och fordon – dekor)
-    this._byggHangarDekor();
+    // Dekor (fordon, markeringar) – inte installationer
+    if (this.stil.dekor === 'hangar') { this._byggHangarDekor(); }
+    if (this.stil.dekor === 'garage') { this._byggGarageDekor(); }
 
     // Installationer
     this.b.installationer.forEach(function (inst) { self._byggInstallation(inst); });
@@ -2708,7 +3125,7 @@ details.atgard.irrelevant { opacity: .55; }
   // Väggar: kanter från alla rum slås ihop per linje. Högre väggar (hangaren) tar
   // företräde så att samma vägg inte ritas två gånger.
   Viewer.prototype._byggVaggar = function (p) {
-    var self = this, M = this.b.yttermatt;
+    var self = this, M = this.M, motX = this.stil.motX;
     var linjer = {};
     this.b.rum.filter(function (r) { return r.plan === p.id; }).forEach(function (r) {
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3], h = self._rumHojd(r);
@@ -2727,7 +3144,7 @@ details.atgard.irrelevant { opacity: .55; }
     });
 
     var g = this.planGrupper[p.id];
-    var yttre = mat(0xd8d2c8), inre = mat(0xf1efea);
+    var yttre = mat(this.stil.ytterFarg || 0xd8d2c8), inre = mat(0xf1efea);
     var glas = new T.MeshLambertMaterial({ color: 0x7fa6c4, transparent: true, opacity: 0.55 });
 
     Object.keys(linjer).forEach(function (nyckel) {
@@ -2739,7 +3156,7 @@ details.atgard.irrelevant { opacity: .55; }
         intervall.forEach(function (iv) {
           dra(iv, tackt).forEach(function (bit) {
             var ytter = (L.axel === 'x' && (L.c === M.x0 || L.c === M.x1)) || (L.axel === 'z' && (L.c === M.z0 || L.c === M.z1));
-            var mot = !ytter && L.axel === 'x' && L.c === M.kontorX1 && p.id !== '01'; // kontor som vetter mot hangaren
+            var mot = motX !== undefined && !ytter && L.axel === 'x' && L.c === motX && p.elev > 0; // kontor som vetter mot hangaren
             var v = self._vagg(L.axel, L.c, bit[0], bit[1], p.elev, h, ytter ? yttre : inre);
             (ytter ? g.ytter : g.inner).add(v);
             if (ytter || mot) { self._fonster(L.axel, L.c, bit[0], bit[1], p, h, glas, ytter ? g.ytter : g.inner, ytter); }
@@ -2784,11 +3201,16 @@ details.atgard.irrelevant { opacity: .55; }
   };
 
   Viewer.prototype._fonster = function (axel, c, a0, a1, p, h, material, grupp, ytter) {
-    var M = this.b.yttermatt;
-    var arHangar = (axel === 'z' && a0 >= M.kontorX1 - 0.01) || (axel === 'x' && c === M.x1);
-    var bredd = 1.4, steg = 3, fh = 1.3, brost = 0.9;
-    if (arHangar) { bredd = 3.2; steg = 8; fh = 1.2; brost = 7.6; }
-    if (axel === 'z' && c === M.z1 && a0 >= M.kontorX1 - 0.01) { return; } // hangarens framsida: portar
+    var M = this.M, S = this.stil, F = S.fonster || {};
+    var bredd = F.bredd || 1.4, steg = F.steg || 3, fh = F.hojd || 1.3, brost = F.brost || 0.9;
+    if (S.motX !== undefined) {
+      // Hangaren: höga fönsterband i hallen, portar på framsidan
+      var arHangar = (axel === 'z' && a0 >= S.motX - 0.01) || (axel === 'x' && c === M.x1);
+      if (arHangar) { bredd = 3.2; steg = 8; fh = 1.2; brost = 7.6; }
+      if (axel === 'z' && c === M.z1 && a0 >= S.motX - 0.01) { return; }
+    }
+    if (S.portSida === 'N' && axel === 'z' && c === M.z1) { return; } // portar på framsidan
+    if (p.elev < 0) { bredd = 1.0; fh = 0.5; brost = h - 0.8; steg = Math.max(steg, 4); } // källarfönster
     var langd = a1 - a0;
     var antal = Math.floor((langd + 0.01) / steg);
     if (antal < 1) { if (langd < bredd + 0.6) { return; } antal = 1; }
@@ -2836,6 +3258,24 @@ details.atgard.irrelevant { opacity: .55; }
       });
       f.position.set(x, 0, 23.5);
       g.add(f);
+    });
+  };
+
+  Viewer.prototype._byggGarageDekor = function () {
+    var g = this.planGrupper[this.b.plan[0].id].golv, M = this.M;
+    var farger = [0x3e5c8a, 0x8a3e3e], dack = mat(0x2a2d30), glas = mat(0x2c3540);
+    [0.27, 0.73].forEach(function (andel, i) {
+      var b = new T.Group();
+      var kaross = box(1.8, 0.75, 4.4, mat(farger[i])); kaross.position.set(0, 0.6, 0); b.add(kaross);
+      var kupe = box(1.6, 0.6, 2.3, glas); kupe.position.set(0, 1.25, -0.2); b.add(kupe);
+      [-0.85, 0.85].forEach(function (dx) {
+        [-1.4, 1.4].forEach(function (dz) {
+          var d = new T.Mesh(new T.CylinderGeometry(0.33, 0.33, 0.25, 14), dack);
+          d.rotation.z = Math.PI / 2; d.position.set(dx, 0.33, dz); b.add(d);
+        });
+      });
+      b.position.set(M.x0 + (M.x1 - M.x0) * andel, 0, (M.z0 + M.z1) / 2 + 0.3);
+      g.add(b);
     });
   };
 
@@ -3003,6 +3443,43 @@ details.atgard.irrelevant { opacity: .55; }
         add(box(0.03, 1.1, 0.03, gra), 0, 1.5, 0);
         add(box(0.9, 0.02, 0.9, mat(0xcfd8dc)), 0, 0.01, 0.4);
         dj = 0.05; break;
+      // Kasern och garage
+      case 'undercentral':
+        add(box(1.6, 1.6, 0.7, m), 0, 0.8, 0);
+        [-0.5, 0, 0.5].forEach(function (dx) { add(new T.Mesh(new T.CylinderGeometry(0.06, 0.06, 1.2, 10), gra), dx, 2.2, 0); });
+        add(new T.Mesh(new T.CylinderGeometry(0.25, 0.25, 1.0, 16), m), 1.1, 0.5, 0);
+        dj = 0.7; break;
+      case 'tvattmaskin':
+        add(box(0.6, 0.85, 0.6, vit), 0, 0.425, 0);
+        add(new T.Mesh(new T.CylinderGeometry(0.2, 0.2, 0.02, 20), m), 0, 0.45, 0.31).rotation.x = Math.PI / 2;
+        add(box(0.6, 0.06, 0.02, m), 0, 0.8, 0.31);
+        dj = 0.6; break;
+      case 'torkskap':
+        add(box(0.6, 1.8, 0.6, vit), 0, 0.9, 0);
+        add(box(0.5, 0.08, 0.02, m), 0, 1.65, 0.31);
+        dj = 0.6; break;
+      case 'skyddsrumsaggregat':
+        add(box(0.9, 1.1, 0.45, m), 0, 0.55, 0);
+        add(new T.Mesh(new T.CylinderGeometry(0.12, 0.12, 0.8, 12), gra), 0, 1.5, 0);
+        dj = 0.45; break;
+      case 'brandgaslucka':
+        add(box(1.2, 0.15, 1.2, m), 0, 0.075, 0);
+        add(box(1.0, 0.02, 1.0, mat(0x9fc0d8)), 0, 0.0, 0);
+        hj = 0.15; break;
+      case 'dorrautomatik':
+        add(box(0.9, 0.15, 0.15, m), 0, 0.075, 0);
+        dj = 0.15; break;
+      case 'nodbelysning':
+        add(box(0.35, 0.14, 0.06, mat(0xffffff)), 0, 0.07, 0);
+        add(box(0.25, 0.08, 0.01, m), 0, 0.07, 0.035);
+        dj = 0.06; break;
+      case 'garageport':
+        add(box(2.5, 2.2, 0.08, m), 0, 1.1, 0);
+        for (var gi = 1; gi < 4; gi++) { add(box(2.52, 0.03, 0.09, mat(0x8c939a)), 0, gi * 0.55, 0); }
+        dj = 0.08; break;
+      case 'ventilationsgaller':
+        add(box(0.25, 0.2, 0.04, m), 0, 0.1, 0);
+        dj = 0.04; break;
       default:
         add(box(0.3, 0.3, 0.3, m), 0, 0.15, 0);
     }
@@ -3032,7 +3509,13 @@ details.atgard.irrelevant { opacity: .55; }
       g.etiketter.visible = self.lager.etiketter && self.lage === 'oversikt';
     });
     // Taket visas bara om översta planet visas
-    this.takGrupp.visible = this.lager.tak && this.planSynligt['03'] !== false;
+    var plan = this.b.plan;
+    this.takGrupp.visible = this.lager.tak && this.planSynligt[plan[plan.length - 1].id] !== false;
+    // Marken döljs när man tittar ner i källaren (inget plan ovan mark visas)
+    var kallareSynlig = plan.some(function (p) { return p.elev < 0 && self.planSynligt[p.id]; });
+    var ovanMarkSynlig = plan.some(function (p) { return p.elev >= 0 && self.planSynligt[p.id]; });
+    this.mark.visible = !(kallareSynlig && !ovanMarkSynlig);
+    this.rutnat.visible = this.mark.visible;
     this._sattRontgen(this.lager.rontgen);
   };
 
@@ -3080,7 +3563,8 @@ details.atgard.irrelevant { opacity: .55; }
   Viewer.prototype.aterstallVy = function (animera) {
     if (this.lage === 'rum') { this.lamnaRum(true); }
     this._oversiktsKontroller();
-    var pos = new T.Vector3(-14, 40, 70), mal = new T.Vector3(36, 3, 15);
+    var S = Math.max(this.storlek, 18), c = this.centrum;
+    var pos = new T.Vector3(c.x - 0.66 * S, 0.53 * S, c.z + 0.73 * S), mal = new T.Vector3(c.x - 0.03 * S, 3, c.z);
     if (animera === false) { this.camera.position.copy(pos); this.controls.target.copy(mal); }
     else { this._flyg(pos, mal, 900); }
   };
@@ -3088,7 +3572,8 @@ details.atgard.irrelevant { opacity: .55; }
   Viewer.prototype.uppifran = function () {
     if (this.lage === 'rum') { this.lamnaRum(true); }
     this._oversiktsKontroller();
-    this._flyg(new T.Vector3(38, 110, 15.5), new T.Vector3(38, 0, 15), 900);
+    var S = Math.max(this.storlek, 18), c = this.centrum;
+    this._flyg(new T.Vector3(c.x, 1.45 * S, c.z + 0.5), new T.Vector3(c.x, 0, c.z), 900);
   };
 
   Viewer.prototype._rumCentrum = function (r) {
@@ -3374,8 +3859,16 @@ details.atgard.irrelevant { opacity: .55; }
   'use strict';
 
   var DP = window.DP;
-  var b = DP.byggnader.hangar;
   var typer = DP.installationstyper;
+  var b, rumIndex, instPerRum, signifikanta;
+  function indexera() {
+    b = DP.Plan.byggnad();
+    rumIndex = {}; instPerRum = {};
+    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
+    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+  }
+  indexera();
 
   var PLURAL = {
     lysrorsarmatur: 'lysrörsarmaturer', vaggarmatur: 'väggarmaturer', vaggbrytare: 'väggbrytare',
@@ -3394,12 +3887,6 @@ details.atgard.irrelevant { opacity: .55; }
   function planNamn(id) { var p = b.plan.filter(function (x) { return x.id === id; })[0]; return p.id + ' – ' + p.namn; }
   function rumNamn(nr) { var r = rumIndex[nr]; return r.nr + ' – ' + r.namn; }
   function antalText(n, typ) { return n + ' ' + (n === 1 ? typer[typ].namn.toLowerCase() : (PLURAL[typ] || typer[typ].namn.toLowerCase())); }
-
-  var rumIndex = {};
-  b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
-  var instPerRum = {};
-  b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
-  var signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
 
   function matchandeInst(a) {
     return signifikanta.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; });
@@ -3444,13 +3931,37 @@ details.atgard.irrelevant { opacity: .55; }
   bindToggle('#t-rontgen', 'rontgen');
 
   var planKnappar = $('#planknappar');
-  b.plan.slice().reverse().forEach(function (p) {
-    var k = el('button', 'chip pa', p.id);
-    k.title = planNamn(p.id) + ' (klick: visa/dölj, dubbelklick: visa bara detta plan och planen under)';
-    k.dataset.plan = p.id;
-    k.addEventListener('click', function () { viewer.sattPlanSynligt(p.id, !viewer.planSynligt[p.id]); uppdateraPlanKnappar(); });
-    k.addEventListener('dblclick', function () { viewer._visaPlanUpptill(p.id); uppdateraPlanKnappar(); });
-    planKnappar.appendChild(k);
+  function byggPlanKnappar() {
+    planKnappar.innerHTML = '';
+    b.plan.slice().reverse().forEach(function (p) {
+      var k = el('button', 'chip pa', p.id);
+      k.title = planNamn(p.id) + ' (klick: visa/dölj, dubbelklick: visa bara detta plan och planen under)';
+      k.dataset.plan = p.id;
+      k.addEventListener('click', function () { viewer.sattPlanSynligt(p.id, !viewer.planSynligt[p.id]); uppdateraPlanKnappar(); });
+      k.addEventListener('dblclick', function () { viewer._visaPlanUpptill(p.id); uppdateraPlanKnappar(); });
+      planKnappar.appendChild(k);
+    });
+  }
+  byggPlanKnappar();
+
+  // Val av byggnad i sidhuvudet
+  var valj = $('#byggnad');
+  valj.innerHTML = '';
+  DP.Plan.byggnadsordning.forEach(function (id) {
+    var o = el('option', null, DP.byggnader[id].namn);
+    o.value = id;
+    valj.appendChild(o);
+  });
+  valj.value = DP.Plan.aktivId();
+  valj.addEventListener('change', function () { DP.Plan.vaxlaByggnad(valj.value); });
+  DP.Plan.prenumereraByte(function (id) {
+    valj.value = id;
+    indexera();
+    viewer.sattByggnad(b);
+    byggPlanKnappar();
+    byggTrad();
+    kort.hidden = true; visas = null; redigerar = null;
+    $('#tips').hidden = true;
   });
   function uppdateraPlanKnappar() {
     [].forEach.call(planKnappar.children, function (k) { k.classList.toggle('pa', !!viewer.planSynligt[k.dataset.plan]); });
@@ -3477,9 +3988,11 @@ details.atgard.irrelevant { opacity: .55; }
   // ------------------------------------------------------------------
   function byggTrad() {
     var rot = $('#trad');
+    rot.innerHTML = '';
     var sumSig = signifikanta.length, sumOvr = b.installationer.length - sumSig;
     var sum = el('div', 'sammanfattning');
     sum.innerHTML = '<b>' + b.namn + '</b> · ' + b.plan.length + ' plan · ' + b.rum.length + ' rum<br>' +
+      (b.beskrivning ? '<span class="liten-text">' + b.beskrivning + '</span><br>' : '') +
       '<span class="prick" style="background:#4a5563"></span>' + sumSig + ' signifikanta installationer ' +
       '<span class="prick ovr"></span>' + sumOvr + ' övriga';
     rot.appendChild(sum);
@@ -3836,14 +4349,12 @@ details.atgard.irrelevant { opacity: .55; }
   'use strict';
 
   var DP = window.DP, P = DP.Plan, D = DP.Dialog;
-  var b = DP.byggnader.hangar;
-
   function instNamn(instId) {
-    if (instId === 'BYGGNAD') { return b.namn + ' (hela byggnaden)'; }
+    if (instId === 'BYGGNAD') { return P.byggnad().namn + ' (hela byggnaden)'; }
     var i = P.instIndex[instId];
     return i.beteckning + ' ' + i.benamning;
   }
-  function kortNamn(instId) { return instId === 'BYGGNAD' ? b.namn : P.instIndex[instId].beteckning; }
+  function kortNamn(instId) { return instId === 'BYGGNAD' ? P.byggnad().namn : P.instIndex[instId].beteckning; }
 
   function veckoChips(lista) {
     return '<div class="vchips">' + lista.map(function (t) { return '<span class="vchip">' + t + '</span>'; }).join('') + '</div>';
@@ -4159,10 +4670,15 @@ details.atgard.irrelevant { opacity: .55; }
   var meny = document.getElementById('kontextmeny');
   var MAX = 3;
   var oppna = []; // { nyckel, vy: 'lista'|'detalj', index, scroll }
-  var b = DP.byggnader.hangar;
-  var rumIndex = {}, planIndex = {};
-  b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
-  b.plan.forEach(function (p) { planIndex[p.id] = p; });
+  var b, rumIndex, planIndex;
+  function indexera() {
+    b = P.byggnad(); rumIndex = {}; planIndex = {};
+    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    b.plan.forEach(function (p) { planIndex[p.id] = p; });
+  }
+  indexera();
+  // Byte av byggnad: stäng telefonerna
+  P.prenumereraByte(function () { indexera(); oppna = []; rita(); });
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -4383,7 +4899,12 @@ details.atgard.irrelevant { opacity: .55; }
   'use strict';
 
   var DP = window.DP, P = DP.Plan;
-  var b = DP.byggnader.hangar;
+  var b, signifikanta;
+  function indexera() {
+    b = P.byggnad();
+    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+  }
+  indexera();
   var typer = DP.installationstyper;
   var rot = document.getElementById('flode');
 
@@ -4394,7 +4915,6 @@ details.atgard.irrelevant { opacity: .55; }
     guide: null         // { atgard, val, valda, rond, samma }
   };
 
-  var signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
   function matchande(a) { return signifikanta.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; }); }
 
   function el(tag, cls, html) {
@@ -4432,6 +4952,7 @@ details.atgard.irrelevant { opacity: .55; }
     var skroll = rot.parentNode.scrollTop, listSkroll = lista ? lista.scrollTop : 0;
     var s = P.state(), k = klara(s);
     rot.innerHTML = '';
+    rot.appendChild(snabbstart(s));
 
     var steg = [
       { n: 1, titel: 'Hur ofta måste byggnaden besökas?', sammanf: s.bas ? P.freqText(s.bas, true) : '', kropp: steg1 },
@@ -4884,6 +5405,141 @@ details.atgard.irrelevant { opacity: .55; }
   }
 
   // ------------------------------------------------------------------
+  // Snabbstart: standardplanering och kopiering från annan byggnad
+  // ------------------------------------------------------------------
+  function snabbstart(s) {
+    var typ = DP.byggnadstyper[b.typ];
+    var w = el('section', 'snabbstart');
+    w.appendChild(el('div', 'ss-rubrik', 'Snabbstart för <b>' + b.namn + '</b>'));
+    w.appendChild(el('div', 'ss-text', 'Bygg planeringen själv steg för steg nedan, eller utgå från en grund och justera.'));
+    var rad = el('div', 'knapprad');
+    if (typ) {
+      rad.appendChild(knapp('Använd standardplanering för ' + typ.namn.toLowerCase(), 'knapp sekundar liten-knapp', function (kn) { standardplanering(DP.mitt(kn)); },
+        typ.motivering));
+    }
+    // Kopiering erbjuds från byggnader av samma typ som har en planering
+    var kallor = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ && P.stateFor(id).ronder.length; });
+    kallor.forEach(function (id) {
+      rad.appendChild(knapp('Kopiera från ' + DP.byggnader[id].namn, 'knapp sekundar liten-knapp', function (kn) { kopieraFran(id, DP.mitt(kn)); }));
+    });
+    w.appendChild(rad);
+    var sammaTyp = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ; });
+    if (!kallor.length && sammaTyp.length) {
+      w.appendChild(el('div', 'liten-text', 'När ' + sammaTyp.map(function (id) { return DP.byggnader[id].namn; }).join(', ') + ' har en planering kan du kopiera den hit.'));
+    }
+    return w;
+  }
+
+  function harPlanering(s) { return s.ronder.length > 0 || s.kopplingar.length > 0; }
+
+  // Standardplanering: byggnadstypens ronder och frekvenser + alla matchande åtgärder i föreslagen rond
+  function standardplanering(kalla) {
+    var typ = DP.byggnadstyper[b.typ], s = P.state();
+    var gor = function () {
+      P.andra('Standardplanering för ' + typ.namn.toLowerCase(), function (st) {
+        var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
+        st.bas = bas;
+        st.ronder = typ.standard.ronder.map(function (r) {
+          var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
+          return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
+        });
+        var finns = st.ronder.map(function (r) { return r.id; });
+        st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
+        DP.atgarder.forEach(function (a) {
+          var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
+          if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
+          matchande(a).forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
+        });
+      }, { kalla: kalla, standard: true });
+      ui.oppet = 5; ui.guide = null;
+      rita();
+    };
+    var forklaring = '<p>' + typ.motivering + '</p><p><b>Så skapas förslaget:</b></p><ul class="dlg-lista">' +
+      '<li>Ronder och frekvenser enligt standarden för ' + typ.namn.toLowerCase() + ': ' + typ.standard.ronder.map(function (r) { return P.rondNamn(r.id); }).join(', ') + '.</li>' +
+      '<li>Alla åtgärder som matchar installationer i ' + b.namn + ' kopplas, plus Kontroll byggnad invändigt och utvändigt.</li>' +
+      '<li>Varje åtgärd hamnar i sin föreslagna rond. Finns inte den ronden hamnar åtgärden i Byggnad invändigt.</li></ul>' +
+      '<p>Gå sedan igenom stegen och justera det som inte passar.</p>' +
+      (harPlanering(s) ? '<div class="notis varning">Den nuvarande planeringen för ' + b.namn + ' ersätts. Det går att ångra.</div>' : '');
+    DP.Dialog.visa({ titel: 'Standardplanering för ' + typ.namn.toLowerCase(), html: forklaring, bredd: 560,
+      knappar: [{ text: 'Skapa förslag', prim: true, gor: gor }, { text: 'Avbryt' }] });
+  }
+
+  // Kopiera planering från en annan byggnad. Installationer matchas på typ och beteckning.
+  function kopieraFran(kallId, kalla) {
+    var kb = DP.byggnader[kallId], ks = P.stateFor(kallId), s = P.state();
+    var malMap = {};
+    signifikanta.forEach(function (i) { malMap[i.typ + '|' + i.beteckning] = i.id; });
+    var idMap = { BYGGNAD: 'BYGGNAD' }, traffar = [], saknas = [];
+    ks.kopplingar.forEach(function (k) {
+      if (k.inst === 'BYGGNAD') { traffar.push({ atgard: k.atgard, inst: 'BYGGNAD', rond: k.rond }); return; }
+      var ki = P.instIndex[k.inst], mid = malMap[ki.typ + '|' + ki.beteckning];
+      if (mid) { idMap[k.inst] = mid; traffar.push({ atgard: k.atgard, inst: mid, rond: k.rond }); }
+      else { saknas.push({ inst: ki, atgard: P.atgard(k.atgard) }); }
+    });
+    var kopplade = {};
+    traffar.forEach(function (k) { kopplade[k.inst] = true; });
+    var utan = signifikanta.filter(function (i) { return !kopplade[i.id]; });
+    var nAvv = Object.keys(ks.instTexter).length + Object.keys(ks.tillfalleTexter).length;
+
+    var nod = document.createElement('div');
+    var html = '<p>All planering i <b>' + kb.namn + '</b> kopieras till <b>' + b.namn + '</b>: besöksfrekvens, ' + ks.ronder.length +
+      ' ronder med frekvens och utförare, kopplade åtgärder' + (nAvv ? ' och ' + nAvv + ' avvikande åtgärdstexter' : '') + '.</p>' +
+      '<p>Installationerna matchas på typ och beteckning (t.ex. HB01 ↔ HB01).</p>' +
+      '<div class="kopiera-sammanf">' +
+      '<div class="ks-rad ok"><b>' + traffar.length + '</b> ' + (traffar.length === 1 ? 'koppling får' : 'kopplingar får') + ' en motsvarighet</div>' +
+      '<div class="ks-rad' + (saknas.length ? ' varn' : ' ok') + '"><b>' + saknas.length + '</b> ' + (saknas.length === 1 ? 'koppling saknar' : 'kopplingar saknar') + ' motsvarighet i ' + b.namn +
+      (saknas.length ? ': ' + saknas.map(function (x) { return x.inst.beteckning + ' (' + x.atgard.namn.toLowerCase() + ')'; }).join(', ') : '') + '</div>' +
+      '<div class="ks-rad' + (utan.length ? ' varn' : ' ok') + '"><b>' + utan.length + '</b> ' + (utan.length === 1 ? 'installation' : 'installationer') + ' i ' + b.namn + ' får ingen åtgärd' +
+      (utan.length ? ': ' + utan.map(function (i) { return i.beteckning + ' ' + i.benamning; }).join(', ') : '') + '</div></div>';
+    if (kb.typ !== b.typ) { html += '<div class="notis varning">Byggnaderna är av olika typ. Kontrollera resultatet noga.</div>'; }
+    if (harPlanering(s)) { html += '<div class="notis varning">Den nuvarande planeringen för ' + b.namn + ' ersätts. Det går att ångra.</div>'; }
+    nod.innerHTML = html;
+    var urad = el('div', 'chiprad', '<span class="liten-rubrik">Utförare i ' + b.namn + ':</span>');
+    var usel = document.createElement('select'); usel.className = 'utf-val';
+    var o0 = el('option', null, 'Samma som i ' + kb.namn); o0.value = ''; usel.appendChild(o0);
+    P.UTFORARE.forEach(function (u) { var o = el('option', null, u.namn + ' för alla ronder'); o.value = u.id; usel.appendChild(o); });
+    urad.appendChild(usel);
+    nod.appendChild(urad);
+
+    DP.Dialog.visa({ titel: 'Kopiera planering från ' + kb.namn, nod: nod, bredd: 620,
+      knappar: [
+        { text: 'Kopiera', prim: true, gor: function () {
+          var nyUtf = usel.value;
+          P.andra('Kopierade planering från ' + kb.namn, function (st) {
+            st.bas = P.klona(ks.bas);
+            st.ronder = P.klona(ks.ronder).map(function (r) { if (nyUtf) { r.utforare = nyUtf; } return r; });
+            st.kopplingar = traffar.map(function (k) { return { atgard: k.atgard, inst: k.inst, rond: k.rond }; });
+            st.standardTexter = P.klona(ks.standardTexter);
+            st.instTexter = {}; st.tillfalleTexter = {};
+            Object.keys(ks.instTexter).forEach(function (n) {
+              var d = n.split('|'); if (idMap[d[1]]) { st.instTexter[d[0] + '|' + idMap[d[1]]] = P.klona(ks.instTexter[n]); }
+            });
+            Object.keys(ks.tillfalleTexter).forEach(function (n) {
+              var d = n.split('|'); if (idMap[d[1]]) { st.tillfalleTexter[[d[0], idMap[d[1]], d[2], d[3]].join('|')] = P.klona(ks.tillfalleTexter[n]); }
+            });
+          }, { kalla: kalla, kopierad: { utan: utan } });
+          ui.oppet = 5; ui.guide = null;
+          rita();
+        } },
+        { text: 'Avbryt' }
+      ] });
+  }
+
+  // Byte av byggnad: allt ritas om för den nya byggnadens planering
+  P.prenumereraByte(function () {
+    indexera();
+    ui.guide = null; ui.expanderad = null; ui.redigerarText = null; ui.annan = {};
+    var s = P.state();
+    ui.oppet = harPlanering(s) ? 5 : 1;
+    rita();
+    DP.Tidsaxel.rita();
+    var set = {};
+    s.kopplingar.forEach(function (k) { set[k.inst] = true; });
+    DP.viewer.sattKopplade(set);
+    DP.viewer.sattAvvikande(P.avvikandeInst(s));
+  });
+
+  // ------------------------------------------------------------------
   // Reaktion på varje ändring: rita om och animera skillnaden
   // ------------------------------------------------------------------
   function nyckel(k) { return k.atgard + '|' + k.inst + '|' + k.rond; }
@@ -4949,6 +5605,10 @@ details.atgard.irrelevant { opacity: .55; }
       DP.viewer.sattKopplade(set);
       DP.viewer.blinka(inst, 1600);
     }, Math.min(t3d, 1100));
+    // Efter kopiering: visa vad som saknar åtgärd (orange)
+    if (info.kopierad && info.kopierad.utan.length) {
+      setTimeout(function () { DP.viewer.blinka(info.kopierad.utan, 2200, 0xe07b26); }, Math.min(t3d, 1100) + 1700);
+    }
 
     // 3) Öppna telefonvyn för de första rutintillfällena när brickorna landat
     if (info.lagtTill) {

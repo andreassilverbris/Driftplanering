@@ -29,32 +29,56 @@
 
   function Viewer(container, byggnad, callbacks) {
     this.container = container;
-    this.b = byggnad;
     this.cb = callbacks || {};
-    this.planGrupper = {};      // planId -> { grupp, ytter, inner, inst, etiketter }
+    this.lager = { ytterVaggar: true, innerVaggar: true, tak: true, etiketter: true, rontgen: false };
+    this.lage = 'oversikt';     // 'oversikt' | 'rum'
+    this.anim = null;
+
+    this._initRenderer();
+    this._initInteraktion();
+    this.sattByggnad(byggnad);
+    this._loop();
+  }
+
+  // Byt byggnad: rensa scenen och bygg den nya
+  Viewer.prototype.sattByggnad = function (byggnad) {
+    var self = this;
+    if (this.lage === 'rum') { this.lamnaRum(true); }
+    if (this.root) { this.scene.remove(this.root); }
+    if (this.markor) { this.scene.remove(this.markor); }
+    this.b = byggnad;
+    this.planGrupper = {};      // planId -> { grupp, ytter, inner, inst, etiketter, golv }
     this.rumIndex = {};
     this.planIndex = {};
     this.instObjekt = [];       // { inst, obj }
     this.objFor = new Map();    // inst -> 3D-objekt
     this.pickbara = [];
-    this.lager = { ytterVaggar: true, innerVaggar: true, tak: true, etiketter: true, rontgen: false };
     this.planSynligt = {};
-    this.lage = 'oversikt';     // 'oversikt' | 'rum'
     this.aktuelltRum = null;
     this.valdInst = null;
     this.blinkar = [];
-    this.anim = null;
-
-    var self = this;
+    this.rumMarkering = null;
     this.b.plan.forEach(function (p) { self.planIndex[p.id] = p; self.planSynligt[p.id] = true; });
     this.b.rum.forEach(function (r) { self.rumIndex[r.nr] = r; });
 
-    this._initRenderer();
+    // Byggnadens mått räknas fram från rummen
+    var M = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, topp: 0 };
+    this.b.rum.forEach(function (r) {
+      M.x0 = Math.min(M.x0, r.rect[0]); M.z0 = Math.min(M.z0, r.rect[1]);
+      M.x1 = Math.max(M.x1, r.rect[2]); M.z1 = Math.max(M.z1, r.rect[3]);
+      if (!r.iRum) { M.topp = Math.max(M.topp, self.planIndex[r.plan].elev + self._rumHojd(r)); }
+    });
+    // Ytterväggarna är de som ligger på byggnadens yttre gränser (vindsrum med indrag räknas inte)
+    this.M = M;
+    this.stil = this.b.stil || {};
+    this.centrum = new T.Vector3((M.x0 + M.x1) / 2, 0, (M.z0 + M.z1) / 2);
+    this.storlek = Math.max(M.x1 - M.x0, M.z1 - M.z0, 10);
+    this.rutnat.position.set(this.centrum.x, -0.01, this.centrum.z);
+
     this._byggScen();
-    this._initInteraktion();
+    this._uppdateraSynlighet();
     this.aterstallVy(false);
-    this._loop();
-  }
+  };
 
   // ------------------------------------------------------------------
   // Grund
@@ -83,9 +107,10 @@
     mark.rotation.x = -Math.PI / 2;
     mark.position.y = -0.02;
     this.scene.add(mark);
+    this.mark = mark;
     var rutnat = new T.GridHelper(300, 60, 0xd2d7db, 0xd9dee1);
-    rutnat.position.set(38, -0.01, 15);
     this.scene.add(rutnat);
+    this.rutnat = rutnat;
 
     this.controls = new T.OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -136,6 +161,7 @@
     this.root = new T.Group();
     this.scene.add(this.root);
 
+    var bjalkTj = K.BJALKLAG || 0.2;
     this.b.plan.forEach(function (p) {
       var g = { grupp: new T.Group(), ytter: new T.Group(), inner: new T.Group(), inst: new T.Group(), etiketter: new T.Group(), golv: new T.Group() };
       g.grupp.add(g.ytter, g.inner, g.inst, g.etiketter, g.golv);
@@ -143,16 +169,15 @@
       self.root.add(g.grupp);
       self.planGrupper[p.id] = g;
 
-      // Bjälklag under planet (kontorsdelen)
-      var bjalk = box(self.b.yttermatt.kontorX1, K.BJALKLAG, 30, mat(0xc9ced3));
-      bjalk.position.set(self.b.yttermatt.kontorX1 / 2, p.elev - K.BJALKLAG / 2, 15);
+      // Bjälklag under planet: täcker planets rum
+      var rr = self.b.rum.filter(function (r) { return r.plan === p.id && !r.iRum; });
+      if (!rr.length) { return; }
+      var x0 = Math.min.apply(null, rr.map(function (r) { return r.rect[0]; })), x1 = Math.max.apply(null, rr.map(function (r) { return r.rect[2]; }));
+      var z0 = Math.min.apply(null, rr.map(function (r) { return r.rect[1]; })), z1 = Math.max.apply(null, rr.map(function (r) { return r.rect[3]; }));
+      var bjalk = box(x1 - x0 + VAGG_TJ, bjalkTj, z1 - z0 + VAGG_TJ, mat(0xc9ced3));
+      bjalk.position.set((x0 + x1) / 2, p.elev - bjalkTj / 2, (z0 + z1) / 2);
       g.golv.add(bjalk);
     });
-
-    // Hangarens golvplatta
-    var hp = box(64, 0.2, 30, mat(0xc9ced3));
-    hp.position.set(44, -0.1, 15);
-    this.planGrupper['01'].golv.add(hp);
 
     // Rum: golv + etiketter
     this.b.rum.forEach(function (r) { self._byggRumGolv(r); });
@@ -160,15 +185,31 @@
     // Väggar per plan
     this.b.plan.forEach(function (p) { self._byggVaggar(p); });
 
-    // Tak
+    // Tak: platt eller sadeltak
     this.takGrupp = new T.Group();
-    var tak = box(76.3, 0.25, 30.3, mat(0x8d969e));
-    tak.position.set(38, K.HANGARHOJD + 0.12, 15);
-    this.takGrupp.add(tak);
+    var M = this.M, takFarg = this.stil.takFarg || 0x8d969e;
+    if (this.stil.tak === 'sadel') {
+      var s = this.stil.sadel, ut = 0.35;
+      var form = new T.Shape();
+      form.moveTo(-(M.z0 - ut), 0);
+      form.lineTo(-(M.z1 + ut), 0);
+      form.lineTo(-(M.z0 + M.z1) / 2, s.hojd);
+      form.lineTo(-(M.z0 - ut), 0);
+      var geo = new T.ExtrudeGeometry(form, { depth: M.x1 - M.x0 + 2 * ut, bevelEnabled: false });
+      var tak = new T.Mesh(geo, mat(takFarg, { side: T.DoubleSide }));
+      tak.rotation.y = Math.PI / 2;
+      tak.position.set(M.x0 - ut, s.bas, 0);
+      this.takGrupp.add(tak);
+    } else {
+      var platt = box(M.x1 - M.x0 + 0.3, 0.25, M.z1 - M.z0 + 0.3, mat(takFarg));
+      platt.position.set((M.x0 + M.x1) / 2, M.topp + 0.12, (M.z0 + M.z1) / 2);
+      this.takGrupp.add(platt);
+    }
     this.root.add(this.takGrupp);
 
-    // Hangarens inredning (golvmarkeringar och fordon – dekor)
-    this._byggHangarDekor();
+    // Dekor (fordon, markeringar) – inte installationer
+    if (this.stil.dekor === 'hangar') { this._byggHangarDekor(); }
+    if (this.stil.dekor === 'garage') { this._byggGarageDekor(); }
 
     // Installationer
     this.b.installationer.forEach(function (inst) { self._byggInstallation(inst); });
@@ -234,7 +275,7 @@
   // Väggar: kanter från alla rum slås ihop per linje. Högre väggar (hangaren) tar
   // företräde så att samma vägg inte ritas två gånger.
   Viewer.prototype._byggVaggar = function (p) {
-    var self = this, M = this.b.yttermatt;
+    var self = this, M = this.M, motX = this.stil.motX;
     var linjer = {};
     this.b.rum.filter(function (r) { return r.plan === p.id; }).forEach(function (r) {
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3], h = self._rumHojd(r);
@@ -253,7 +294,7 @@
     });
 
     var g = this.planGrupper[p.id];
-    var yttre = mat(0xd8d2c8), inre = mat(0xf1efea);
+    var yttre = mat(this.stil.ytterFarg || 0xd8d2c8), inre = mat(0xf1efea);
     var glas = new T.MeshLambertMaterial({ color: 0x7fa6c4, transparent: true, opacity: 0.55 });
 
     Object.keys(linjer).forEach(function (nyckel) {
@@ -265,7 +306,7 @@
         intervall.forEach(function (iv) {
           dra(iv, tackt).forEach(function (bit) {
             var ytter = (L.axel === 'x' && (L.c === M.x0 || L.c === M.x1)) || (L.axel === 'z' && (L.c === M.z0 || L.c === M.z1));
-            var mot = !ytter && L.axel === 'x' && L.c === M.kontorX1 && p.id !== '01'; // kontor som vetter mot hangaren
+            var mot = motX !== undefined && !ytter && L.axel === 'x' && L.c === motX && p.elev > 0; // kontor som vetter mot hangaren
             var v = self._vagg(L.axel, L.c, bit[0], bit[1], p.elev, h, ytter ? yttre : inre);
             (ytter ? g.ytter : g.inner).add(v);
             if (ytter || mot) { self._fonster(L.axel, L.c, bit[0], bit[1], p, h, glas, ytter ? g.ytter : g.inner, ytter); }
@@ -310,11 +351,16 @@
   };
 
   Viewer.prototype._fonster = function (axel, c, a0, a1, p, h, material, grupp, ytter) {
-    var M = this.b.yttermatt;
-    var arHangar = (axel === 'z' && a0 >= M.kontorX1 - 0.01) || (axel === 'x' && c === M.x1);
-    var bredd = 1.4, steg = 3, fh = 1.3, brost = 0.9;
-    if (arHangar) { bredd = 3.2; steg = 8; fh = 1.2; brost = 7.6; }
-    if (axel === 'z' && c === M.z1 && a0 >= M.kontorX1 - 0.01) { return; } // hangarens framsida: portar
+    var M = this.M, S = this.stil, F = S.fonster || {};
+    var bredd = F.bredd || 1.4, steg = F.steg || 3, fh = F.hojd || 1.3, brost = F.brost || 0.9;
+    if (S.motX !== undefined) {
+      // Hangaren: höga fönsterband i hallen, portar på framsidan
+      var arHangar = (axel === 'z' && a0 >= S.motX - 0.01) || (axel === 'x' && c === M.x1);
+      if (arHangar) { bredd = 3.2; steg = 8; fh = 1.2; brost = 7.6; }
+      if (axel === 'z' && c === M.z1 && a0 >= S.motX - 0.01) { return; }
+    }
+    if (S.portSida === 'N' && axel === 'z' && c === M.z1) { return; } // portar på framsidan
+    if (p.elev < 0) { bredd = 1.0; fh = 0.5; brost = h - 0.8; steg = Math.max(steg, 4); } // källarfönster
     var langd = a1 - a0;
     var antal = Math.floor((langd + 0.01) / steg);
     if (antal < 1) { if (langd < bredd + 0.6) { return; } antal = 1; }
@@ -362,6 +408,24 @@
       });
       f.position.set(x, 0, 23.5);
       g.add(f);
+    });
+  };
+
+  Viewer.prototype._byggGarageDekor = function () {
+    var g = this.planGrupper[this.b.plan[0].id].golv, M = this.M;
+    var farger = [0x3e5c8a, 0x8a3e3e], dack = mat(0x2a2d30), glas = mat(0x2c3540);
+    [0.27, 0.73].forEach(function (andel, i) {
+      var b = new T.Group();
+      var kaross = box(1.8, 0.75, 4.4, mat(farger[i])); kaross.position.set(0, 0.6, 0); b.add(kaross);
+      var kupe = box(1.6, 0.6, 2.3, glas); kupe.position.set(0, 1.25, -0.2); b.add(kupe);
+      [-0.85, 0.85].forEach(function (dx) {
+        [-1.4, 1.4].forEach(function (dz) {
+          var d = new T.Mesh(new T.CylinderGeometry(0.33, 0.33, 0.25, 14), dack);
+          d.rotation.z = Math.PI / 2; d.position.set(dx, 0.33, dz); b.add(d);
+        });
+      });
+      b.position.set(M.x0 + (M.x1 - M.x0) * andel, 0, (M.z0 + M.z1) / 2 + 0.3);
+      g.add(b);
     });
   };
 
@@ -529,6 +593,43 @@
         add(box(0.03, 1.1, 0.03, gra), 0, 1.5, 0);
         add(box(0.9, 0.02, 0.9, mat(0xcfd8dc)), 0, 0.01, 0.4);
         dj = 0.05; break;
+      // Kasern och garage
+      case 'undercentral':
+        add(box(1.6, 1.6, 0.7, m), 0, 0.8, 0);
+        [-0.5, 0, 0.5].forEach(function (dx) { add(new T.Mesh(new T.CylinderGeometry(0.06, 0.06, 1.2, 10), gra), dx, 2.2, 0); });
+        add(new T.Mesh(new T.CylinderGeometry(0.25, 0.25, 1.0, 16), m), 1.1, 0.5, 0);
+        dj = 0.7; break;
+      case 'tvattmaskin':
+        add(box(0.6, 0.85, 0.6, vit), 0, 0.425, 0);
+        add(new T.Mesh(new T.CylinderGeometry(0.2, 0.2, 0.02, 20), m), 0, 0.45, 0.31).rotation.x = Math.PI / 2;
+        add(box(0.6, 0.06, 0.02, m), 0, 0.8, 0.31);
+        dj = 0.6; break;
+      case 'torkskap':
+        add(box(0.6, 1.8, 0.6, vit), 0, 0.9, 0);
+        add(box(0.5, 0.08, 0.02, m), 0, 1.65, 0.31);
+        dj = 0.6; break;
+      case 'skyddsrumsaggregat':
+        add(box(0.9, 1.1, 0.45, m), 0, 0.55, 0);
+        add(new T.Mesh(new T.CylinderGeometry(0.12, 0.12, 0.8, 12), gra), 0, 1.5, 0);
+        dj = 0.45; break;
+      case 'brandgaslucka':
+        add(box(1.2, 0.15, 1.2, m), 0, 0.075, 0);
+        add(box(1.0, 0.02, 1.0, mat(0x9fc0d8)), 0, 0.0, 0);
+        hj = 0.15; break;
+      case 'dorrautomatik':
+        add(box(0.9, 0.15, 0.15, m), 0, 0.075, 0);
+        dj = 0.15; break;
+      case 'nodbelysning':
+        add(box(0.35, 0.14, 0.06, mat(0xffffff)), 0, 0.07, 0);
+        add(box(0.25, 0.08, 0.01, m), 0, 0.07, 0.035);
+        dj = 0.06; break;
+      case 'garageport':
+        add(box(2.5, 2.2, 0.08, m), 0, 1.1, 0);
+        for (var gi = 1; gi < 4; gi++) { add(box(2.52, 0.03, 0.09, mat(0x8c939a)), 0, gi * 0.55, 0); }
+        dj = 0.08; break;
+      case 'ventilationsgaller':
+        add(box(0.25, 0.2, 0.04, m), 0, 0.1, 0);
+        dj = 0.04; break;
       default:
         add(box(0.3, 0.3, 0.3, m), 0, 0.15, 0);
     }
@@ -558,7 +659,13 @@
       g.etiketter.visible = self.lager.etiketter && self.lage === 'oversikt';
     });
     // Taket visas bara om översta planet visas
-    this.takGrupp.visible = this.lager.tak && this.planSynligt['03'] !== false;
+    var plan = this.b.plan;
+    this.takGrupp.visible = this.lager.tak && this.planSynligt[plan[plan.length - 1].id] !== false;
+    // Marken döljs när man tittar ner i källaren (inget plan ovan mark visas)
+    var kallareSynlig = plan.some(function (p) { return p.elev < 0 && self.planSynligt[p.id]; });
+    var ovanMarkSynlig = plan.some(function (p) { return p.elev >= 0 && self.planSynligt[p.id]; });
+    this.mark.visible = !(kallareSynlig && !ovanMarkSynlig);
+    this.rutnat.visible = this.mark.visible;
     this._sattRontgen(this.lager.rontgen);
   };
 
@@ -606,7 +713,8 @@
   Viewer.prototype.aterstallVy = function (animera) {
     if (this.lage === 'rum') { this.lamnaRum(true); }
     this._oversiktsKontroller();
-    var pos = new T.Vector3(-14, 40, 70), mal = new T.Vector3(36, 3, 15);
+    var S = Math.max(this.storlek, 18), c = this.centrum;
+    var pos = new T.Vector3(c.x - 0.66 * S, 0.53 * S, c.z + 0.73 * S), mal = new T.Vector3(c.x - 0.03 * S, 3, c.z);
     if (animera === false) { this.camera.position.copy(pos); this.controls.target.copy(mal); }
     else { this._flyg(pos, mal, 900); }
   };
@@ -614,7 +722,8 @@
   Viewer.prototype.uppifran = function () {
     if (this.lage === 'rum') { this.lamnaRum(true); }
     this._oversiktsKontroller();
-    this._flyg(new T.Vector3(38, 110, 15.5), new T.Vector3(38, 0, 15), 900);
+    var S = Math.max(this.storlek, 18), c = this.centrum;
+    this._flyg(new T.Vector3(c.x, 1.45 * S, c.z + 0.5), new T.Vector3(c.x, 0, c.z), 900);
   };
 
   Viewer.prototype._rumCentrum = function (r) {

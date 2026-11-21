@@ -404,6 +404,9 @@
   window.DP.byggnader.hangar = {
     id: 'hangar',
     namn: 'Hangar',
+    typ: 'hangar',
+    beskrivning: 'Komplex byggnad med hög installationstäthet: kontorsdel i tre plan och en stor hall för fordon.',
+    stil: { tak: 'platt', motX: 12, dekor: 'hangar' },
     konstanter: { PLANHOJD: PLANHOJD, BJALKLAG: BJALKLAG, FRIHOJD: FRIHOJD, HANGARHOJD: HANGARHOJD },
     yttermatt: { x0: 0, z0: 0, x1: 76, z1: 30, kontorX1: 12 },
     plan: plan,

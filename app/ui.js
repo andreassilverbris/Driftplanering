@@ -5,8 +5,16 @@
   'use strict';
 
   var DP = window.DP;
-  var b = DP.byggnader.hangar;
   var typer = DP.installationstyper;
+  var b, rumIndex, instPerRum, signifikanta;
+  function indexera() {
+    b = DP.Plan.byggnad();
+    rumIndex = {}; instPerRum = {};
+    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
+    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+  }
+  indexera();
 
   var PLURAL = {
     lysrorsarmatur: 'lysrörsarmaturer', vaggarmatur: 'väggarmaturer', vaggbrytare: 'väggbrytare',
@@ -25,12 +33,6 @@
   function planNamn(id) { var p = b.plan.filter(function (x) { return x.id === id; })[0]; return p.id + ' – ' + p.namn; }
   function rumNamn(nr) { var r = rumIndex[nr]; return r.nr + ' – ' + r.namn; }
   function antalText(n, typ) { return n + ' ' + (n === 1 ? typer[typ].namn.toLowerCase() : (PLURAL[typ] || typer[typ].namn.toLowerCase())); }
-
-  var rumIndex = {};
-  b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
-  var instPerRum = {};
-  b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
-  var signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
 
   function matchandeInst(a) {
     return signifikanta.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; });
@@ -75,13 +77,37 @@
   bindToggle('#t-rontgen', 'rontgen');
 
   var planKnappar = $('#planknappar');
-  b.plan.slice().reverse().forEach(function (p) {
-    var k = el('button', 'chip pa', p.id);
-    k.title = planNamn(p.id) + ' (klick: visa/dölj, dubbelklick: visa bara detta plan och planen under)';
-    k.dataset.plan = p.id;
-    k.addEventListener('click', function () { viewer.sattPlanSynligt(p.id, !viewer.planSynligt[p.id]); uppdateraPlanKnappar(); });
-    k.addEventListener('dblclick', function () { viewer._visaPlanUpptill(p.id); uppdateraPlanKnappar(); });
-    planKnappar.appendChild(k);
+  function byggPlanKnappar() {
+    planKnappar.innerHTML = '';
+    b.plan.slice().reverse().forEach(function (p) {
+      var k = el('button', 'chip pa', p.id);
+      k.title = planNamn(p.id) + ' (klick: visa/dölj, dubbelklick: visa bara detta plan och planen under)';
+      k.dataset.plan = p.id;
+      k.addEventListener('click', function () { viewer.sattPlanSynligt(p.id, !viewer.planSynligt[p.id]); uppdateraPlanKnappar(); });
+      k.addEventListener('dblclick', function () { viewer._visaPlanUpptill(p.id); uppdateraPlanKnappar(); });
+      planKnappar.appendChild(k);
+    });
+  }
+  byggPlanKnappar();
+
+  // Val av byggnad i sidhuvudet
+  var valj = $('#byggnad');
+  valj.innerHTML = '';
+  DP.Plan.byggnadsordning.forEach(function (id) {
+    var o = el('option', null, DP.byggnader[id].namn);
+    o.value = id;
+    valj.appendChild(o);
+  });
+  valj.value = DP.Plan.aktivId();
+  valj.addEventListener('change', function () { DP.Plan.vaxlaByggnad(valj.value); });
+  DP.Plan.prenumereraByte(function (id) {
+    valj.value = id;
+    indexera();
+    viewer.sattByggnad(b);
+    byggPlanKnappar();
+    byggTrad();
+    kort.hidden = true; visas = null; redigerar = null;
+    $('#tips').hidden = true;
   });
   function uppdateraPlanKnappar() {
     [].forEach.call(planKnappar.children, function (k) { k.classList.toggle('pa', !!viewer.planSynligt[k.dataset.plan]); });
@@ -108,9 +134,11 @@
   // ------------------------------------------------------------------
   function byggTrad() {
     var rot = $('#trad');
+    rot.innerHTML = '';
     var sumSig = signifikanta.length, sumOvr = b.installationer.length - sumSig;
     var sum = el('div', 'sammanfattning');
     sum.innerHTML = '<b>' + b.namn + '</b> · ' + b.plan.length + ' plan · ' + b.rum.length + ' rum<br>' +
+      (b.beskrivning ? '<span class="liten-text">' + b.beskrivning + '</span><br>' : '') +
       '<span class="prick" style="background:#4a5563"></span>' + sumSig + ' signifikanta installationer ' +
       '<span class="prick ovr"></span>' + sumOvr + ' övriga';
     rot.appendChild(sum);

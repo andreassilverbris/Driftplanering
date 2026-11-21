@@ -94,7 +94,11 @@ och byggs så att man senare kan välja version.
 1. **Byggnaden** *(första utkast klart)*: data för hangaren, 3D-vy, lager, plan, gå in i rum, klick på signifikanta installationer, bruttolista med åtgärdstexter, grön blinkning genom väggar.
 2. **Planeringsflödet** *(första utkast klart)*: fem steg (besöksfrekvens → ronder → frekvens per rond → utförare → koppla åtgärder), tidsaxel för 2027, Lägg till/Ta bort med guide (alla/vissa, rond, samma tillfälle), animering till tidsaxel och modell, telefonvyer med lista och detalj, högerklick för att tömma, gröna installationer, ångra/gör om för allt.
 3. **Åtgärdstexter** *(första utkast klart)*: redigering i tre nivåer (bruttolistan, informationskortet i modellen, telefonens detaljvy), symbolen ✎ för avvikelser i modell, tidsaxel, telefon och bruttolista, konfliktfrågor med kryssruta för att skriva över, jämförelse sida vid sida (förberedd för att välja version via `onValj`), animering som vid Lägg till, ångra/gör om.
-4. **Fler typbyggnader:** skola och bostadshus.
+4. **Fler typbyggnader** *(första utkast klart)*: skola och bostadshus ströks. I stället finns **Garage**
+   (enklaste byggnaden, startbyggnad), **Kasern 1 och 2** (klassisk stil, nästan likadana) och **Hangar**.
+   Varje byggnad har sin egen planering, och historiken är gemensam (ångra byter till rätt byggnad).
+   Nytt: **standardplanering per byggnadstyp** och **kopiera planering** mellan byggnader av samma typ.
+   Se `ideer-och-resonemang.md`.
 5. **Flera byggnader:** belastning per utförare, provisoriska flyttar, stryka tillfällen *(skiss finns i `flerbyggnad.html`)*.
 6. **(Senare)** adapterlager mot riktigt API.
 

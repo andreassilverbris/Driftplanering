@@ -10,10 +10,15 @@
   var meny = document.getElementById('kontextmeny');
   var MAX = 3;
   var oppna = []; // { nyckel, vy: 'lista'|'detalj', index, scroll }
-  var b = DP.byggnader.hangar;
-  var rumIndex = {}, planIndex = {};
-  b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
-  b.plan.forEach(function (p) { planIndex[p.id] = p; });
+  var b, rumIndex, planIndex;
+  function indexera() {
+    b = P.byggnad(); rumIndex = {}; planIndex = {};
+    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    b.plan.forEach(function (p) { planIndex[p.id] = p; });
+  }
+  indexera();
+  // Byte av byggnad: stäng telefonerna
+  P.prenumereraByte(function () { indexera(); oppna = []; rita(); });
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);

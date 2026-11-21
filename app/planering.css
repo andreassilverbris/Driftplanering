@@ -201,3 +201,16 @@
 .jmf-ny { background: #e3f4e8; color: #1d6b3a; border-radius: 3px; padding: 0 3px; }
 .jmf-borta { color: #b3261e; text-decoration: line-through; }
 .jmf-forklaring { font-size: 12px; color: var(--dov); margin-top: 10px; }
+
+/* ---------- Etapp 4: snabbstart, standardplanering och kopiering ---------- */
+.snabbstart { border: 1px dashed #b8cff8; background: #f6f9ff; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.ss-rubrik { font-size: 13px; }
+.ss-text { font-size: 12px; color: var(--dov); margin: 2px 0 4px; }
+.snabbstart .knapprad { margin-top: 6px; gap: 6px; }
+.dlg-lista { margin: 4px 0 8px; padding-left: 20px; line-height: 1.5; color: #2b3340; }
+.kopiera-sammanf { border: 1px solid var(--linje); border-radius: 8px; overflow: hidden; margin: 8px 0; }
+.ks-rad { padding: 7px 10px; font-size: 13px; line-height: 1.45; border-bottom: 1px solid var(--linje); }
+.ks-rad:last-child { border-bottom: 0; }
+.ks-rad.ok { background: #f3fbf6; }
+.ks-rad.varn { background: #fff8e6; }
+.byggval select { min-width: 130px; }

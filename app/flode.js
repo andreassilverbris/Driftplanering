@@ -7,7 +7,12 @@
   'use strict';
 
   var DP = window.DP, P = DP.Plan;
-  var b = DP.byggnader.hangar;
+  var b, signifikanta;
+  function indexera() {
+    b = P.byggnad();
+    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+  }
+  indexera();
   var typer = DP.installationstyper;
   var rot = document.getElementById('flode');
 
@@ -18,7 +23,6 @@
     guide: null         // { atgard, val, valda, rond, samma }
   };
 
-  var signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
   function matchande(a) { return signifikanta.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; }); }
 
   function el(tag, cls, html) {
@@ -56,6 +60,7 @@
     var skroll = rot.parentNode.scrollTop, listSkroll = lista ? lista.scrollTop : 0;
     var s = P.state(), k = klara(s);
     rot.innerHTML = '';
+    rot.appendChild(snabbstart(s));
 
     var steg = [
       { n: 1, titel: 'Hur ofta måste byggnaden besökas?', sammanf: s.bas ? P.freqText(s.bas, true) : '', kropp: steg1 },
@@ -508,6 +513,141 @@
   }
 
   // ------------------------------------------------------------------
+  // Snabbstart: standardplanering och kopiering från annan byggnad
+  // ------------------------------------------------------------------
+  function snabbstart(s) {
+    var typ = DP.byggnadstyper[b.typ];
+    var w = el('section', 'snabbstart');
+    w.appendChild(el('div', 'ss-rubrik', 'Snabbstart för <b>' + b.namn + '</b>'));
+    w.appendChild(el('div', 'ss-text', 'Bygg planeringen själv steg för steg nedan, eller utgå från en grund och justera.'));
+    var rad = el('div', 'knapprad');
+    if (typ) {
+      rad.appendChild(knapp('Använd standardplanering för ' + typ.namn.toLowerCase(), 'knapp sekundar liten-knapp', function (kn) { standardplanering(DP.mitt(kn)); },
+        typ.motivering));
+    }
+    // Kopiering erbjuds från byggnader av samma typ som har en planering
+    var kallor = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ && P.stateFor(id).ronder.length; });
+    kallor.forEach(function (id) {
+      rad.appendChild(knapp('Kopiera från ' + DP.byggnader[id].namn, 'knapp sekundar liten-knapp', function (kn) { kopieraFran(id, DP.mitt(kn)); }));
+    });
+    w.appendChild(rad);
+    var sammaTyp = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ; });
+    if (!kallor.length && sammaTyp.length) {
+      w.appendChild(el('div', 'liten-text', 'När ' + sammaTyp.map(function (id) { return DP.byggnader[id].namn; }).join(', ') + ' har en planering kan du kopiera den hit.'));
+    }
+    return w;
+  }
+
+  function harPlanering(s) { return s.ronder.length > 0 || s.kopplingar.length > 0; }
+
+  // Standardplanering: byggnadstypens ronder och frekvenser + alla matchande åtgärder i föreslagen rond
+  function standardplanering(kalla) {
+    var typ = DP.byggnadstyper[b.typ], s = P.state();
+    var gor = function () {
+      P.andra('Standardplanering för ' + typ.namn.toLowerCase(), function (st) {
+        var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
+        st.bas = bas;
+        st.ronder = typ.standard.ronder.map(function (r) {
+          var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
+          return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
+        });
+        var finns = st.ronder.map(function (r) { return r.id; });
+        st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
+        DP.atgarder.forEach(function (a) {
+          var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
+          if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
+          matchande(a).forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
+        });
+      }, { kalla: kalla, standard: true });
+      ui.oppet = 5; ui.guide = null;
+      rita();
+    };
+    var forklaring = '<p>' + typ.motivering + '</p><p><b>Så skapas förslaget:</b></p><ul class="dlg-lista">' +
+      '<li>Ronder och frekvenser enligt standarden för ' + typ.namn.toLowerCase() + ': ' + typ.standard.ronder.map(function (r) { return P.rondNamn(r.id); }).join(', ') + '.</li>' +
+      '<li>Alla åtgärder som matchar installationer i ' + b.namn + ' kopplas, plus Kontroll byggnad invändigt och utvändigt.</li>' +
+      '<li>Varje åtgärd hamnar i sin föreslagna rond. Finns inte den ronden hamnar åtgärden i Byggnad invändigt.</li></ul>' +
+      '<p>Gå sedan igenom stegen och justera det som inte passar.</p>' +
+      (harPlanering(s) ? '<div class="notis varning">Den nuvarande planeringen för ' + b.namn + ' ersätts. Det går att ångra.</div>' : '');
+    DP.Dialog.visa({ titel: 'Standardplanering för ' + typ.namn.toLowerCase(), html: forklaring, bredd: 560,
+      knappar: [{ text: 'Skapa förslag', prim: true, gor: gor }, { text: 'Avbryt' }] });
+  }
+
+  // Kopiera planering från en annan byggnad. Installationer matchas på typ och beteckning.
+  function kopieraFran(kallId, kalla) {
+    var kb = DP.byggnader[kallId], ks = P.stateFor(kallId), s = P.state();
+    var malMap = {};
+    signifikanta.forEach(function (i) { malMap[i.typ + '|' + i.beteckning] = i.id; });
+    var idMap = { BYGGNAD: 'BYGGNAD' }, traffar = [], saknas = [];
+    ks.kopplingar.forEach(function (k) {
+      if (k.inst === 'BYGGNAD') { traffar.push({ atgard: k.atgard, inst: 'BYGGNAD', rond: k.rond }); return; }
+      var ki = P.instIndex[k.inst], mid = malMap[ki.typ + '|' + ki.beteckning];
+      if (mid) { idMap[k.inst] = mid; traffar.push({ atgard: k.atgard, inst: mid, rond: k.rond }); }
+      else { saknas.push({ inst: ki, atgard: P.atgard(k.atgard) }); }
+    });
+    var kopplade = {};
+    traffar.forEach(function (k) { kopplade[k.inst] = true; });
+    var utan = signifikanta.filter(function (i) { return !kopplade[i.id]; });
+    var nAvv = Object.keys(ks.instTexter).length + Object.keys(ks.tillfalleTexter).length;
+
+    var nod = document.createElement('div');
+    var html = '<p>All planering i <b>' + kb.namn + '</b> kopieras till <b>' + b.namn + '</b>: besöksfrekvens, ' + ks.ronder.length +
+      ' ronder med frekvens och utförare, kopplade åtgärder' + (nAvv ? ' och ' + nAvv + ' avvikande åtgärdstexter' : '') + '.</p>' +
+      '<p>Installationerna matchas på typ och beteckning (t.ex. HB01 ↔ HB01).</p>' +
+      '<div class="kopiera-sammanf">' +
+      '<div class="ks-rad ok"><b>' + traffar.length + '</b> ' + (traffar.length === 1 ? 'koppling får' : 'kopplingar får') + ' en motsvarighet</div>' +
+      '<div class="ks-rad' + (saknas.length ? ' varn' : ' ok') + '"><b>' + saknas.length + '</b> ' + (saknas.length === 1 ? 'koppling saknar' : 'kopplingar saknar') + ' motsvarighet i ' + b.namn +
+      (saknas.length ? ': ' + saknas.map(function (x) { return x.inst.beteckning + ' (' + x.atgard.namn.toLowerCase() + ')'; }).join(', ') : '') + '</div>' +
+      '<div class="ks-rad' + (utan.length ? ' varn' : ' ok') + '"><b>' + utan.length + '</b> ' + (utan.length === 1 ? 'installation' : 'installationer') + ' i ' + b.namn + ' får ingen åtgärd' +
+      (utan.length ? ': ' + utan.map(function (i) { return i.beteckning + ' ' + i.benamning; }).join(', ') : '') + '</div></div>';
+    if (kb.typ !== b.typ) { html += '<div class="notis varning">Byggnaderna är av olika typ. Kontrollera resultatet noga.</div>'; }
+    if (harPlanering(s)) { html += '<div class="notis varning">Den nuvarande planeringen för ' + b.namn + ' ersätts. Det går att ångra.</div>'; }
+    nod.innerHTML = html;
+    var urad = el('div', 'chiprad', '<span class="liten-rubrik">Utförare i ' + b.namn + ':</span>');
+    var usel = document.createElement('select'); usel.className = 'utf-val';
+    var o0 = el('option', null, 'Samma som i ' + kb.namn); o0.value = ''; usel.appendChild(o0);
+    P.UTFORARE.forEach(function (u) { var o = el('option', null, u.namn + ' för alla ronder'); o.value = u.id; usel.appendChild(o); });
+    urad.appendChild(usel);
+    nod.appendChild(urad);
+
+    DP.Dialog.visa({ titel: 'Kopiera planering från ' + kb.namn, nod: nod, bredd: 620,
+      knappar: [
+        { text: 'Kopiera', prim: true, gor: function () {
+          var nyUtf = usel.value;
+          P.andra('Kopierade planering från ' + kb.namn, function (st) {
+            st.bas = P.klona(ks.bas);
+            st.ronder = P.klona(ks.ronder).map(function (r) { if (nyUtf) { r.utforare = nyUtf; } return r; });
+            st.kopplingar = traffar.map(function (k) { return { atgard: k.atgard, inst: k.inst, rond: k.rond }; });
+            st.standardTexter = P.klona(ks.standardTexter);
+            st.instTexter = {}; st.tillfalleTexter = {};
+            Object.keys(ks.instTexter).forEach(function (n) {
+              var d = n.split('|'); if (idMap[d[1]]) { st.instTexter[d[0] + '|' + idMap[d[1]]] = P.klona(ks.instTexter[n]); }
+            });
+            Object.keys(ks.tillfalleTexter).forEach(function (n) {
+              var d = n.split('|'); if (idMap[d[1]]) { st.tillfalleTexter[[d[0], idMap[d[1]], d[2], d[3]].join('|')] = P.klona(ks.tillfalleTexter[n]); }
+            });
+          }, { kalla: kalla, kopierad: { utan: utan } });
+          ui.oppet = 5; ui.guide = null;
+          rita();
+        } },
+        { text: 'Avbryt' }
+      ] });
+  }
+
+  // Byte av byggnad: allt ritas om för den nya byggnadens planering
+  P.prenumereraByte(function () {
+    indexera();
+    ui.guide = null; ui.expanderad = null; ui.redigerarText = null; ui.annan = {};
+    var s = P.state();
+    ui.oppet = harPlanering(s) ? 5 : 1;
+    rita();
+    DP.Tidsaxel.rita();
+    var set = {};
+    s.kopplingar.forEach(function (k) { set[k.inst] = true; });
+    DP.viewer.sattKopplade(set);
+    DP.viewer.sattAvvikande(P.avvikandeInst(s));
+  });
+
+  // ------------------------------------------------------------------
   // Reaktion på varje ändring: rita om och animera skillnaden
   // ------------------------------------------------------------------
   function nyckel(k) { return k.atgard + '|' + k.inst + '|' + k.rond; }
@@ -573,6 +713,10 @@
       DP.viewer.sattKopplade(set);
       DP.viewer.blinka(inst, 1600);
     }, Math.min(t3d, 1100));
+    // Efter kopiering: visa vad som saknar åtgärd (orange)
+    if (info.kopierad && info.kopierad.utan.length) {
+      setTimeout(function () { DP.viewer.blinka(info.kopierad.utan, 2200, 0xe07b26); }, Math.min(t3d, 1100) + 1700);
+    }
 
     // 3) Öppna telefonvyn för de första rutintillfällena när brickorna landat
     if (info.lagtTill) {
