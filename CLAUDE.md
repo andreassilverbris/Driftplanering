@@ -18,10 +18,11 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
 - Gör rimliga antaganden och redovisa dem tydligt i svaret, i stället för att fråga om allt.
   Fråga bara om verkliga vägval.
 - Användaren planerar att använda Matt Pococks skills för att skiva biljetter utifrån dokumentationen.
-  De ligger i `.claude/skills/` (se `.claude/skills/README.md`). `/setup-matt-pocock-skills` är körd,
+  De är installerade globalt på användarens Mac (`~/.agents/skills`, länkade från `~/.claude/skills`,
+  uppdateras med `npx skills update -g`), inte i repot. `/setup-matt-pocock-skills` är körd,
   se avsnittet "Agent skills" längst ner.
-  Om en session ändå körs i Claude Code i molnet finns inte kommandot `gh` där. Då används GitHubs
-  MCP-verktyg för issues (se `docs/agents/issue-tracker.md`).
+  Om en session ändå körs i Claude Code i molnet finns varken skillsen eller kommandot `gh` där.
+  Biljetter hanteras då med GitHubs MCP-verktyg (se `docs/agents/issue-tracker.md`).
 
 ## Utvecklingsmiljö
 
@@ -113,4 +114,4 @@ Standardetiketterna: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 ### Domain docs
 
-Single-context: `GLOSSARY.md` (eller `CONTEXT.md`, samma fil under äldre namn) och `docs/adr/` i roten (finns inte än; tills vidare gäller `docs/koncept-och-beslut.md`). See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` och `docs/adr/` i roten (finns inte än; tills vidare gäller `docs/koncept-och-beslut.md`). See `docs/agents/domain.md`.
