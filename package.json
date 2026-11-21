@@ -1,0 +1,12 @@
+{
+  "name": "driftplanering",
+  "private": true,
+  "description": "Utbildningsverktyg för planering av tillsyn och skötsel. Statisk webbsida; Node behövs bara för tester och bygget av den fristående filen.",
+  "scripts": {
+    "test": "node verktyg/test/kor-tester.js",
+    "bygg": "node verktyg/bygg-enfil.js"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

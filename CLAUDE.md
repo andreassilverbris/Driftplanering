@@ -20,8 +20,15 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
 - Användaren planerar att använda Matt Pococks skills för att skiva biljetter utifrån dokumentationen.
   De ligger i `.claude/skills/` (se `.claude/skills/README.md`). `/setup-matt-pocock-skills` är körd,
   se avsnittet "Agent skills" längst ner.
-  Observera: i Claude Code i molnet finns inte kommandot `gh`. Där används GitHubs MCP-verktyg för issues
-  i stället för de `gh`-kommandon som skills beskriver (se `docs/agents/issue-tracker.md`).
+  Om en session ändå körs i Claude Code i molnet finns inte kommandot `gh` där. Då används GitHubs
+  MCP-verktyg för issues (se `docs/agents/issue-tracker.md`).
+
+## Utvecklingsmiljö
+
+- **Utvecklingen sker lokalt på användarens Mac** i `~/Driftplanering`, med Claude Code i terminalen,
+  och pushas till `andreassilverbris/Driftplanering` på GitHub (samma upplägg som användarens andra projekt).
+- Engångsinstallation efter kloning: `npm install` och `npx playwright install chromium`.
+- `npm test` kör webbläsartesterna, `npm run bygg` bygger den fristående filen.
 
 ## Gren, leverans och hur användaren tittar
 
@@ -33,8 +40,8 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
   `dist/driftplanering.html`. Byt `main` mot arbetsgrenens namn i länken för att visa ändringar före sammanslagning.
 - Användarens skärm är 1920×1200 i Edge. Huvudvyn ska få plats utan att sidan scrollar.
 - Efter varje ändring, i den här ordningen:
-  1. `node verktyg/test/kor-tester.js` – webbläsartester (Playwright/Chromium). Utöka testerna för ny funktionalitet.
-  2. `node verktyg/bygg-enfil.js` – bygger om `dist/driftplanering.html` (allt inbäddat i en fil).
+  1. `npm test` (= `node verktyg/test/kor-tester.js`) – webbläsartester (Playwright/Chromium). Utöka testerna för ny funktionalitet.
+  2. `npm run bygg` (= `node verktyg/bygg-enfil.js`) – bygger om `dist/driftplanering.html` (allt inbäddat i en fil).
   3. Committa och pusha. Uppdatera `docs/` och den här filen när något ändras.
 - Ta gärna skärmdumpar med Playwright och titta på dem för att kontrollera utseendet.
 
