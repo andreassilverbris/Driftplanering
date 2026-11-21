@@ -14,7 +14,6 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 Edit the "Label in our tracker" column to match whatever vocabulary you actually use.
 
-**Creating the labels:** the labels did not exist when this file was written (2026-11-21), and cloud sessions have
-no tool for creating labels. GitHub creates a missing label automatically the first time it is applied to an issue.
-If that is refused, ask the user to create it in GitHub (Issues → Labels → New label). On the user's Mac:
-`gh label create <name>`.
+**Creating the labels:** all five labels exist in `andreassilverbris/Driftplanering` (created 2026-11-21).
+If one is ever missing: on the user's Mac, `gh label create <name>`; in the cloud, GitHub creates a missing label
+automatically the first time it is applied, otherwise ask the user to create it (Issues → Labels → New label).

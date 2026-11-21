@@ -113,4 +113,4 @@ Standardetiketterna: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 ### Domain docs
 
-Single-context: `GLOSSARY.md` och `docs/adr/` i roten (finns inte än; tills vidare gäller `docs/koncept-och-beslut.md`). See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` (eller `CONTEXT.md`, samma fil under äldre namn) och `docs/adr/` i roten (finns inte än; tills vidare gäller `docs/koncept-och-beslut.md`). See `docs/agents/domain.md`.
