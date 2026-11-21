@@ -21,11 +21,12 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
 
 ## Gren, leverans och hur användaren tittar
 
-- Arbeta och pusha på grenen **`claude/adoring-hamilton-pemgif`**. `main` innehåller bara den första
-  committen och ska inte röras utan att användaren uttryckligen ber om det (en PR är att föredra).
+- **`main` innehåller den senaste godkända versionen.** Arbete görs på en arbetsgren och förs in i `main`
+  via pull request när användaren ber om det. Pusha aldrig direkt till `main`.
 - **Användarens jobbdator blockerar claude.ai och github.io** (ERR_CONNECTION_RESET). Användaren tittar via
-  `https://raw.githack.com/andreassilverbris/Driftplanering/claude/adoring-hamilton-pemgif/index.html`
-  (läser direkt från grenen, kräver att repot är publikt) eller via den fristående filen.
+  `https://raw.githack.com/andreassilverbris/Driftplanering/main/index.html`
+  (läser direkt från `main`, kräver att repot är publikt) eller via den fristående filen
+  `dist/driftplanering.html`. Byt `main` mot arbetsgrenens namn i länken för att visa ändringar före sammanslagning.
 - Användarens skärm är 1920×1200 i Edge. Huvudvyn ska få plats utan att sidan scrollar.
 - Efter varje ändring, i den här ordningen:
   1. `node verktyg/test/kor-tester.js` – webbläsartester (Playwright/Chromium). Utöka testerna för ny funktionalitet.
