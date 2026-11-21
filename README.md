@@ -32,5 +32,7 @@ byggnad → installationer → åtgärder → ronder → rutintillfällen.
 | `docs/koncept-och-beslut.md` | Begrepp, beslut, förslag och etapper |
 | `docs/ideer-och-resonemang.md` | Idéer: kopiera planering, standardplanering, import från Excel/IFC och genererad 3D-modell |
 | `verktyg/bygg-enfil.js` | Bygger den fristående filen `dist/driftplanering.html` |
+| `verktyg/test/kor-tester.js` | Webbläsartester: `node verktyg/test/kor-tester.js` |
+| `CLAUDE.md` | Instruktioner för Claude: arbetssätt, arkitektur och status – läses automatiskt i nya sessioner |
 
 All data är påhittad.

@@ -41,13 +41,24 @@ frågor parkeras.
 10. **Industriportar, utrymningsstegar och huvud-/gruppcentraler är signifikanta** – bekräftat.
 11. **Åtgärder kopplas till ronden**, inte till ett enskilt rutintillfälle. Att tömma ett rutintillfälle
     (högerklick i telefonvyn) tömmer därför ronden, alltså alla dess rutintillfällen.
+12. **Samma åtgärd delas inte upp på flera ronder.** Om man svarar Nej på "samma tillfälle" visas en förklaring
+    i stället för att det går att genomföra.
 13. **Åtgärdstexter i tre nivåer** (förslag C) – byggt. En text sparas bara på en nivå om den faktiskt
     skiljer sig från nivån ovanför. Avvikelser tas bort när kopplingen tas bort. Ändringar gäller sessionen
     och nollställs när sidan laddas om.
 14. **Ändring i telefonen → "I alla rutintillfällen"** betyder alla rutintillfällen för just den installationen
     (installationsnivån). Ändring av standardtexten görs i bruttolistan.
-12. **Samma åtgärd delas inte upp på flera ronder.** Om man svarar Nej på "samma tillfälle" visas en förklaring
-    i stället för att det går att genomföra.
+15. **Typbyggnader:** Garage, Kasern 1, Kasern 2 och Hangar. Skola och bostadshus är strukna.
+    Garaget är startbyggnad (man ska börja lära sig på något enkelt).
+16. **Garageportarna är signifikanta** – det är avgörande att de går att öppna. Åtgärd: *Kontroll garageport*
+    (föreslagen rond Byggnad utvändigt). Signifikant i garaget: HB01, PORT01, PORT02.
+17. **Kasern 2 skiljer sig med flit från Kasern 1** (inbyggd hiss HISS01, en tvättmaskin mindre) så att det
+    syns vad som behöver justeras efter kopiering.
+18. **Planering per byggnad, gemensam historik.** Varje byggnad har egen planering. Ångra/gör om fungerar över
+    byggnaderna och växlar automatiskt till den byggnad steget gällde.
+19. **Kopiering av planering** erbjuds bara mellan byggnader av samma typ. Installationer matchas på typ och
+    beteckning.
+20. **Planeringsåret är fast satt till 2027** (öppen fråga om det ska vara rullande).
 
 ## Förslag (bekräftade)
 
@@ -100,6 +111,17 @@ och byggs så att man senare kan välja version.
    Nytt: **standardplanering per byggnadstyp** och **kopiera planering** mellan byggnader av samma typ.
    Se `ideer-och-resonemang.md`.
 5. **Flera byggnader:** belastning per utförare, provisoriska flyttar, stryka tillfällen *(skiss finns i `flerbyggnad.html`)*.
+   Krav från användaren:
+   - I fastighetssystemet väljer man en eller flera byggnader och ser en tidsaxel med en rad per rond och byggnad.
+     Det blir svåröverskådligt när man vill se hur många byggnader ska besökas i förhållande till varandra.
+     Målet är ett **okomplicerat** gränssnitt där det är **lätt att ändra** planeringen.
+   - Att planera en byggnad är enkelt; det svåra är att **balansera** många byggnader.
+   - Systemet har både **permanenta** ändringar (planen) och **provisoriska** flyttar (t.ex. när en vecka blir för
+     full eller en resurs inte är tillgänglig). Provisoriska flyttar måste vara enkla att göra.
+   - Flyttas ett rutintillfälle nära nästa ordinarie tillfälle ska man kunna **stryka** det i stället
+     (efter en förenklad riskanalys) och slippa två ronder i följd.
+   - Etapp 5 ska använda den riktiga planeringen från Garage, Kasern 1, Kasern 2 och Hangar (inte påhittade data).
+     Två kaserner finns just för att kunna öva på detta.
 6. **(Senare)** adapterlager mot riktigt API.
 
 ## Öppna frågor
