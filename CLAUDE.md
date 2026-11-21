@@ -18,6 +18,10 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
 - Gör rimliga antaganden och redovisa dem tydligt i svaret, i stället för att fråga om allt.
   Fråga bara om verkliga vägval.
 - Användaren planerar att använda Matt Pococks skills för att skiva biljetter utifrån dokumentationen.
+  De ligger i `.claude/skills/` (se `.claude/skills/README.md`). `/setup-matt-pocock-skills` har inte körts än;
+  den väljer var biljetterna ska ligga och lägger till ett avsnitt "Agent skills" i den här filen.
+  Observera: i Claude Code i molnet finns inte kommandot `gh`. Där används GitHubs MCP-verktyg för issues
+  i stället för de `gh`-kommandon som skills beskriver.
 
 ## Gren, leverans och hur användaren tittar
 
