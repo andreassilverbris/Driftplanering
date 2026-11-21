@@ -62,6 +62,8 @@ frågor parkeras.
 21. **Biljetter som GitHub Issues** i `andreassilverbris/Driftplanering`, med standardetiketterna för triage
     (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). Biljetterna skrivs på svenska.
     Inställningarna för Matt Pococks skills finns i `docs/agents/`.
+22. **Matt Pococks skills installeras globalt på användarens Mac**, inte i repot, så att varje skill bara
+    finns en gång. Uppdateras med `npx skills update -g`. Molnsessioner har därför inga skills.
 
 ## Förslag (bekräftade)
 

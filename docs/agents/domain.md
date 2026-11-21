@@ -12,13 +12,8 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## In this repo (single-context)
 
-**`GLOSSARY.md` and `CONTEXT.md` are the same file under two names.** The skill copies in `.claude/skills/`
-(used in cloud sessions) call it `GLOSSARY.md`; the older copies in the user's `~/.claude/skills/` (which win
-on the user's Mac) call it `CONTEXT.md`. Read whichever exists. When creating it, use `GLOSSARY.md`; if a
-`CONTEXT.md` already exists, keep writing to it rather than creating a second file. The same applies to
-`GLOSSARY-MAP.md` / `CONTEXT-MAP.md`.
-
-Neither the glossary nor `docs/adr/` exists yet. Until they do, the domain knowledge lives in two Swedish documents
+`GLOSSARY.md` and `docs/adr/` do not exist yet. (`CONTEXT.md` is the old name for the same file, used by
+older versions of the skills; if one ever appears, `git mv` it to `GLOSSARY.md`.) Until they do, the domain knowledge lives in two Swedish documents
 that **must** be read before exploring:
 
 - **`docs/koncept-och-beslut.md`**: concepts (byggnad, installation, åtgärd, rond, rutintillfälle …),
