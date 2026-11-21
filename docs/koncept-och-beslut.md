@@ -59,6 +59,9 @@ frågor parkeras.
 19. **Kopiering av planering** erbjuds bara mellan byggnader av samma typ. Installationer matchas på typ och
     beteckning.
 20. **Planeringsåret är fast satt till 2027** (öppen fråga om det ska vara rullande).
+21. **Biljetter som GitHub Issues** i `andreassilverbris/Driftplanering`, med standardetiketterna för triage
+    (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). Biljetterna skrivs på svenska.
+    Inställningarna för Matt Pococks skills finns i `docs/agents/`.
 
 ## Förslag (bekräftade)
 

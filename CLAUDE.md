@@ -18,10 +18,10 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
 - Gör rimliga antaganden och redovisa dem tydligt i svaret, i stället för att fråga om allt.
   Fråga bara om verkliga vägval.
 - Användaren planerar att använda Matt Pococks skills för att skiva biljetter utifrån dokumentationen.
-  De ligger i `.claude/skills/` (se `.claude/skills/README.md`). `/setup-matt-pocock-skills` har inte körts än;
-  den väljer var biljetterna ska ligga och lägger till ett avsnitt "Agent skills" i den här filen.
+  De ligger i `.claude/skills/` (se `.claude/skills/README.md`). `/setup-matt-pocock-skills` är körd,
+  se avsnittet "Agent skills" längst ner.
   Observera: i Claude Code i molnet finns inte kommandot `gh`. Där används GitHubs MCP-verktyg för issues
-  i stället för de `gh`-kommandon som skills beskriver.
+  i stället för de `gh`-kommandon som skills beskriver (se `docs/agents/issue-tracker.md`).
 
 ## Gren, leverans och hur användaren tittar
 
@@ -93,3 +93,17 @@ Kända begränsningar:
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
 - Den fristående filen saknar länken till skissen.
 - `byggAtgarder()` i `app/ui.js` är oanvänd kod från etapp 1.
+
+## Agent skills
+
+### Issue tracker
+
+Biljetter ligger som GitHub Issues i `andreassilverbris/Driftplanering` (MCP-verktyg i molnet, `gh` lokalt). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Standardetiketterna: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` och `docs/adr/` i roten (finns inte än; tills vidare gäller `docs/koncept-och-beslut.md`). See `docs/agents/domain.md`.
