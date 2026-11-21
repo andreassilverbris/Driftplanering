@@ -402,7 +402,8 @@
     if (n === 1) { return namn; }
     var pl = { handbrandsläckare: 'handbrandsläckare', brandpost: 'brandposter', brandlarmscentral: 'brandlarmscentraler', utrymningsstege: 'utrymningsstegar',
       luftbehandlingsaggregat: 'luftbehandlingsaggregat', fläktluftvärmare: 'fläktluftvärmare', huvudcentral: 'elcentraler', apparatskåp: 'apparatskåp',
-      jordfelsbrytare: 'jordfelsbrytare', industriport: 'industriportar', pelarlyft: 'pelarlyftar' };
+      jordfelsbrytare: 'jordfelsbrytare', industriport: 'industriportar', pelarlyft: 'pelarlyftar', garageport: 'garageportar',
+      nödbelysningsarmatur: 'nödbelysningsarmaturer', brandgaslucka: 'brandgasluckor', torkskåp: 'torkskåp', tvättmaskin: 'tvättmaskiner' };
     return pl[namn] || namn;
   }
 

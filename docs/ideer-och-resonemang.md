@@ -18,9 +18,9 @@ Skola och bostadshus är struken. I stället:
   på hangaren, som har hög installationstäthet. Troligen räcker två ronder (Byggnad invändigt och Byggnad
   utvändigt) och ett eller två besök per år.
 
-**Antaganden i garaget:** portarna är manuella (utan motor) och därför inte signifikanta. De kontrolleras i
-Kontroll byggnad utvändigt. Självdragsventilationen (galler) är inte heller signifikant. Den enda signifikanta
-installationen är handbrandsläckaren.
+**Signifikant i garaget:** handbrandsläckaren och de två garageportarna. Portarna är signifikanta eftersom det
+är avgörande att de går att öppna (beslut av beställaren). De har åtgärden *Kontroll garageport*, som föreslås i
+ronden Byggnad utvändigt. Självdragsventilationen (galler), belysning, brytare och uttag är inte signifikanta.
 
 ### Hur en klassisk kasern är byggd (underlag för modellen)
 

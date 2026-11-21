@@ -16,19 +16,20 @@
     brandgaslucka:      { namn: 'Brandgaslucka',           kategori: 'brand',   montage: 'tak' },
     dorrautomatik:      { namn: 'Dörrautomatik',           kategori: 'byggnad', montage: 'vagg' },
     nodbelysning:       { namn: 'Nödbelysningsarmatur',    kategori: 'brand',   montage: 'vagg' },
+    garageport:         { namn: 'Garageport',              kategori: 'byggnad', montage: 'fasad' },
     // Ej signifikanta
-    garageport:         { namn: 'Garageport (manuell)',    kategori: 'ovrig',   montage: 'fasad' },
     ventilationsgaller: { namn: 'Ventilationsgaller',      kategori: 'ovrig',   montage: 'vagg' }
   };
   Object.keys(nyaTyper).forEach(function (k) { DP.installationstyper[k] = nyaTyper[k]; });
 
-  DP.ejSignifikantForklaring.garageport = 'Manuell port utan motor. Kontrolleras i åtgärden Kontroll byggnad utvändigt.';
   DP.ejSignifikantForklaring.ventilationsgaller = 'Självdragsventilation utan fläkt. Kontrolleras i åtgärden Kontroll byggnad invändigt.';
 
   // ---------------- Åtgärder ----------------
   [
     { id: 'A045', namn: 'Kontroll brandgaslucka', galler: ['brandgaslucka'], foreslagenRond: 'BS',
       kontrollpunkter: ['Att luckan öppnar vid provning', 'Att manöverdon och skylt finns i trapphusets nedre del', 'Att luckan stänger och tätar', 'Att inga hinder finns runt luckan'] },
+    { id: 'A053', namn: 'Kontroll garageport', galler: ['garageport'], foreslagenRond: 'BU',
+      kontrollpunkter: ['Att porten går att öppna och stänga hela vägen', 'Att porten stannar kvar i öppet läge', 'Att fjädrar och linor är hela', 'Att lås och handtag fungerar', 'Att gångjärn och rullar är smorda', 'Att tätningslister är hela'] },
     { id: 'A052', namn: 'Kontroll dörrautomatik', galler: ['dorrautomatik'], foreslagenRond: 'BI',
       kontrollpunkter: ['Att dörren öppnar och stänger mjukt', 'Att närvarogivare och klämskydd fungerar', 'Att nödöppning fungerar', 'Att manöverknapp är hel'] },
     { id: 'A075', namn: 'Kontroll skyddsrum', galler: ['skyddsrumsaggregat'], foreslagenRond: 'BI',

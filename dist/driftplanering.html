@@ -2013,19 +2013,20 @@ details.atgard.irrelevant { opacity: .55; }
     brandgaslucka:      { namn: 'Brandgaslucka',           kategori: 'brand',   montage: 'tak' },
     dorrautomatik:      { namn: 'Dörrautomatik',           kategori: 'byggnad', montage: 'vagg' },
     nodbelysning:       { namn: 'Nödbelysningsarmatur',    kategori: 'brand',   montage: 'vagg' },
+    garageport:         { namn: 'Garageport',              kategori: 'byggnad', montage: 'fasad' },
     // Ej signifikanta
-    garageport:         { namn: 'Garageport (manuell)',    kategori: 'ovrig',   montage: 'fasad' },
     ventilationsgaller: { namn: 'Ventilationsgaller',      kategori: 'ovrig',   montage: 'vagg' }
   };
   Object.keys(nyaTyper).forEach(function (k) { DP.installationstyper[k] = nyaTyper[k]; });
 
-  DP.ejSignifikantForklaring.garageport = 'Manuell port utan motor. Kontrolleras i åtgärden Kontroll byggnad utvändigt.';
   DP.ejSignifikantForklaring.ventilationsgaller = 'Självdragsventilation utan fläkt. Kontrolleras i åtgärden Kontroll byggnad invändigt.';
 
   // ---------------- Åtgärder ----------------
   [
     { id: 'A045', namn: 'Kontroll brandgaslucka', galler: ['brandgaslucka'], foreslagenRond: 'BS',
       kontrollpunkter: ['Att luckan öppnar vid provning', 'Att manöverdon och skylt finns i trapphusets nedre del', 'Att luckan stänger och tätar', 'Att inga hinder finns runt luckan'] },
+    { id: 'A053', namn: 'Kontroll garageport', galler: ['garageport'], foreslagenRond: 'BU',
+      kontrollpunkter: ['Att porten går att öppna och stänga hela vägen', 'Att porten stannar kvar i öppet läge', 'Att fjädrar och linor är hela', 'Att lås och handtag fungerar', 'Att gångjärn och rullar är smorda', 'Att tätningslister är hela'] },
     { id: 'A052', namn: 'Kontroll dörrautomatik', galler: ['dorrautomatik'], foreslagenRond: 'BI',
       kontrollpunkter: ['Att dörren öppnar och stänger mjukt', 'Att närvarogivare och klämskydd fungerar', 'Att nödöppning fungerar', 'Att manöverknapp är hel'] },
     { id: 'A075', namn: 'Kontroll skyddsrum', galler: ['skyddsrumsaggregat'], foreslagenRond: 'BI',
@@ -2126,8 +2127,9 @@ details.atgard.irrelevant { opacity: .55; }
 /*
  * Typbyggnad: Garage
  * ------------------
- * Enkel byggnad att börja lära sig på: ett rum för två bilar, två manuella portar,
- * självdragsventilation, lite belysning och en handbrandsläckare (den enda signifikanta installationen).
+ * Enkel byggnad att börja lära sig på: ett rum för två bilar, två portar, självdragsventilation,
+ * lite belysning och en handbrandsläckare. Signifikanta: handbrandsläckaren och de två portarna
+ * (det är avgörande att portarna går att öppna).
  * Koordinater (meter): x 0–8, z 0–7 (7 = framsida med portarna).
  */
 (function () {
@@ -2143,14 +2145,15 @@ details.atgard.irrelevant { opacity: .55; }
     id: 'garage',
     namn: 'Garage',
     typ: 'garage',
-    beskrivning: 'Enkel byggnad för två bilar. Bra att börja med: bara en signifikant installation.',
+    beskrivning: 'Enkel byggnad för två bilar. Bra att börja med: bara tre signifikanta installationer – en handbrandsläckare och två portar.',
     stil: { tak: 'sadel', sadel: { bas: HOJD, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N', dekor: 'garage', fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
     konstanter: { PLANHOJD: HOJD, BJALKLAG: 0.2, FRIHOJD: HOJD },
     plan: [{ id: '01', namn: 'Garageplan', elev: 0 }],
     rum: rum,
     installationer: [
       { id: '00000301', typ: 'handbrandslackare', nr: 1, benamning: 'Handbrandsläckare 1', fabrikat: 'Presto', modell: 'P6kg', beteckning: 'HB01', externtId: null, rum: '1001', x: 0, z: 5.5, h: 0.5, signifikant: true },
-      ovr('garageport', 2.1, 7, 0), ovr('garageport', 5.9, 7, 0),
+      { id: '00000302', typ: 'garageport', nr: 1, benamning: 'Garageport 1', fabrikat: 'Portia', modell: 'GP-2522', beteckning: 'PORT01', externtId: 'L930101', rum: '1001', x: 2.1, z: 7, h: 0, signifikant: true },
+      { id: '00000303', typ: 'garageport', nr: 2, benamning: 'Garageport 2', fabrikat: 'Portia', modell: 'GP-2522', beteckning: 'PORT02', externtId: 'L930102', rum: '1001', x: 5.9, z: 7, h: 0, signifikant: true },
       ovr('ventilationsgaller', 0, 1.2, 0.25), ovr('ventilationsgaller', 8, 1.2, 2.4),
       ovr('lysrorsarmatur', 2.2, 3.5, 0), ovr('lysrorsarmatur', 5.8, 3.5, 0),
       ovr('vaggbrytare', 0, 6.4, 1.1), ovr('vagguttag', 8, 2.5, 0.3), ovr('vagguttag', 8, 5, 0.3)
@@ -5294,7 +5297,8 @@ details.atgard.irrelevant { opacity: .55; }
     if (n === 1) { return namn; }
     var pl = { handbrandsläckare: 'handbrandsläckare', brandpost: 'brandposter', brandlarmscentral: 'brandlarmscentraler', utrymningsstege: 'utrymningsstegar',
       luftbehandlingsaggregat: 'luftbehandlingsaggregat', fläktluftvärmare: 'fläktluftvärmare', huvudcentral: 'elcentraler', apparatskåp: 'apparatskåp',
-      jordfelsbrytare: 'jordfelsbrytare', industriport: 'industriportar', pelarlyft: 'pelarlyftar' };
+      jordfelsbrytare: 'jordfelsbrytare', industriport: 'industriportar', pelarlyft: 'pelarlyftar', garageport: 'garageportar',
+      nödbelysningsarmatur: 'nödbelysningsarmaturer', brandgaslucka: 'brandgasluckor', torkskåp: 'torkskåp', tvättmaskin: 'tvättmaskiner' };
     return pl[namn] || namn;
   }
 
