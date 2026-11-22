@@ -1,0 +1,3 @@
+# Bytekod från en python3 som inte lägger den i ~/Library/Caches. once.sh vägrar
+# starta på en smutsig arbetskopia, och sviten körs inifrån varvet när biljetten rör ralph/.
+__pycache__/

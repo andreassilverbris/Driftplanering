@@ -46,6 +46,14 @@ den här filen och `docs/` innehåller allt som behövs för att fortsätta utan
   3. Committa och pusha. Uppdatera `docs/` och den här filen när något ändras.
 - Ta gärna skärmdumpar med Playwright och titta på dem för att kontrollera utseendet.
 
+## Ralph-loopen
+
+`ralph/` tar `ready-for-agent`-biljetter inom ett spår obevakat, en biljett per varv, på en arbetsgren
+(beslut 50). Användaren startar den själv i en egen terminal: `caffeinate -is ./ralph/afk.sh 1 etapp-5`.
+Arbetsordningen per biljett står i `.claude/commands/biljett.md` (kan också köras för hand som `/biljett <nr>`),
+och hur loopen fungerar i `ralph/DESIGN.md`. Loopens egna tester körs med `npm run test:ralph` (pytest).
+Biljetter som loopen ska ta behöver en spåretikett, till exempel `etapp-5`, utöver `ready-for-agent`.
+
 ## Teknik
 
 - **Statisk webbsida utan server, byggsteg eller databas.** Öppnas direkt från disk (`file://`).
@@ -111,7 +119,7 @@ Biljetter ligger som GitHub Issues i `andreassilverbris/Driftplanering` (MCP-ver
 
 ### Triage labels
 
-Standardetiketterna: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+Standardetiketterna: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`, plus en spåretikett per serie för Ralph-loopen (t.ex. `etapp-5`). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

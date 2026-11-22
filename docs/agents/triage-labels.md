@@ -17,3 +17,12 @@ Edit the "Label in our tracker" column to match whatever vocabulary you actually
 **Creating the labels:** all five labels exist in `andreassilverbris/Driftplanering` (created 2026-11-21).
 If one is ever missing: on the user's Mac, `gh label create <name>`; in the cloud, GitHub creates a missing label
 automatically the first time it is applied, otherwise ask the user to create it (Issues → Labels → New label).
+
+## Track labels (Ralph loop)
+
+Besides the five roles, every `ready-for-agent` issue the Ralph loop (`ralph/`, decision 50 in
+`docs/koncept-och-beslut.md`) should run carries exactly one **track label**, named after the series it belongs to,
+for example `etapp-5`. A pass runs one track: `./ralph/afk.sh <n> <track>`. Within a track, native blocking edges
+decide the order. `to-tickets` sets the edges but not the track, so add the track label when publishing the tickets
+(`gh label create <track>` first if it does not exist). `triage-sweep` gives every survivor one track label and
+reuses existing tracks. See `ralph/DESIGN.md`.

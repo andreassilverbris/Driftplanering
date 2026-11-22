@@ -1,0 +1,5 @@
+# Passets körningsfiler och larmets topic. Regeln bor här och inte i repots rot,
+# eftersom once.sh vägrar starta på en smutsig arbetskopia: ett pass vars eget spår
+# låg innanför git hade spärrat sitt andra varv.
+/runs/
+/ntfy_topic

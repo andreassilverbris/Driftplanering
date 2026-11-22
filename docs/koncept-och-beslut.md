@@ -128,6 +128,13 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     (raderna är redan utförare).
 48. **Telefonen ändras inte i etapp 5.** Gruppering av veckans rutintillfällen hör till idé 8 och etapp 6.
 49. **`flerbyggnad.html` tas bort** när Balansering är byggd. Det i skissen som inte byggs skrivs ner först.
+50. **Ralph-loopen (`ralph/`) tar `ready-for-agent`-biljetter obevakat**, en per varv med en färsk agent, portad
+    från photo_manager (2026-11-22). Den arbetar **på en arbetsgren och vägrar starta på `main`**. Den pushar bara
+    till grenen, och Andreas för in grenen i `main` via pull request när han har tittat. Varje pass kräver ett
+    **spår**, en etikett utöver `ready-for-agent` (till exempel `etapp-5`), och inom spåret bestämmer blockerarna
+    ordningen. Loopen **stänger biljetten** när granskningen är gjord, hela sviten är grön, den fristående filen är
+    byggd och committen är pushad. Fynd utanför biljetten blir egna `needs-triage`-biljetter, aldrig
+    `ready-for-agent`. Arbetsordningen står i `.claude/commands/biljett.md` och hur loopen körs i `ralph/DESIGN.md`.
 
 ## Förslag (bekräftade)
 
