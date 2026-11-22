@@ -152,6 +152,25 @@
   function tomtGemensamt() {
     return {};
   }
+  // Svaren i det gemensamma tillståndet, med förvalen när frågan inte är besvarad. Förvalet
+  // är ett *svar* som gäller, inte ett tomrum: belastningen räknas på det från första stunden,
+  // och frågan kan klickas igenom med ett klick när förvalet stämmer (beslut 37).
+  function akerTillForval() {
+    return DP.omraden.filter(function (o) { return o.akerTill; }).map(function (o) { return o.id; });
+  }
+  function svarAkerTill(gem) {
+    gem = gem || gemensamt();
+    return (gem.akerTill || akerTillForval()).slice();
+  }
+  function svarKapacitet(gem) {
+    gem = gem || gemensamt();
+    var ut = {};
+    UTFORARE.forEach(function (u) {
+      var svar = gem.kapacitet && gem.kapacitet[u.id];
+      ut[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
+    });
+    return ut;
+  }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
 
   // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
@@ -177,6 +196,7 @@
   // Gör en ändring i den aktiva byggnaden som ett steg i historiken
   function andra(text, fn, info) {
     var fore = state();
+    var allaFore = historik[pos].alla;
     var alla = klona(historik[pos].alla);
     var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
@@ -184,7 +204,7 @@
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: klona(historik[pos].gemensamt), text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
-    meddela(fore, ny, utokaInfo(info, [aktiv]));
+    meddela(fore, ny, utokaInfo(info, [aktiv], allaFore));
   }
 
   // Ändring som rör flera byggnader och/eller det gemensamma tillståndet, som ett enda steg i
@@ -192,6 +212,7 @@
   // Steget hör inte till någon byggnad, så att ångra och gör om inte byter aktiv byggnad.
   function andraFlera(text, fn, info) {
     var fore = state();
+    var allaFore = historik[pos].alla;
     var alla = klona(historik[pos].alla);
     var gem = klona(historik[pos].gemensamt);
     var rorda = {};
@@ -210,13 +231,29 @@
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
-    meddela(fore, state(), utokaInfo(info, rordaIds));
+    meddela(fore, state(), utokaInfo(info, rordaIds, allaFore));
   }
 
-  // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker.
-  function utokaInfo(info, byggnader) {
+  // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
+  // och vilka rutintillfällen som bytte vecka i **varje** rörd byggnad (`flyttade`).
+  //
+  // Skillnaden räknas här och inte hos den som gör ändringen, eftersom lyssnaren bara får den
+  // aktiva byggnadens tillstånd före och efter – Balanseringens tidsaxel visar alla byggnader
+  // på en gång. Och eftersom ga() går samma väg gäller det även ångra och gör om: flytten
+  // animeras tillbaka av sig själv (beslut 36).
+  function utokaInfo(info, byggnader, alltFore) {
     var ut = info ? klonaInfo(info) : {};
     ut.byggnader = byggnader;
+    if (alltFore) {
+      var flyttade = {};
+      byggnader.forEach(function (bid) {
+        var f = alltFore[bid], e = historik[pos].alla[bid];
+        if (!f || !e) { return; }
+        var vs = veckoSkillnad(f, e);
+        if (vs.length) { flyttade[bid] = vs; }
+      });
+      ut.flyttade = flyttade;
+    }
     return ut;
   }
   // Info kan innehålla DOM-noder och funktioner, så den kopieras ytligt
@@ -231,9 +268,10 @@
     var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
     if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
+    var allaFore = historik[pos].alla;
     var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice()));
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore));
   }
   function vaxlaByggnad(id) {
     if (!DP.byggnader[id] || id === aktiv) { return; }
@@ -609,17 +647,16 @@
   // förvalen: 3 dagar i veckan för alla (beslut 31) och inga veckor utkorsade.
   function balanseringsUnderlag() {
     var gem = gemensamt();
-    var kap = {};
-    UTFORARE.forEach(function (u) {
-      var svar = gem.kapacitet && gem.kapacitet[u.id];
-      kap[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
-    });
     return {
       antalVeckor: ANTAL_VECKOR,
+      // Hur en rondserie ligger vid en annan förskjutning. Balanseringen prövar förskjutningar
+      // och behöver räkna om veckorna, men ska inte själv veta något om frekvenser – reglerna
+      // (bland dem beslut 41 om halvårsronder med startmånad) bor här.
+      veckoraknare: veckorFor,
       utforare: UTFORARE.map(function (u) { return { id: u.id, namn: u.namn, farg: u.farg }; }),
-      kapacitet: kap,
+      kapacitet: svarKapacitet(gem),
       veckorUtan: (gem.veckorUtan || []).slice(),
-      akerTill: (gem.akerTill || DP.omraden.filter(function (o) { return o.akerTill; }).map(function (o) { return o.id; })).slice(),
+      akerTill: svarAkerTill(gem),
       byggnader: klaraByggnader().map(function (bid) {
         var s = stateFor(bid), b = DP.byggnader[bid];
         return {
@@ -631,6 +668,8 @@
             var sparad = s.tider[r.id];
             return {
               id: r.id, namn: rondNamn(r.id), utforare: r.utforare,
+              freq: { typ: r.freq.typ, startManad: r.freq.startManad || null },
+              forskjutning: r.forskjutning || 0,
               timmar: tidTimmar(r.id, s, bid),
               dagsdel: sparad && sparad.godkand ? sparad.dagsdel : tidForslag(r.id, s, bid).dagsdel,
               veckor: veckor, namnPerVecka: namnPerVecka
@@ -788,6 +827,77 @@
     return { nycklar: Object.keys(nycklar), inst: Object.keys(inst) };
   }
 
+  // ------------------------------------------------------------------
+  // Balanseringens frågor och resultat
+  // ------------------------------------------------------------------
+  // Svaren på frågorna (områden man åker till, kapacitet per utförare) ligger i det
+  // gemensamma tillståndet, så att de ångras som allt annat. Varje svar är ett eget steg i
+  // historiken: planeraren som ändrar Annas kapacitet från 3 till 2 dagar ska kunna ta
+  // tillbaka just det.
+  function sattAkerTill(omraden) {
+    andraFlera('Balansering: områden man åker till', function (a) {
+      a.gemensamt.akerTill = omraden.slice();
+      a.gemensamt.omradenBesvarad = true;
+    }, { balanseringsfraga: 'omraden' });
+  }
+  function sattKapacitet(utforareId, dagar) {
+    andraFlera('Balansering: ' + utforare(utforareId).namn + ' har ' + dagar + ' dagar i veckan', function (a) {
+      a.gemensamt.kapacitet = a.gemensamt.kapacitet || {};
+      a.gemensamt.kapacitet[utforareId] = Math.max(0, Math.min(5, Math.round(Number(dagar) || 0)));
+      a.gemensamt.kapacitetBesvarad = true;
+    }, { balanseringsfraga: 'kapacitet' });
+  }
+  // "Förvalen stämmer" är ett svar och inte ett tomrum: frågan får grön bock utan att något
+  // tal ändras, och ett klick räcker (beslut 37).
+  function godkannFraga(fraga) {
+    andraFlera('Balansering: ' + (fraga === 'omraden' ? 'områdena stämmer' : 'kapaciteten stämmer'), function (a) {
+      if (fraga === 'omraden') {
+        a.gemensamt.akerTill = svarAkerTill(a.gemensamt);
+        a.gemensamt.omradenBesvarad = true;
+      } else {
+        a.gemensamt.kapacitet = svarKapacitet(a.gemensamt);
+        a.gemensamt.kapacitetBesvarad = true;
+      }
+    }, { balanseringsfraga: fraga });
+  }
+
+  // Resultatet av en balansering skrivs som **ett** historiksteg (beslut 36): alla byggnaders
+  // förskjutningar och det gemensamma tillståndets minne av balanseringen i samma steg, så att
+  // ett enda ångra tar tillbaka hela balanseringen. Steget hör inte till någon byggnad, så
+  // ångra byter inte aktiv byggnad.
+  function tillampaBalansering(resultat) {
+    andraFlera('Balansering: förskjöt besöksrytmerna', function (a) {
+      Object.keys(resultat.forskjutningar).forEach(function (bid) {
+        var st = a.tillstand(bid);
+        if (!st) { return; }
+        sattForskjutning(st, resultat.forskjutningar[bid]);
+        var rf = resultat.rondForskjutningar[bid] || {};
+        Object.keys(rf).forEach(function (rondId) { sattRondForskjutning(st, rondId, rf[rondId]); });
+      });
+      a.gemensamt.balanserad = {
+        forskjutningar: klona(resultat.forskjutningar),
+        rondForskjutningar: klona(resultat.rondForskjutningar),
+        forklaring: klona(resultat.forklaring),
+        kvarstaende: klona(resultat.kvarstaende),
+        forbattring: klona(resultat.forbattring)
+      };
+    }, { balansering: true });
+  }
+
+  // Status för huvudsteget Balansering: frågorna och om balanseringen är gjord. Grön bock
+  // kräver att den är gjord – frågorna med förval räcker inte, för det är balanseringen som
+  // är arbetet (beslut 37).
+  function balanseringStatus() {
+    var gem = gemensamt();
+    return {
+      omraden: !!gem.omradenBesvarad,
+      kapacitet: !!gem.kapacitetBesvarad,
+      balanserad: !!gem.balanserad,
+      resultat: gem.balanserad || null,
+      klar: !!gem.balanserad
+    };
+  }
+
   window.DP.Plan = {
     standardText: standardText, instText: instText, textFor: textFor, tillfalleAvvikelser: tillfalleAvvikelser,
     kopplingAvviker: kopplingAvviker, rutintillfalleAvviker: rutintillfalleAvviker, avvikandeInst: avvikandeInst,
@@ -813,6 +923,9 @@
     tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid,
     behallTid: behallTid, arvTid: arvTid, timText: timText,
     rondForskjutning: rondForskjutning, veckorForRond: veckorForRond,
-    sattForskjutning: sattForskjutning, sattRondForskjutning: sattRondForskjutning
+    sattForskjutning: sattForskjutning, sattRondForskjutning: sattRondForskjutning,
+    svarAkerTill: svarAkerTill, svarKapacitet: svarKapacitet, akerTillForval: akerTillForval,
+    sattAkerTill: sattAkerTill, sattKapacitet: sattKapacitet, godkannFraga: godkannFraga,
+    tillampaBalansering: tillampaBalansering, balanseringStatus: balanseringStatus
   };
 })();

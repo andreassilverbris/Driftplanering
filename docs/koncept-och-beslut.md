@@ -224,6 +224,29 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     Att utelämna dem hade besvarat frågan "varför saknas Kasern 2?" med tystnad. Knappen
     *Standardplanering för alla* ger alla som saknar planering en standardplanering i **ett**
     historiksteg, så att ett enda ångra tar bort den igen.
+60. **Balanseringens sökning är greedy i byggnadsordning, och mäter mot de redan placerade**
+    (biljett #15, beslut 38). Byggnaderna får sin förskjutning en i taget, och varje val vägs bara
+    mot de byggnader som redan valt plats. Att i stället mäta mot alla på en gång lät den första
+    byggnaden flytta för att komma undan byggnader som ännu inte hade bestämt sig – planeraren såg
+    en flytt utan att kunna se vad den var till för. Nu ligger en byggnad kvar om den inte krockar
+    med något som redan ligger där. Måtten jämförs i ordningen lägsta topp → färst veckor över
+    kapaciteten → färst veckor med fler än 6 tillfällen → jämnast spridning, och vid lika utfall
+    vinner den minsta förskjutningen. Sökningen hittar ett bra läge, inte bevisat det bästa; den är
+    deterministisk, så samma underlag ger alltid samma svar och samma förklaring.
+61. **Förklaringen säger vilka veckor besöken hamnade i, inte bara hur många veckor det förskjöts**
+    (biljett #15, beslut 36). Förskjutningen i veckor räcker inte som besked, eftersom varje rond
+    räknar den modulo sitt eget intervall (beslut 26): en byggnad kan få "4 veckor" och ha sina
+    månadsronder kvar på exakt samma veckor. Varje rad säger därför vilka veckor byggnaden besöks i
+    nu, och hur många av dess rondserier som faktiskt bytte vecka.
+62. **Frågorna i Balansering besvaras med ett klick, och förvalet är ett svar** (biljett #15,
+    beslut 37). Varje fråga är ett kort som ser ut som Planeringens steg, med förval synligt i
+    sammanfattningen och en knapp *Förvalet stämmer*. Grön bock på frågan betyder att planeraren
+    tagit ställning, inte att något tal ändrats. Grön bock på huvudsteget Balansering kräver
+    däremot att balanseringen är **gjord**: frågorna är förutsättningen, balanseringen är arbetet.
+63. **Ångra balanseringen går att nå från Balansering** (biljett #15). Mediaspelaren hör till
+    Planeringens tidsaxel och är dold i Balansering, så löftet att ett enda ångra tar tillbaka hela
+    balanseringen hade varit osynligt där det gäller. En knapp bredvid *Balansera om* gör samma sak
+    som Ctrl+Z.
 
 ## Förslag (bekräftade)
 

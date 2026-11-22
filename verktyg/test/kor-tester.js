@@ -55,9 +55,12 @@ const historiklangd = page => page.evaluate(() => DP.Plan.historik().lista.lengt
 
 // Klickar Ångra och väntar på att historiken backat ett steg. Ångra ändrar bara positionen i
 // historiken, inte dess längd, så det är pos som säger att klicket gått igenom.
+//
+// Mediaspelaren hör till Planeringens tidsaxel och är dold i Balansering. Där används
+// tangentbordet i stället, som är samma väg en planerare har: Ctrl+Z gäller överallt.
 async function angra(page) {
   const fore = await page.evaluate(() => DP.Plan.historik().pos);
-  await page.locator('.spelare button[title^="Ångra"]').click();
+  await klickaEllerTangent(page, '.spelare button[title^="Ångra"]', 'Control+z');
   await vanta(page, n => DP.Plan.historik().pos < n, 'ångra från position ' + fore, fore);
 }
 
@@ -65,8 +68,12 @@ async function angra(page) {
 // inte längden, är det som säger att klicket gått igenom.
 async function gorOm(page) {
   const fore = await page.evaluate(() => DP.Plan.historik().pos);
-  await page.locator('.spelare button[title^="Gör om"]').click();
+  await klickaEllerTangent(page, '.spelare button[title^="Gör om"]', 'Control+y');
   await vanta(page, n => DP.Plan.historik().pos > n, 'gör om från position ' + fore, fore);
+}
+async function klickaEllerTangent(page, valjare, tangent) {
+  const knapp = page.locator(valjare);
+  if (await knapp.isVisible()) { await knapp.click(); } else { await page.keyboard.press(tangent); }
 }
 
 async function nySida(browser, url, valjByggnad) {
@@ -1494,6 +1501,385 @@ async function testBalanseringensTidsaxel(browser) {
 // utförare och hela året. Samma mätning som i processlinjetestet: overflow:hidden gör att
 // dokumentet aldrig kan växa förbi fönstret, så det är layoutens underkant och tidsaxelns
 // egen scrollhöjd som säger om något inte får plats.
+// Öppnar en av Balanseringens frågor om den inte redan är öppen. Ett klick på en öppen fråga
+// stänger den, så ett villkorslöst klick hade gett motsatt läge beroende på vad som hänt före.
+async function oppnaFraga(page, n) {
+  if (!await page.locator('.bal-fraga[data-fraga="' + n + '"].oppen').count()) {
+    await page.locator('.bal-fraga[data-fraga="' + n + '"] .steg-huvud').click();
+  }
+  await vanta(page, nr => !!document.querySelector('.bal-fraga[data-fraga="' + nr + '"].oppen .steg-kropp'),
+    'fråga ' + n + ' öppen', n);
+}
+
+// Etapp 5: Balansera – de två frågorna, uträkningen och vad som händer efteråt (biljett #15).
+//
+// Uträkningen prövas med underlag som byggs i testet, med planeringens egen veckoräknare
+// inskickad. Då gäller de riktiga reglerna om frekvenser (bland dem beslut 41 om
+// halvårsronder med startmånad) utan att något tillstånd behöver sättas upp först.
+async function testBalansera(browser) {
+  console.log('Etapp 5 – Balansera');
+  const page = await nySida(browser, URL_INDEX);
+
+  // ------------------------------------------------------------------
+  // Uträkningen, med underlag som byggs i testet
+  // ------------------------------------------------------------------
+  const rakning = await page.evaluate(() => {
+    const P = DP.Plan, B = DP.Balansering;
+    // En byggnad i underlagsform. Timmarna och frekvensen är det som styr uträkningen.
+    const hus = (id, namn, omrade, ronder) => ({ id, namn, omrade, farg: '#888', ronder });
+    const rond = (id, utforare, timmar, freq) => ({ id, namn: 'Rond ' + id, utforare, timmar, freq });
+    const bygg = (byggnader, extra) => Object.assign({
+      antalVeckor: P.ANTAL_VECKOR, veckoraknare: P.veckorFor,
+      utforare: [{ id: 'anna', namn: 'Anna Berg' }, { id: 'bertil', namn: 'Bertil Ek' }],
+      kapacitet: { anna: 3, bertil: 3 }, akerTill: [], byggnader
+    }, extra || {});
+    const manad = { typ: 'manad', startManad: null };
+
+    // 1) Två kaserner på samma område med samma utförare får olika förskjutning
+    const tva = B.balansera(bygg([
+      hus('k1', 'Kasern 1', 'kasernomradet', [rond('BI', 'anna', 8, manad)]),
+      hus('k2', 'Kasern 2', 'kasernomradet', [rond('BI', 'anna', 8, manad)])
+    ]));
+
+    // 2) Två byggnader i ett område man åker till: kapaciteten räcker (4 + 4 = 8 h av 24 h)
+    const samlat = B.balansera(bygg([
+      hus('h1', 'Hangar 1', 'flygfaltet', [rond('BI', 'anna', 4, manad)]),
+      hus('h2', 'Hangar 2', 'flygfaltet', [rond('BI', 'anna', 4, manad)])
+    ], { akerTill: ['flygfaltet'] }));
+    // … och när den inte räcker (16 + 16 = 32 h av 24 h) hamnar de veckorna efter varandra
+    const samlatTrangt = B.balansera(bygg([
+      hus('h1', 'Hangar 1', 'flygfaltet', [rond('BI', 'anna', 16, manad)]),
+      hus('h2', 'Hangar 2', 'flygfaltet', [rond('BI', 'anna', 16, manad)])
+    ], { akerTill: ['flygfaltet'] }));
+
+    // … och byggnaderna i området behöver inte ha samma rondmix. Den som bara har månadsronder
+    // har 4 faser att välja mellan, den med en årsrond har 26. Områdets vecka kan därför ligga
+    // utanför den andra byggnadens kandidater, och då ska förskjutningen räknas modulo listans
+    // längd i stället för att bli odefinierad. Kontrollen är en vaktpost: med dagens fyra
+    // byggnader hamnar områdets första byggnad på en låg fas som finns i bådas listor, men
+    // skulle den någon gång hamna högre ska en byggnad aldrig få `undefined` som förskjutning.
+    const olikaMix = B.balansera(bygg([
+      hus('stor', 'Stor hall', 'flygfaltet', [rond('AR', 'anna', 8, { typ: 'ar', startManad: null })]),
+      hus('liten', 'Liten hall', 'flygfaltet', [rond('BI', 'anna', 8, manad)])
+    ], { akerTill: ['flygfaltet'] }));
+
+    // 3) Halvårsrond med vald startmånad stannar i sin månad (beslut 41)
+    const halvar = { typ: 'halvar', startManad: 4 };
+    const iManaden = B.balansera(bygg([
+      hus('a', 'Hus A', 'o', [rond('R', 'anna', 8, halvar)]),
+      hus('b', 'Hus B', 'o', [rond('R', 'anna', 8, halvar)])
+    ]));
+    const veckorB = P.veckorFor(halvar, iManaden.forskjutningar.b);
+
+    // 4) Kapacitet 1 dag (8 h): en veckorond och en månadsrond på 8 h var hos samma utförare
+    //    går inte att förskjuta ifrån varandra – överbelastningen ska redovisas, inte gömmas
+    const trangt = bygg([
+      hus('a', 'Hus A', 'o', [
+        rond('V', 'anna', 8, { typ: 'vecka', startManad: null }),
+        rond('M', 'anna', 8, manad)
+      ])
+    ], { kapacitet: { anna: 1, bertil: 3 } });
+    const enDag = B.balansera(trangt);
+
+    // 5) Samma underlag ger samma resultat två gånger
+    const u = bygg([
+      hus('k1', 'Kasern 1', 'kasernomradet', [rond('BI', 'anna', 8, manad), rond('BU', 'bertil', 4, { typ: 'kvartal', startManad: null })]),
+      hus('k2', 'Kasern 2', 'kasernomradet', [rond('BI', 'anna', 8, manad)])
+    ]);
+    const kor1 = B.balansera(u), kor2 = B.balansera(u);
+
+    const veckorFor = (res, bid, rondId, freq) =>
+      P.veckorFor(freq, (res.forskjutningar[bid] || 0) +
+        ((res.rondForskjutningar[bid] || {})[rondId] || 0));
+
+    return {
+      tva: {
+        fsk: tva.forskjutningar,
+        k1: veckorFor(tva, 'k1', 'BI', manad).slice(0, 3),
+        k2: veckorFor(tva, 'k2', 'BI', manad).slice(0, 3),
+        toppFore: tva.forbattring.toppTimmarFore, toppEfter: tva.forbattring.toppTimmarEfter
+      },
+      samlat: { fsk: samlat.forskjutningar, over: samlat.efter.overVeckor,
+                typer: samlat.forklaring.map(f => f.typ) },
+      samlatTrangt: { fsk: samlatTrangt.forskjutningar, typer: samlatTrangt.forklaring.map(f => f.typ) },
+      olikaMix: { fsk: olikaMix.forskjutningar,
+                  veckor: P.veckorFor(manad, olikaMix.forskjutningar.liten) },
+      halvar: { fsk: iManaden.forskjutningar, veckorB, manaderB: veckorB.map(v => P.manadForVecka(v)),
+                veckorA: P.veckorFor(halvar, iManaden.forskjutningar.a || 0) },
+      enDag: {
+        kvar: enDag.kvarstaende.map(k => ({ u: k.utforare, antal: k.veckor.length, topp: k.toppTimmar, kap: k.kapacitetTimmar })),
+        // Redovisningen ska täcka varje vecka som faktiskt är över, inte bara säga att det finns
+        // ett problem: "redovisas exakt" är kriteriet i biljetten.
+        redovisat: enDag.kvarstaende.reduce((n, k) => n + k.veckor.length, 0),
+        overVeckor: enDag.efter.overVeckor,
+        utforare: trangt.byggnader[0].ronder.map(r => r.utforare),
+        kapacitet: trangt.kapacitet.anna,
+        freq: trangt.byggnader[0].ronder.map(r => r.freq.typ)
+      },
+      lika: JSON.stringify(kor1.forskjutningar) === JSON.stringify(kor2.forskjutningar) &&
+            JSON.stringify(kor1.rondForskjutningar) === JSON.stringify(kor2.rondForskjutningar) &&
+            JSON.stringify(kor1.forklaring) === JSON.stringify(kor2.forklaring),
+      likaFsk: JSON.stringify(kor1.forskjutningar)
+    };
+  });
+
+  kontroll(rakning.tva.k1.join(',') !== rakning.tva.k2.join(',')
+    && rakning.tva.toppEfter < rakning.tva.toppFore,
+    'två kaserner på samma område med samma utförare får olika veckor (v. ' + rakning.tva.k1.join(',')
+    + ' mot v. ' + rakning.tva.k2.join(',') + '), och toppen går från ' + rakning.tva.toppFore
+    + ' h till ' + rakning.tva.toppEfter + ' h');
+  kontroll(rakning.samlat.fsk.h1 === rakning.samlat.fsk.h2 && rakning.samlat.over === 0
+    && rakning.samlat.typer.indexOf('samlad') >= 0,
+    'två byggnader i ett område man åker till får samma förskjutning när kapaciteten räcker ('
+    + JSON.stringify(rakning.samlat.fsk) + ')');
+  kontroll(rakning.samlatTrangt.fsk.h2 === rakning.samlatTrangt.fsk.h1 + 1
+    && rakning.samlatTrangt.typer.indexOf('samlad-efter') >= 0,
+    'räcker kapaciteten inte hamnar de veckorna efter varandra ('
+    + JSON.stringify(rakning.samlatTrangt.fsk) + ')');
+  kontroll(typeof rakning.olikaMix.fsk.liten === 'number' && rakning.olikaMix.fsk.liten >= 0
+    && rakning.olikaMix.veckor.length > 0,
+    'en byggnad i ett åker-till-område får en giltig förskjutning även när områdets vecka '
+    + 'ligger utanför dess egna faser (' + JSON.stringify(rakning.olikaMix.fsk) + ')');
+  kontroll(JSON.stringify(rakning.halvar.manaderB) === JSON.stringify([3, 9])
+    && rakning.halvar.veckorB.join(',') !== rakning.halvar.veckorA.join(','),
+    'en halvårsrond med vald startmånad stannar i sin månad men byter vecka (v. '
+    + rakning.halvar.veckorB.join(', ') + ', april och oktober)');
+  kontroll(rakning.enDag.kvar.length === 1 && rakning.enDag.kvar[0].u === 'anna'
+    && rakning.enDag.kvar[0].topp > rakning.enDag.kvar[0].kap,
+    'kapacitet 1 dag ger redovisad överbelastning (' + JSON.stringify(rakning.enDag.kvar) + ')');
+  kontroll(rakning.enDag.redovisat === rakning.enDag.overVeckor && rakning.enDag.overVeckor > 0,
+    'varje överbelastad vecka som blir kvar står i redovisningen – ingen går tyst förbi ('
+    + rakning.enDag.redovisat + ' av ' + rakning.enDag.overVeckor + ' veckor)');
+  kontroll(rakning.enDag.utforare.join(',') === 'anna,anna' && rakning.enDag.kapacitet === 1
+    && rakning.enDag.freq.join(',') === 'vecka,manad',
+    'uträkningen byter aldrig utförare och ändrar aldrig kapacitet eller frekvens');
+  kontroll(rakning.lika === true,
+    'samma underlag ger samma resultat två gånger (' + rakning.likaFsk + ')');
+
+  // ------------------------------------------------------------------
+  // Frågorna i sidan: förval, grön bock och ett klick var
+  // ------------------------------------------------------------------
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await vanta(page, () => DP.Plan.klaraByggnader().length === 4, 'alla fyra byggnaderna klara');
+
+  const forval = await page.evaluate(() => {
+    const u = DP.Plan.balanseringsUnderlag();
+    return { akerTill: u.akerTill, kapacitet: u.kapacitet, status: DP.Plan.balanseringStatus() };
+  });
+  kontroll(JSON.stringify(forval.akerTill) === JSON.stringify(['flygfaltet'])
+    && forval.kapacitet.anna === 3 && forval.kapacitet.david === 3,
+    'förvalen gäller innan frågorna besvarats: Flygfältet och 3 dagar för alla');
+  kontroll(forval.status.omraden === false && forval.status.kapacitet === false && forval.status.klar === false,
+    'ingen fråga är besvarad och Balansering är inte klar från början');
+  kontroll(await page.locator('.bal-fraga').count() === 2
+    && (await page.locator('.bal-fraga[data-fraga="1"]').innerText()).includes('Flygfältet')
+    && (await page.locator('.bal-fraga[data-fraga="2"]').innerText()).includes('3 dagar'),
+    'båda frågorna visar sitt förval i sammanfattningen');
+
+  // Ett klick öppnar frågan, ett till bekräftar förvalet och ger grön bock
+  await page.locator('.bal-fraga[data-fraga="1"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('.bal-omrade-rad'), 'områdesfrågan öppen');
+  kontroll((await page.locator('.bal-omrade-rad[data-omrade="kasernomradet"]').innerText()).includes('Kasern 1')
+    && (await page.locator('.bal-omrade-rad[data-omrade="flygfaltet"]').innerText()).includes('Hangar'),
+    'det syns vilka byggnader som ligger i varje område');
+  let foreHist = await historiklangd(page);
+  await page.locator('.bal-fraga[data-fraga="1"] button[data-godkann]').click();
+  await stegKlart(page, foreHist, 'bekräftade områdesfrågan');
+  kontroll(await page.evaluate(() => DP.Plan.balanseringStatus().omraden) === true
+    && (await page.locator('.bal-fraga[data-fraga="1"] .steg-nr').innerText()) === '✓',
+    'fråga 1 får grön bock av ett klick på "Förvalet stämmer"');
+  kontroll(await page.locator('.bal-fraga[data-fraga="2"].oppen').count() === 1,
+    'nästa fråga öppnas av sig själv');
+
+  foreHist = await historiklangd(page);
+  await page.locator('.bal-fraga[data-fraga="2"] button[data-godkann]').click();
+  await stegKlart(page, foreHist, 'bekräftade kapacitetsfrågan');
+  kontroll(await page.evaluate(() => DP.Plan.balanseringStatus().kapacitet) === true
+    && (await page.locator('.bal-fraga[data-fraga="2"] .steg-nr').innerText()) === '✓',
+    'fråga 2 får grön bock av ett klick');
+
+  // Kapaciteten går att ändra per person, och belastningen räknas om på svaret
+  await oppnaFraga(page, 2);
+  foreHist = await historiklangd(page);
+  await page.locator('.bal-kaprad[data-utforare="anna"] .chip[data-dagar="2"]').click();
+  await stegKlart(page, foreHist, 'satte Annas kapacitet till 2 dagar');
+  const andrad = await page.evaluate(() => {
+    const u = DP.Plan.balanseringsUnderlag();
+    return { kap: u.kapacitet, annaTimmar: DP.Balansering.belastning(u).rad('anna').kapacitetTimmar };
+  });
+  kontroll(andrad.kap.anna === 2 && andrad.kap.bertil === 3 && andrad.annaTimmar === 16,
+    'kapaciteten ändras per person och belastningen räknas om på svaret (Anna '
+    + andrad.annaTimmar + ' h, Bertil ' + andrad.kap.bertil + ' dagar)');
+  await angra(page);
+  kontroll(await page.evaluate(() => DP.Plan.balanseringsUnderlag().kapacitet.anna) === 3,
+    'ångra tar tillbaka kapacitetssvaret');
+
+  // ------------------------------------------------------------------
+  // Balansera: ett historiksteg, jämnare belastning och en förklaring
+  // ------------------------------------------------------------------
+  const fore = await page.evaluate(() => {
+    const b = DP.Balansering.belastning(DP.Plan.balanseringsUnderlag());
+    return {
+      topp: b.toppTimmar, over: b.overVeckor,
+      bi1: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern1'), 'kasern1').filter(t => t.rond === 'BI').map(t => t.vecka),
+      bi2: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern2'), 'kasern2').filter(t => t.rond === 'BI').map(t => t.vecka),
+      utforare: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).ronder.map(r => r.utforare).join(',')),
+      freq: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).ronder.map(r => JSON.stringify(r.freq)).join(','))
+    };
+  });
+  kontroll(fore.bi1.join(',') === fore.bi2.join(','),
+    'före balanseringen ligger kasernernas månadsronder i samma veckor (v. ' + fore.bi1.slice(0, 3).join(', ') + ' …)');
+
+  // Positionen och inte längden: ett ångra tidigare i testet har spolat tillbaka historiken,
+  // och nästa steg skriver då över det som låg framför – längden står still, positionen går fram.
+  const forePos = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('#balansera-knapp').click();
+  const brickor = await page.locator('.flygbricka').count();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'balanseringssteget', forePos);
+  await vanta(page, () => !!document.querySelector('.bal-frad'), 'förklaringen ritad');
+  kontroll(brickor > 0,
+    'brickorna animeras till sina nya veckor när balanseringen görs (' + brickor + ' brickor)');
+
+  const efter = await page.evaluate(() => {
+    const b = DP.Balansering.belastning(DP.Plan.balanseringsUnderlag());
+    return {
+      topp: b.toppTimmar, over: b.overVeckor, pos: DP.Plan.historik().pos,
+      status: DP.Plan.balanseringStatus(),
+      redovisat: DP.Plan.balanseringStatus().resultat.kvarstaende.reduce((n, k) => n + k.veckor.length, 0),
+      bi1: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern1'), 'kasern1').filter(t => t.rond === 'BI').map(t => t.vecka),
+      bi2: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern2'), 'kasern2').filter(t => t.rond === 'BI').map(t => t.vecka),
+      utforare: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).ronder.map(r => r.utforare).join(',')),
+      freq: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).ronder.map(r => JSON.stringify(r.freq)).join(',')),
+      fsk: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).forskjutning)
+    };
+  });
+  kontroll(efter.pos === forePos + 1,
+    'hela balanseringen blir ett enda steg i historiken (position ' + forePos + ' → ' + efter.pos + ')');
+  kontroll(efter.bi1.join(',') !== efter.bi2.join(','),
+    'Kasern 1 och Kasern 2 hamnar i olika veckor (v. ' + efter.bi1.slice(0, 3).join(', ')
+    + ' … mot v. ' + efter.bi2.slice(0, 3).join(', ') + ' …)');
+  kontroll(efter.topp < fore.topp && efter.over <= fore.over,
+    'toppbelastningen sjunker (' + fore.topp + ' h → ' + efter.topp + ' h) och veckorna över '
+    + 'kapaciteten blir inte fler (' + fore.over + ' → ' + efter.over + ')');
+  kontroll(JSON.stringify(efter.utforare) === JSON.stringify(fore.utforare)
+    && JSON.stringify(efter.freq) === JSON.stringify(fore.freq),
+    'inga frekvenser eller utförare ändras av Balansera');
+  kontroll(efter.over === efter.redovisat,
+    'med standardplaneringen och förvalen är ingen utförare över kapaciteten, eller så är varje '
+    + 'sådan vecka redovisad (' + efter.over + ' över, ' + efter.redovisat + ' redovisade)');
+  kontroll(efter.status.klar === true
+    && (await page.locator('.pl-steg[data-steg="balansering"]').getAttribute('data-klar')) === 'ja',
+    'Balansering får grön bock i processlinjen när den är gjord');
+
+  // Förklaringen i klartext: en rad per byggnad, och den säger vilka veckor besöken hamnade i
+  const rader = await page.locator('.bal-frad').allInnerTexts();
+  kontroll(rader.length === 4 && rader.every(r => /v\. \d/.test(r)),
+    'förklaringen har en rad per byggnad och säger vilka veckor den besöks i ('
+    + rader.length + ' rader)');
+  kontroll(rader.some(r => r.includes('Kasern 2')) && rader.some(r => r.includes('Kasern 1')),
+    'förklaringen nämner båda kasernerna');
+  kontroll((await page.locator('.bal-resultat .bal-vsum').innerText()).includes('Högsta veckan'),
+    'förklaringen sammanfattar vad som blev bättre');
+  kontroll((await page.locator('.bt-fot-text').innerText()).includes('efter balanseringen')
+    || (await page.locator('.bt-fot-text').innerText()).includes('gick jämnt ut'),
+    'foten under tidsaxeln säger att balanseringen är gjord i stället för att beskriva problemet');
+  await rorelsePaus(page);
+  await bild(page, 'etapp5-balanserad');
+
+  // ------------------------------------------------------------------
+  // Ett enda ångra återställer alla förskjutningar, och brickorna animeras tillbaka
+  // ------------------------------------------------------------------
+  const aktivFore = await page.evaluate(() => DP.Plan.aktivId());
+  // Flygbrickorna lever bara medan animeringen pågår, så de räknas direkt efter klicket.
+  // Att de finns är kontrollen: flytten syns, i stället för att tidsaxeln bara byter innehåll.
+  await page.locator('#bal-angra').click();
+  const brickorVidAngra = await page.locator('.flygbricka').count();
+  kontroll(brickorVidAngra > 0,
+    'brickorna animeras till sina gamla veckor vid ångra (' + brickorVidAngra + ' brickor)');
+  await vanta(page, () => !DP.Plan.balanseringStatus().klar, 'balanseringen ångrad');
+  const angrat = await page.evaluate(() => ({
+    fsk: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).forskjutning),
+    rondFsk: DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).ronder.map(r => r.forskjutning || 0).join(',')),
+    bi1: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern1'), 'kasern1').filter(t => t.rond === 'BI').map(t => t.vecka),
+    klar: DP.Plan.balanseringStatus().klar,
+    aktiv: DP.Plan.aktivId()
+  }));
+  kontroll(angrat.fsk.every(f => !f) && angrat.rondFsk.every(r => /^0(,0)*$/.test(r)),
+    'ett enda ångra återställer alla förskjutningar, på båda nivåerna');
+  kontroll(angrat.bi1.join(',') === fore.bi1.join(','),
+    'tillfällena ligger i sina gamla veckor igen');
+  kontroll(angrat.klar === false, 'Balansering är inte längre klar efter ångra');
+  kontroll(angrat.aktiv === aktivFore, 'ångra av balanseringen byter inte aktiv byggnad (' + angrat.aktiv + ')');
+  await gorOm(page);
+  await vanta(page, () => DP.Plan.balanseringStatus().klar, 'gör om ger balanseringen tillbaka');
+  kontroll(await page.evaluate(() =>
+    JSON.stringify(DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).forskjutning))) === JSON.stringify(efter.fsk),
+    'gör om ger samma förskjutningar tillbaka');
+
+  // ------------------------------------------------------------------
+  // Kvarstående överbelastning: sägs rakt ut, med länkar som fungerar
+  // ------------------------------------------------------------------
+  await oppnaFraga(page, 2);
+  foreHist = await historiklangd(page);
+  await page.locator('.bal-kaprad[data-utforare="anna"] .chip[data-dagar="1"]').click();
+  await stegKlart(page, foreHist, 'satte Annas kapacitet till 1 dag');
+  foreHist = await historiklangd(page);
+  await page.locator('#balansera-knapp').click();
+  await stegKlart(page, foreHist, 'balanserade om med 1 dag');
+  await vanta(page, () => !!document.querySelector('.bal-kvar'), 'kvarstående överbelastning visas');
+
+  const kvar = await page.evaluate(() => DP.Plan.balanseringStatus().resultat.kvarstaende);
+  // Biljettens kriterium: ingen utförare är över kapaciteten, *eller* så redovisas
+  // överbelastningen exakt. Kontrollen prövar båda grenarna på en gång mot det verkliga läget.
+  const redovisning = await page.evaluate(() => {
+    const b = DP.Balansering.belastning(DP.Plan.balanseringsUnderlag());
+    const k = DP.Plan.balanseringStatus().resultat.kvarstaende;
+    return { over: b.overVeckor, redovisat: k.reduce((n, r) => n + r.veckor.length, 0) };
+  });
+  kontroll(redovisning.over === redovisning.redovisat,
+    'varje vecka som är över kapaciteten efter balanseringen är redovisad ('
+    + redovisning.redovisat + ' av ' + redovisning.over + ')');
+  kontroll(kvar.length >= 1 && kvar.some(k => k.utforare === 'anna'),
+    'med 1 dag i veckan räcker kapaciteten inte, och det redovisas (' +
+    kvar.map(k => k.namn + ': ' + k.veckor.length + ' v').join(', ') + ')');
+  const kvarText = await page.locator('.bal-kvar').first().innerText();
+  kontroll(kvarText.includes('Anna Berg') && kvarText.includes('mer än hen hinner'),
+    'överbelastningen sägs rakt ut: ' + kvarText.split('\n')[0]);
+  kontroll(await page.evaluate(() =>
+    DP.Plan.byggnadsordning.every(id => DP.Plan.stateFor(id).ronder.every(r => ['anna', 'bertil', 'cecilia', 'david'].indexOf(r.utforare) >= 0))
+    && DP.Plan.stateFor('kasern1').ronder.filter(r => r.id === 'BI')[0].utforare === 'anna'),
+    'ingen utförare byts av balanseringen, inte heller när kapaciteten inte räcker');
+  await bild(page, 'etapp5-balansering-kvarstaende');
+
+  // Länken till kapacitetsfrågan öppnar den och pekar ut rätt person
+  if (await page.locator('.bal-fraga[data-fraga="2"].oppen').count()) {
+    await page.locator('.bal-fraga[data-fraga="2"] .steg-huvud').click();
+    await vanta(page, () => !document.querySelector('.bal-kaprad'), 'kapacitetsfrågan stängd');
+  }
+  await page.locator('.bal-kvar .bal-kaplank[data-utforare="anna"]').click();
+  await vanta(page, () => !!document.querySelector('.bal-kaprad[data-utforare="anna"]'), 'kapacitetsfrågan öppnad av länken');
+  kontroll(await page.locator('.bal-fraga[data-fraga="2"].oppen').count() === 1
+    && await page.locator('.bal-kaprad[data-utforare="anna"]').count() === 1,
+    'länken "Ändra kapaciteten" öppnar kapacitetsfrågan');
+
+  // Länken till Planering steg 4 byter byggnad och öppnar rätt steg
+  const malByggnad = await page.locator('.bal-kvar .bal-steg4lank').first().getAttribute('data-byggnad');
+  await page.locator('.bal-kvar .bal-steg4lank').first().click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppen');
+  const steg4 = await page.evaluate(() => ({
+    aktiv: DP.Plan.aktivId(),
+    oppet: (document.querySelector('.steg-kort.oppen .steg-titel') || {}).textContent
+  }));
+  kontroll(steg4.aktiv === malByggnad && /Vem utför ronderna/.test(steg4.oppet || ''),
+    'länken till Planering steg 4 byter byggnad och öppnar frågan om vem som utför ronderna ('
+    + steg4.aktiv + ', "' + steg4.oppet + '")');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testBalanseringRymsPaSkarmen(browser) {
   console.log('Etapp 5 – Balansering på 1920×1200');
   const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
@@ -1565,6 +1951,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testForskjutning(browser);
     await testProcesslinjen(browser);
     await testBalanseringensTidsaxel(browser);
+    await testBalansera(browser);
     await testBalanseringRymsPaSkarmen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {

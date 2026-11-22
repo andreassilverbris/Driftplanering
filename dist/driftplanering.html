@@ -52,6 +52,10 @@ button { font: inherit; cursor: pointer; }
 .pl-namn { font-weight: 700; font-size: 13px; white-space: nowrap; }
 .pl-under { font-size: 11px; color: var(--svag); line-height: 1.25; }
 .pl-steg.aktiv .pl-under { color: var(--accent); }
+/* Grön bock på ett klart huvudsteg – samma signal som i Planeringens steg */
+.pl-steg.klar { border-color: #bfe5cd; }
+.pl-steg.klar.aktiv { border-color: var(--accent); }
+.pl-bock { color: var(--gron); margin-right: 4px; }
 .pl-pil { align-self: center; color: var(--svag); font-size: 12px; flex: none; }
 .pl-rad { display: flex; justify-content: flex-end; padding: 6px 10px 8px; border-bottom: 1px solid var(--linje); }
 .hs-innehall { flex: 1; overflow-y: auto; padding: 12px 14px 24px; min-height: 0; }
@@ -515,6 +519,32 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 .bt-fot-text { max-width: 1100px; font-size: 13px; color: var(--dov); line-height: 1.65; }
 .bt-fot-text b { color: var(--text); }
 .bt-fot-rub { font-weight: 700; color: var(--text); }
+
+/* Balanseringens frågor: samma utseende som Planeringens steg, så att det syns att det är
+   samma sorts arbete. Båda har förval och kan klickas igenom med ett klick var (beslut 37). */
+.bal-fraga { margin-bottom: 6px; }
+.bal-fraga .steg-kropp { padding-top: 2px; }
+.bal-omradeslista, .bal-kaplista { display: flex; flex-direction: column; gap: 4px; margin: 7px 0; }
+.bal-omrade-rad, .bal-kaprad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 6px; background: #fff; }
+.bal-omrade-rad.pa { border-color: #b8cff8; background: #f6f9ff; }
+.bal-kryss { width: 20px; height: 20px; flex: none; border: 1px solid var(--linje); border-radius: 5px; background: #fff; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; }
+.bal-kryss.pa { background: var(--gron); border-color: var(--gron); }
+.bal-otext, .bal-ktext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-obyggnader { font-size: 11px; color: var(--accent); }
+.bal-dagar { margin: 0; flex: none; gap: 3px; }
+.bal-dagar .chip { padding: 2px 8px; font-size: 12px; }
+
+/* Knappen Balansera och förklaringen efteråt */
+.bal-balansera { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--linje); }
+.bal-resultat { border-top: 1px solid var(--linje); padding-top: 12px; }
+.bal-forklaring { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.bal-frad { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; color: var(--text); }
+.bal-frad .bal-farg { margin-top: 4px; }
+.bal-frad.orord { color: var(--dov); }
+.bal-ftext { min-width: 0; }
+.bal-kvar { margin-top: 9px; }
+.bal-kvarlankar { margin-top: 5px; gap: 10px; }
+.bal-kvarlankar .lank { font-size: 12px; padding: 0; color: #a33; }
 
 </style>
 </head>
@@ -2823,11 +2853,344 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     return (t === Math.round(t) ? String(Math.round(t)) : String(t).replace('.', ',')) + ' h';
   }
 
+
+  // ------------------------------------------------------------------
+  // Den automatiska balanseringen
+  //
+  // Uträkningen väljer **förskjutningar**, aldrig frekvenser, utförare eller kapacitet
+  // (beslut 26 och 46). Den arbetar i två steg: först byggnadernas besöksrytmer (nivå 1),
+  // och bara om någon utförare fortfarande är över kapaciteten också enskilda rondserier
+  // (nivå 2). Kvarstående överbelastning redovisas i klartext i stället för att gömmas.
+  //
+  // Underlaget är detsamma som belastningen räknar på, med två tillägg som behövs för att
+  // kunna *pröva* en annan förskjutning:
+  //   veckoraknare(freq, forskjutning) -> [veckor]   hur en rondserie ligger vid en förskjutning
+  //   ronder[].freq                                  rondens frekvens, att skicka till räknaren
+  // Räknaren injiceras i stället för att modulen anropar DP.Plan: då går uträkningen att
+  // pröva med ett underlag som byggs direkt i ett test, och reglerna om frekvenser (bland
+  // dem att en halvårsrond med startmånad bara flyttas inom sin månad, beslut 41) bor kvar
+  // på ett ställe – i planeringen.
+  //
+  // Sökningen är **deterministisk och greedy**: byggnaderna placeras i underlagets ordning,
+  // och varje byggnad får den förskjutning som gör måtten nedan bäst givet de redan
+  // placerade. Vid lika utfall vinner den minsta förskjutningen. Samma underlag ger därför
+  // alltid samma resultat, och förklaringen går att läsa som en följd av beslut.
+  // ------------------------------------------------------------------
+
+  // Hur bra ett läge är, i den ordning reglerna säger (specen i biljetten och beslut 38):
+  //   1. lägsta toppbelastning per utförare
+  //   2. därefter så få veckor som möjligt över kapaciteten
+  //   3. därefter så få veckor som möjligt med fler än 6 tillfällen
+  // Jämnheten (summan av kvadrerade veckotimmar) kommer sist: den skiljer två lägen som är
+  // lika på alla tre måtten, så att tillfällena sprids i stället för att klumpa ihop sig.
+  function matt(bel) {
+    var spridning = 0;
+    bel.rader.forEach(function (rad) {
+      rad.veckor.forEach(function (c) { if (c.vecka >= 1) { spridning += c.timmar * c.timmar; } });
+    });
+    return [bel.toppTimmar, bel.overVeckor, bel.mangaVeckor, avrunda(spridning, 2)];
+  }
+  // Mindre är bättre, måtten jämförs i ordning
+  function battre(a, b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) { return a[i] < b[i]; }
+    }
+    return false;
+  }
+
+  // Kandidatförskjutningar för en byggnad: 0 … (längsta rondintervallet − 1), så att varje
+  // rond kan hamna i vilken fas som helst inom sin egen rytm. Taket håller sökningen liten
+  // och begriplig: en byggnad med bara veckoronder har ingen fas att välja, och en med en
+  // årsrond behöver inte 52 kandidater för att jämna ut belastningen – de 26 första räcker,
+  // och längre förskjutningar är ändå samma rytm sedd från en annan vecka.
+  var KANDIDATTAK = 26;
+  function kandidater(byggnad, veckoraknare) {
+    var langst = 1;
+    (byggnad.ronder || []).forEach(function (r) {
+      var iv = intervallFor(r, veckoraknare);
+      if (iv > langst) { langst = iv; }
+    });
+    var n = Math.min(langst, KANDIDATTAK);
+    var ut = [];
+    for (var f = 0; f < n; f++) { ut.push(f); }
+    return ut;
+  }
+  // Rondens intervall, läst ur räknaren i stället för ur en tabell: avståndet mellan de två
+  // första tillfällena. Modulen behöver inte veta vad frekvenserna heter för att se hur
+  // många faser en rond har.
+  function intervallFor(rond, veckoraknare) {
+    var v = veckoraknare(rond.freq, 0) || [];
+    return v.length >= 2 ? v[1] - v[0] : 1;
+  }
+
+  // Underlaget med en uppsättning förskjutningar tillämpade. Veckorna räknas om ur freq, så
+  // belastningen kan räknas på det prövade läget utan att något tillstånd ändras.
+  // `bara` (valfri) begränsar underlaget till en lista byggnads-id. Steg 1 använder den för
+  // att mäta ett val mot de byggnader som redan har valt sin plats.
+  function medForskjutningar(underlag, fsk, rondFsk, veckoraknare, bara) {
+    var med = bara ? (underlag.byggnader || []).filter(function (b) { return bara.indexOf(b.id) >= 0; })
+                   : (underlag.byggnader || []);
+    var kopia = {
+      antalVeckor: underlag.antalVeckor,
+      utforare: underlag.utforare,
+      kapacitet: underlag.kapacitet,
+      veckorUtan: underlag.veckorUtan,
+      byggnader: med.map(function (b) {
+        var bf = fsk[b.id] || 0;
+        return {
+          id: b.id, namn: b.namn, farg: b.farg, omrade: b.omrade,
+          ronder: (b.ronder || []).map(function (r) {
+            var rf = (rondFsk[b.id] && rondFsk[b.id][r.id]) || 0;
+            return {
+              id: r.id, namn: r.namn, utforare: r.utforare, timmar: r.timmar,
+              dagsdel: r.dagsdel, freq: r.freq,
+              veckor: veckoraknare(r.freq, bf + rf)
+            };
+          })
+        };
+      })
+    };
+    return kopia;
+  }
+
+  // Byggnaderna som delar område med en byggnad man åker till, i underlagets ordning
+  function akerTillOmraden(underlag) {
+    var set = {};
+    (underlag.akerTill || []).forEach(function (o) { set[o] = true; });
+    return set;
+  }
+
+  // ------------------------------------------------------------------
+  // balansera(underlag) -> resultat
+  //
+  // Resultatet är rena data – inget rörs i planeringen. Den som vill tillämpa det skriver
+  // förskjutningarna till tillståndet i ett enda historiksteg (beslut 36).
+  //
+  //   forskjutningar:     { byggnadId: veckor }                 nivå 1
+  //   rondForskjutningar: { byggnadId: { rondId: veckor } }      nivå 2, bara där det behövdes
+  //   fore / efter:       belastningen före och efter, för att kunna säga vad som blev bättre
+  //   kvarstaende:        [{ utforare, namn, veckor, toppTimmar, kapacitetTimmar }]
+  //   forklaring:         [{ typ, text }] – raderna planeraren läser
+  // ------------------------------------------------------------------
+  function balansera(underlag) {
+    var veckoraknare = underlag.veckoraknare;
+    if (typeof veckoraknare !== 'function') {
+      throw new Error('balansera() behöver underlag.veckoraknare(freq, forskjutning)');
+    }
+    var byggnader = (underlag.byggnader || []).slice();
+    var fsk = {}, rondFsk = {};
+    byggnader.forEach(function (b) { fsk[b.id] = 0; });
+    var fore = belastning(medForskjutningar(underlag, fsk, rondFsk, veckoraknare));
+    var akerTill = akerTillOmraden(underlag);
+    var forklaring = [];
+    // Vilken förskjutning den första byggnaden i ett område man åker till fick: följande
+    // byggnader i samma område ska helst ligga på samma vecka (beslut 38).
+    var omradesFsk = {};
+
+    // ---------------- Steg 1: byggnadernas besöksrytmer (nivå 1) ----------------
+    // Byggnaderna placeras en i taget, och varje val mäts mot **de redan placerade** – inte
+    // mot alla byggnader på en gång. Annars hade den första byggnaden fått flytta för att
+    // komma undan byggnader som ännu inte hade valt sin plats, och förklaringen hade sagt
+    // att något flyttades utan att planeraren kunde se varför. Nu flyttar en byggnad bara
+    // när den krockar med något som redan ligger där.
+    var placerade = [];
+    byggnader.forEach(function (b) {
+      placerade.push(b.id);
+      var alla = kandidater(b, veckoraknare);
+      if (alla.length <= 1) {
+        forklaring.push({
+          typ: 'orord', byggnad: b.id, veckor: 0,
+          text: b.namn + ' har bara veckovisa ronder och har ingen fas att flytta – den ligger kvar.'
+        });
+        return;
+      }
+      var prova = function (f) {
+        fsk[b.id] = f;
+        return matt(belastning(medForskjutningar(underlag, fsk, rondFsk, veckoraknare, placerade)));
+      };
+
+      var samlat = akerTill[b.omrade] && omradesFsk[b.omrade] !== undefined;
+      if (samlat) {
+        // I ett område man åker till samlas byggnaderna i samma vecka så långt kapaciteten
+        // räcker, annars i veckorna efter varandra (beslut 38). Därför prövas områdets vecka
+        // först, och sedan veckorna efter den i tur och ordning: den första som inte lägger
+        // någon utförare över kapaciteten vinner. Jämnheten får inte avgöra här – att samla
+        // resan är viktigare än att sprida timmarna.
+        var ordning = ordningEfter(alla, omradesFsk[b.omrade]);
+        var vald = null;
+        for (var i = 0; i < ordning.length; i++) {
+          if (prova(ordning[i])[1] === 0) { vald = ordning[i]; break; }
+        }
+        // Räcker kapaciteten ingenstans blir det områdets vecka: besöken hör ihop, och den
+        // kvarstående överbelastningen redovisas i stället för att gömmas (beslut 46).
+        fsk[b.id] = vald === null ? ordning[0] : vald;
+        forklaring.push(samladRad(b, fsk[b.id], omradesFsk[b.omrade], vald === null, veckoraknare));
+        return;
+      }
+
+      // Övriga områden: byggnaderna sprids. Den förskjutning som gör måtten bäst vinner, och
+      // vid lika utfall den minsta – alltså ingen flytt alls när ingen flytt behövs.
+      var bast = null, bastMatt = null;
+      alla.forEach(function (f) {
+        var m = prova(f);
+        if (bast === null || battre(m, bastMatt)) { bast = f; bastMatt = m; }
+      });
+      fsk[b.id] = bast;
+      if (akerTill[b.omrade] && omradesFsk[b.omrade] === undefined) { omradesFsk[b.omrade] = bast; }
+      forklaring.push(spriddRad(b, bast, akerTill[b.omrade], veckoraknare));
+    });
+
+    // ---------------- Steg 2: enskilda rondserier (nivå 2) ----------------
+    var efter = belastning(medForskjutningar(underlag, fsk, rondFsk, veckoraknare));
+    if (efter.overVeckor > 0) {
+      var forbattrat = false;
+      byggnader.forEach(function (b) {
+        (b.ronder || []).forEach(function (r) {
+          var iv = Math.min(intervallFor(r, veckoraknare), KANDIDATTAK);
+          if (iv <= 1) { return; }
+          var nu = matt(efter), bast = 0, bastMatt = nu;
+          for (var f = 1; f < iv; f++) {
+            rondFsk[b.id] = rondFsk[b.id] || {};
+            rondFsk[b.id][r.id] = f;
+            var m = matt(belastning(medForskjutningar(underlag, fsk, rondFsk, veckoraknare)));
+            if (battre(m, bastMatt)) { bast = f; bastMatt = m; }
+          }
+          if (bast) {
+            rondFsk[b.id][r.id] = bast;
+            efter = belastning(medForskjutningar(underlag, fsk, rondFsk, veckoraknare));
+            forbattrat = true;
+            forklaring.push({
+              typ: 'rondserie', byggnad: b.id, rond: r.id, veckor: bast,
+              text: b.namn + ' · ' + r.namn + ' flyttades ' + veckorOrd(bast) +
+                ' för sig, eftersom hela byggnadens rytm inte räckte för att få ner toppen.'
+            });
+          } else if (rondFsk[b.id]) {
+            delete rondFsk[b.id][r.id];
+          }
+        });
+        if (rondFsk[b.id] && !Object.keys(rondFsk[b.id]).length) { delete rondFsk[b.id]; }
+      });
+      if (!forbattrat && efter.overVeckor > 0) {
+        forklaring.push({
+          typ: 'rondserie-utan', text: 'Att flytta enskilda rondserier gjorde ingen skillnad, ' +
+            'så de ligger kvar i sina byggnaders rytm.'
+        });
+      }
+    }
+
+    // ---------------- Kvarstående överbelastning (beslut 46) ----------------
+    var kvarstaende = efter.rader.filter(function (rad) { return rad.over.length; }).map(function (rad) {
+      return {
+        utforare: rad.utforare, namn: rad.namn, veckor: rad.over.slice(),
+        toppTimmar: rad.toppTimmar, kapacitetTimmar: rad.kapacitetTimmar,
+        kapacitetDagar: rad.kapacitetDagar
+      };
+    });
+
+    return {
+      forskjutningar: fsk,
+      rondForskjutningar: rondFsk,
+      fore: fore,
+      efter: efter,
+      kvarstaende: kvarstaende,
+      forbattring: {
+        toppTimmarFore: fore.toppTimmar, toppTimmarEfter: efter.toppTimmar,
+        overVeckorFore: fore.overVeckor, overVeckorEfter: efter.overVeckor,
+        mangaVeckorFore: fore.mangaVeckor, mangaVeckorEfter: efter.mangaVeckor
+      },
+      forklaring: forklaring
+    };
+  }
+
+  // Kandidaterna i den ordning ett samlat område vill ha dem: samma vecka först, sedan
+  // veckorna efter varandra, och till sist resten (så att listan alltid är komplett).
+  //
+  // Områdets vecka behöver inte finnas bland den här byggnadens kandidater: listan är
+  // 0 … (längsta rondintervallet − 1), och två byggnader i samma område kan ha olika långa
+  // ronder. En byggnad med bara månadsronder har kandidaterna 0–3, och ligger områdets
+  // första byggnad på 13 finns ingen sådan kandidat. Starten räknas därför modulo listans
+  // längd – samma räkning som förskjutningen själv gör (beslut 26), så byggnaden hamnar i
+  // den fas som ligger närmast områdets vecka.
+  function ordningEfter(alla, start) {
+    var ut = [];
+    var fran = ((Math.round(start) % alla.length) + alla.length) % alla.length;
+    for (var i = 0; i < alla.length; i++) { ut.push(alla[(fran + i) % alla.length]); }
+    return ut;
+  }
+
+  function veckorOrd(n) { return n === 1 ? '1 vecka' : n + ' veckor'; }
+
+  // Raderna i förklaringen, i klartext och med skälet till flytten (beslut 36). En förklaring
+  // som bara säger *vad* som flyttades hjälper inte den som ska lita på uträkningen – varje
+  // rad säger också varför, och vilka veckor besöken hamnade i.
+  //
+  // Förskjutningen i veckor räcker inte som besked. Varje rond räknar förskjutningen modulo
+  // sitt eget intervall (beslut 26), så en byggnad kan få "4 veckor" och ändå ha sina
+  // månadsronder kvar på samma veckor – 4 modulo 4 är 0. Raden säger därför hur många av
+  // byggnadens rondserier som faktiskt bytte vecka, och vilka veckor den besöks i nu.
+  function flyttBeskrivning(b, fsk, veckoraknare) {
+    var flyttade = 0, total = 0, veckor = {};
+    (b.ronder || []).forEach(function (r) {
+      total++;
+      var fore = veckoraknare(r.freq, 0) || [];
+      var efter = veckoraknare(r.freq, fsk) || [];
+      efter.forEach(function (v) { veckor[v] = true; });
+      if (fore.join(',') !== efter.join(',')) { flyttade++; }
+    });
+    return {
+      flyttade: flyttade, total: total,
+      veckor: Object.keys(veckor).map(Number).sort(function (a, c) { return a - c; })
+    };
+  }
+  // De första besöksveckorna i klartext: "v. 3, 7, 11 …" – nog för att hitta dem i tidsaxeln
+  function veckorKort(veckor) {
+    if (!veckor.length) { return 'inga veckor'; }
+    var visa = veckor.slice(0, 3);
+    return 'v. ' + visa.join(', ') + (veckor.length > visa.length ? ' …' : '');
+  }
+  function rondserieOrd(n) { return n === 1 ? '1 rondserie' : n + ' rondserier'; }
+
+  function spriddRad(b, fsk, iAkerTill, veckoraknare) {
+    var fl = flyttBeskrivning(b, fsk, veckoraknare);
+    if (!fsk || !fl.flyttade) {
+      return { typ: 'orord', byggnad: b.id, veckor: 0, besoksveckor: fl.veckor,
+        text: b.namn + ' ligger kvar där den låg (' + veckorKort(fl.veckor) +
+          ') – den krockar inte med någon annan byggnad.' };
+    }
+    return { typ: 'forskjuten', byggnad: b.id, veckor: fsk, besoksveckor: fl.veckor,
+      flyttadeRonder: fl.flyttade,
+      text: b.namn + ' förskjuts ' + veckorOrd(fsk) + ' och besöks nu ' + veckorKort(fl.veckor) +
+        (iAkerTill ? '' : ', så att besöken inte hamnar samma veckor som de andra byggnadernas') +
+        '. ' + (fl.flyttade === fl.total
+          ? (fl.total === 1 ? 'Rondserien flyttade med.' : 'Alla ' + fl.total + ' rondserierna flyttade med.')
+          : rondserieOrd(fl.flyttade) + ' av ' + fl.total + ' bytte vecka – de övriga ligger ' +
+            'likadant, eftersom förskjutningen går jämnt upp i deras frekvens.') };
+  }
+  function samladRad(b, fsk, omradesFsk, utanPlats, veckoraknare) {
+    var fl = flyttBeskrivning(b, fsk, veckoraknare);
+    var efter = fsk - omradesFsk;
+    if (utanPlats) {
+      return { typ: 'samlad-utan-plats', byggnad: b.id, veckor: fsk, besoksveckor: fl.veckor,
+        text: b.namn + ' ligger i samma vecka som de andra byggnaderna man åker till (' +
+          veckorKort(fl.veckor) + '), men kapaciteten räcker inte någon vecka – ' +
+          'överbelastningen står kvar och redovisas nedan.' };
+    }
+    if (!efter) {
+      return { typ: 'samlad', byggnad: b.id, veckor: fsk, besoksveckor: fl.veckor,
+        text: b.namn + ' ligger i samma vecka som de andra byggnaderna man åker till (' +
+          veckorKort(fl.veckor) + ') – kapaciteten räcker för att göra dem i samma resa.' };
+    }
+    return { typ: 'samlad-efter', byggnad: b.id, veckor: fsk, besoksveckor: fl.veckor,
+      text: b.namn + ' ligger ' + veckorOrd(efter) + ' efter de andra byggnaderna man åker till (' +
+        veckorKort(fl.veckor) + '): kapaciteten räckte inte för att göra allt i samma vecka.' };
+  }
+
   DP.Balansering = {
     TIMMAR_PER_DAG: TIMMAR_PER_DAG,
     MANGA_TILLFALLEN: MANGA_TILLFALLEN,
     KAPACITET_FORVAL: KAPACITET_FORVAL,
     belastning: belastning,
+    balansera: balansera,
     cellText: cellText,
     timmarText: timmarText
   };
@@ -2989,6 +3352,25 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
   function tomtGemensamt() {
     return {};
   }
+  // Svaren i det gemensamma tillståndet, med förvalen när frågan inte är besvarad. Förvalet
+  // är ett *svar* som gäller, inte ett tomrum: belastningen räknas på det från första stunden,
+  // och frågan kan klickas igenom med ett klick när förvalet stämmer (beslut 37).
+  function akerTillForval() {
+    return DP.omraden.filter(function (o) { return o.akerTill; }).map(function (o) { return o.id; });
+  }
+  function svarAkerTill(gem) {
+    gem = gem || gemensamt();
+    return (gem.akerTill || akerTillForval()).slice();
+  }
+  function svarKapacitet(gem) {
+    gem = gem || gemensamt();
+    var ut = {};
+    UTFORARE.forEach(function (u) {
+      var svar = gem.kapacitet && gem.kapacitet[u.id];
+      ut[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
+    });
+    return ut;
+  }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
 
   // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
@@ -3014,6 +3396,7 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
   // Gör en ändring i den aktiva byggnaden som ett steg i historiken
   function andra(text, fn, info) {
     var fore = state();
+    var allaFore = historik[pos].alla;
     var alla = klona(historik[pos].alla);
     var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
@@ -3021,7 +3404,7 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: klona(historik[pos].gemensamt), text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
-    meddela(fore, ny, utokaInfo(info, [aktiv]));
+    meddela(fore, ny, utokaInfo(info, [aktiv], allaFore));
   }
 
   // Ändring som rör flera byggnader och/eller det gemensamma tillståndet, som ett enda steg i
@@ -3029,6 +3412,7 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
   // Steget hör inte till någon byggnad, så att ångra och gör om inte byter aktiv byggnad.
   function andraFlera(text, fn, info) {
     var fore = state();
+    var allaFore = historik[pos].alla;
     var alla = klona(historik[pos].alla);
     var gem = klona(historik[pos].gemensamt);
     var rorda = {};
@@ -3047,13 +3431,29 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
-    meddela(fore, state(), utokaInfo(info, rordaIds));
+    meddela(fore, state(), utokaInfo(info, rordaIds, allaFore));
   }
 
-  // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker.
-  function utokaInfo(info, byggnader) {
+  // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
+  // och vilka rutintillfällen som bytte vecka i **varje** rörd byggnad (`flyttade`).
+  //
+  // Skillnaden räknas här och inte hos den som gör ändringen, eftersom lyssnaren bara får den
+  // aktiva byggnadens tillstånd före och efter – Balanseringens tidsaxel visar alla byggnader
+  // på en gång. Och eftersom ga() går samma väg gäller det även ångra och gör om: flytten
+  // animeras tillbaka av sig själv (beslut 36).
+  function utokaInfo(info, byggnader, alltFore) {
     var ut = info ? klonaInfo(info) : {};
     ut.byggnader = byggnader;
+    if (alltFore) {
+      var flyttade = {};
+      byggnader.forEach(function (bid) {
+        var f = alltFore[bid], e = historik[pos].alla[bid];
+        if (!f || !e) { return; }
+        var vs = veckoSkillnad(f, e);
+        if (vs.length) { flyttade[bid] = vs; }
+      });
+      ut.flyttade = flyttade;
+    }
     return ut;
   }
   // Info kan innehålla DOM-noder och funktioner, så den kopieras ytligt
@@ -3068,9 +3468,10 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
     if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
+    var allaFore = historik[pos].alla;
     var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice()));
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore));
   }
   function vaxlaByggnad(id) {
     if (!DP.byggnader[id] || id === aktiv) { return; }
@@ -3446,17 +3847,16 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
   // förvalen: 3 dagar i veckan för alla (beslut 31) och inga veckor utkorsade.
   function balanseringsUnderlag() {
     var gem = gemensamt();
-    var kap = {};
-    UTFORARE.forEach(function (u) {
-      var svar = gem.kapacitet && gem.kapacitet[u.id];
-      kap[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
-    });
     return {
       antalVeckor: ANTAL_VECKOR,
+      // Hur en rondserie ligger vid en annan förskjutning. Balanseringen prövar förskjutningar
+      // och behöver räkna om veckorna, men ska inte själv veta något om frekvenser – reglerna
+      // (bland dem beslut 41 om halvårsronder med startmånad) bor här.
+      veckoraknare: veckorFor,
       utforare: UTFORARE.map(function (u) { return { id: u.id, namn: u.namn, farg: u.farg }; }),
-      kapacitet: kap,
+      kapacitet: svarKapacitet(gem),
       veckorUtan: (gem.veckorUtan || []).slice(),
-      akerTill: (gem.akerTill || DP.omraden.filter(function (o) { return o.akerTill; }).map(function (o) { return o.id; })).slice(),
+      akerTill: svarAkerTill(gem),
       byggnader: klaraByggnader().map(function (bid) {
         var s = stateFor(bid), b = DP.byggnader[bid];
         return {
@@ -3468,6 +3868,8 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
             var sparad = s.tider[r.id];
             return {
               id: r.id, namn: rondNamn(r.id), utforare: r.utforare,
+              freq: { typ: r.freq.typ, startManad: r.freq.startManad || null },
+              forskjutning: r.forskjutning || 0,
               timmar: tidTimmar(r.id, s, bid),
               dagsdel: sparad && sparad.godkand ? sparad.dagsdel : tidForslag(r.id, s, bid).dagsdel,
               veckor: veckor, namnPerVecka: namnPerVecka
@@ -3625,6 +4027,77 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     return { nycklar: Object.keys(nycklar), inst: Object.keys(inst) };
   }
 
+  // ------------------------------------------------------------------
+  // Balanseringens frågor och resultat
+  // ------------------------------------------------------------------
+  // Svaren på frågorna (områden man åker till, kapacitet per utförare) ligger i det
+  // gemensamma tillståndet, så att de ångras som allt annat. Varje svar är ett eget steg i
+  // historiken: planeraren som ändrar Annas kapacitet från 3 till 2 dagar ska kunna ta
+  // tillbaka just det.
+  function sattAkerTill(omraden) {
+    andraFlera('Balansering: områden man åker till', function (a) {
+      a.gemensamt.akerTill = omraden.slice();
+      a.gemensamt.omradenBesvarad = true;
+    }, { balanseringsfraga: 'omraden' });
+  }
+  function sattKapacitet(utforareId, dagar) {
+    andraFlera('Balansering: ' + utforare(utforareId).namn + ' har ' + dagar + ' dagar i veckan', function (a) {
+      a.gemensamt.kapacitet = a.gemensamt.kapacitet || {};
+      a.gemensamt.kapacitet[utforareId] = Math.max(0, Math.min(5, Math.round(Number(dagar) || 0)));
+      a.gemensamt.kapacitetBesvarad = true;
+    }, { balanseringsfraga: 'kapacitet' });
+  }
+  // "Förvalen stämmer" är ett svar och inte ett tomrum: frågan får grön bock utan att något
+  // tal ändras, och ett klick räcker (beslut 37).
+  function godkannFraga(fraga) {
+    andraFlera('Balansering: ' + (fraga === 'omraden' ? 'områdena stämmer' : 'kapaciteten stämmer'), function (a) {
+      if (fraga === 'omraden') {
+        a.gemensamt.akerTill = svarAkerTill(a.gemensamt);
+        a.gemensamt.omradenBesvarad = true;
+      } else {
+        a.gemensamt.kapacitet = svarKapacitet(a.gemensamt);
+        a.gemensamt.kapacitetBesvarad = true;
+      }
+    }, { balanseringsfraga: fraga });
+  }
+
+  // Resultatet av en balansering skrivs som **ett** historiksteg (beslut 36): alla byggnaders
+  // förskjutningar och det gemensamma tillståndets minne av balanseringen i samma steg, så att
+  // ett enda ångra tar tillbaka hela balanseringen. Steget hör inte till någon byggnad, så
+  // ångra byter inte aktiv byggnad.
+  function tillampaBalansering(resultat) {
+    andraFlera('Balansering: förskjöt besöksrytmerna', function (a) {
+      Object.keys(resultat.forskjutningar).forEach(function (bid) {
+        var st = a.tillstand(bid);
+        if (!st) { return; }
+        sattForskjutning(st, resultat.forskjutningar[bid]);
+        var rf = resultat.rondForskjutningar[bid] || {};
+        Object.keys(rf).forEach(function (rondId) { sattRondForskjutning(st, rondId, rf[rondId]); });
+      });
+      a.gemensamt.balanserad = {
+        forskjutningar: klona(resultat.forskjutningar),
+        rondForskjutningar: klona(resultat.rondForskjutningar),
+        forklaring: klona(resultat.forklaring),
+        kvarstaende: klona(resultat.kvarstaende),
+        forbattring: klona(resultat.forbattring)
+      };
+    }, { balansering: true });
+  }
+
+  // Status för huvudsteget Balansering: frågorna och om balanseringen är gjord. Grön bock
+  // kräver att den är gjord – frågorna med förval räcker inte, för det är balanseringen som
+  // är arbetet (beslut 37).
+  function balanseringStatus() {
+    var gem = gemensamt();
+    return {
+      omraden: !!gem.omradenBesvarad,
+      kapacitet: !!gem.kapacitetBesvarad,
+      balanserad: !!gem.balanserad,
+      resultat: gem.balanserad || null,
+      klar: !!gem.balanserad
+    };
+  }
+
   window.DP.Plan = {
     standardText: standardText, instText: instText, textFor: textFor, tillfalleAvvikelser: tillfalleAvvikelser,
     kopplingAvviker: kopplingAvviker, rutintillfalleAvviker: rutintillfalleAvviker, avvikandeInst: avvikandeInst,
@@ -3650,7 +4123,10 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid,
     behallTid: behallTid, arvTid: arvTid, timText: timText,
     rondForskjutning: rondForskjutning, veckorForRond: veckorForRond,
-    sattForskjutning: sattForskjutning, sattRondForskjutning: sattRondForskjutning
+    sattForskjutning: sattForskjutning, sattRondForskjutning: sattRondForskjutning,
+    svarAkerTill: svarAkerTill, svarKapacitet: svarKapacitet, akerTillForval: akerTillForval,
+    sattAkerTill: sattAkerTill, sattKapacitet: sattKapacitet, godkannFraga: godkannFraga,
+    tillampaBalansering: tillampaBalansering, balanseringStatus: balanseringStatus
   };
 })();
 
@@ -6769,7 +7245,12 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     return lista.map(function (k) { return k.rond; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
   }
 
-  DP.Flode = { rita: rita, skrivStandard: skrivStandard };
+  // Öppnar ett steg i flödet. Balanseringens förklaring länkar hit när överbelastningen
+  // beror på vem som utför ronderna (beslut 46) – planeraren ska landa i steg 4, inte i
+  // flödets översikt och behöva leta.
+  function oppnaSteg(n) { ui.oppet = n; rita(); }
+
+  DP.Flode = { rita: rita, skrivStandard: skrivStandard, oppnaSteg: oppnaSteg };
   rita();
   DP.Tidsaxel.rita();
 })();
@@ -6825,6 +7306,19 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
   function planeringSammanfattning() {
     return P.klaraByggnader().length + ' av ' + P.byggnadsordning.length + ' byggnader klara';
   }
+  // Undertexten för Balansering säger var arbetet står: vilka frågor som är besvarade, och
+  // om belastningen är jämnad ut. Övriga huvudsteg behåller sin beskrivning.
+  function balanseringUnder(h) {
+    if (h.id !== 'balansering') { return h.under; }
+    var bst = P.balanseringStatus();
+    if (bst.klar) {
+      return bst.resultat.kvarstaende.length
+        ? 'balanserad · överbelastning kvar'
+        : 'balanserad · belastningen är jämn';
+    }
+    var svarade = (bst.omraden ? 1 : 0) + (bst.kapacitet ? 1 : 0);
+    return svarade ? svarade + ' av 2 frågor besvarade' : h.under;
+  }
 
   // ------------------------------------------------------------------
   // Processlinjen
@@ -6835,10 +7329,17 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     linje.innerHTML = '';
     HUVUDSTEG.forEach(function (h, i) {
       if (i) { linje.appendChild(el('span', 'pl-pil', '→')); }
-      var k = el('button', 'pl-steg' + (h.id === aktivt ? ' aktiv' : ''));
+      // Balansering får grön bock när den är gjord (beslut 37). Planering har ingen bock:
+      // där säger undertexten hur många byggnader som är klara, och Byggnad är orientering
+      // och inget steg som blir klart (beslut 42).
+      var klar = h.id === 'balansering' && P.balanseringStatus().klar;
+      var k = el('button', 'pl-steg' + (h.id === aktivt ? ' aktiv' : '') + (klar ? ' klar' : ''));
       k.dataset.steg = h.id;
-      k.appendChild(el('span', 'pl-namn', h.namn));
-      var under = h.id === 'planering' ? planeringSammanfattning() : h.under;
+      k.dataset.klar = klar ? 'ja' : 'nej';
+      var namn = el('span', 'pl-namn', h.namn);
+      if (klar) { namn.insertBefore(el('span', 'pl-bock', '✓'), namn.firstChild); }
+      k.appendChild(namn);
+      var under = h.id === 'planering' ? planeringSammanfattning() : balanseringUnder(h);
       k.appendChild(el('span', 'pl-under', under));
       k.addEventListener('click', function () { visa(h.id); });
       linje.appendChild(k);
@@ -6944,14 +7445,18 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     }
     sido.appendChild(grupp);
 
+    // Frågorna och knappen Balansera. De står ovanför förklaringen av tidsaxeln: det är
+    // arbetet i steget, och tidsaxeln är underlaget man arbetar mot.
+    ritaFragor(sido, underlag);
+
     // Vad tidsaxeln visar, i klartext
     var f = el('div', 'bal-grupp');
     f.appendChild(el('h3', null, 'Så läser du tidsaxeln'));
     var ul = el('ul', 'bal-punkter');
     [
       'En <b>rad per utförare</b> och en <b>kolumn per vecka</b> för hela året.',
-      'Cellen visar hur full veckan är jämfört med utförarens <b>kapacitet</b> – ' +
-        DP.Balansering.KAPACITET_FORVAL + ' dagar i veckan så länge kapacitetsfrågan inte är byggd.',
+      'Cellen visar hur full veckan är jämfört med utförarens <b>kapacitet</b>, svaret på ' +
+        'fråga 2 ovanför (' + DP.Balansering.KAPACITET_FORVAL + ' dagar i veckan är förvalt).',
       'En <b>röd</b> cell betyder att tiden inte räcker. En <b>ring</b> betyder fler än ' +
         DP.Balansering.MANGA_TILLFALLEN + ' rutintillfällen samma vecka – tiden kan räcka, men antalet är ändå en varning.',
       'Brickorna har <b>byggnadens färg</b>. Fäll ut en utförare för att se en rad per byggnad.',
@@ -6964,9 +7469,9 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     sido.appendChild(veckolista(bel));
 
     sido.appendChild(el('div', 'bal-status',
-      'Frågorna om områden, kapacitet och veckor utan tillsyn och skötsel, knappen <b>Balansera</b> ' +
-      'och flytt för hand byggs i nästa steg. Begreppen – besöksrytm, rondserie, kapacitet, ' +
-      'provisorisk flytt och stryka – finns i <b>Ordlistan</b>.'));
+      'Frågan om <b>veckor utan tillsyn och skötsel</b> och flytt för hand byggs i nästa steg. ' +
+      'Begreppen – besöksrytm, rondserie, kapacitet, provisorisk flytt och stryka – finns i ' +
+      '<b>Ordlistan</b>.'));
   }
 
   // Standardplanering åt alla byggnader som inte är klara, i ett enda historiksteg (beslut 39).
@@ -6991,6 +7496,306 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
         { text: 'Avbryt' }
       ]
     });
+  }
+
+  // ---------------- Balanseringens frågor och knappen Balansera ----------------
+  //
+  // Frågorna ser ut som Planeringens steg och beter sig likadant: ett kort med nummer eller
+  // grön bock, en sammanfattning när det är stängt, och en kropp som öppnas när man klickar.
+  // Båda har förval, så de går att klicka igenom med ett klick var när förvalen stämmer
+  // (beslut 37). Den tredje frågan – veckor utan tillsyn och skötsel – byggs i nästa biljett.
+  var oppenFraga = 0;   // 0 = ingen, 1 = områden, 2 = kapacitet
+
+  function ritaFragor(sido, underlag) {
+    var bst = P.balanseringStatus();
+    var grupp = el('div', 'bal-grupp');
+    grupp.appendChild(el('h3', null, 'Svara på frågorna, balansera sedan'));
+
+    fragekort(grupp, {
+      n: 1, klar: bst.omraden,
+      titel: 'Vilka områden måste man åka till?',
+      sammanf: omradesSammanfattning(underlag),
+      kropp: omradesKropp
+    }, underlag);
+    fragekort(grupp, {
+      n: 2, klar: bst.kapacitet,
+      titel: 'Hur många dagar i veckan har varje utförare?',
+      sammanf: kapacitetSammanfattning(underlag),
+      kropp: kapacitetKropp
+    }, underlag);
+
+    grupp.appendChild(balanseraKnapp(underlag, bst));
+    sido.appendChild(grupp);
+    if (bst.resultat) { sido.appendChild(resultatpanel(bst.resultat)); }
+  }
+
+  function fragekort(grupp, f, underlag) {
+    var oppen = oppenFraga === f.n;
+    var kort = el('section', 'steg-kort bal-fraga' + (oppen ? ' oppen' : '') + (f.klar ? ' klar' : ''));
+    kort.dataset.fraga = String(f.n);
+    var h = el('header', 'steg-huvud');
+    h.innerHTML = '<span class="steg-nr">' + (f.klar ? '✓' : f.n) + '</span><div class="steg-text">' +
+      '<div class="steg-titel">' + f.titel + '</div>' +
+      (!oppen ? '<div class="steg-sammanf">' + f.sammanf + '</div>' : '') + '</div>';
+    h.addEventListener('click', function () { oppenFraga = oppen ? 0 : f.n; ritaBalansering(); });
+    kort.appendChild(h);
+    if (oppen) {
+      var kropp = el('div', 'steg-kropp');
+      f.kropp(kropp, underlag);
+      kort.appendChild(kropp);
+    }
+    grupp.appendChild(kort);
+  }
+
+  // ---- Fråga 1: områden man åker till ----
+  // Flygfältet är förvalt (beslut 28). Byggnaderna i varje område står under namnet, så att
+  // planeraren ser vad svaret handlar om utan att gå tillbaka till byggnadslistan.
+  function omradesSammanfattning(underlag) {
+    var namn = underlag.akerTill.map(function (id) { return omradesNamn(id); });
+    return namn.length ? 'Åker till: ' + namn.join(', ') : 'Inget område man åker till';
+  }
+  function omradesNamn(id) {
+    var o = DP.omraden.filter(function (x) { return x.id === id; })[0];
+    return o ? o.namn : id;
+  }
+  function omradesKropp(kropp, underlag) {
+    kropp.appendChild(el('p', 'forklar', 'Ett <b>område man åker till</b> ligger en bit bort. Där samlas ' +
+      'besöken i samma vecka så långt kapaciteten räcker, så att man slipper åka flera gånger. ' +
+      'Inom övriga områden sprids byggnaderna i stället, för jämnare belastning.'));
+    var valda = {};
+    underlag.akerTill.forEach(function (id) { valda[id] = true; });
+    var lista = el('div', 'bal-omradeslista');
+    DP.omraden.forEach(function (o) {
+      var rad = el('div', 'bal-omrade-rad' + (valda[o.id] ? ' pa' : ''));
+      rad.dataset.omrade = o.id;
+      var k = el('button', 'bal-kryss' + (valda[o.id] ? ' pa' : ''), valda[o.id] ? '✓' : '');
+      k.title = valda[o.id] ? 'Man åker inte till ' + o.namn : 'Man åker till ' + o.namn;
+      k.addEventListener('click', function () {
+        var nya = DP.omraden.filter(function (x) {
+          return x.id === o.id ? !valda[o.id] : !!valda[x.id];
+        }).map(function (x) { return x.id; });
+        P.sattAkerTill(nya);
+      });
+      rad.appendChild(k);
+      var txt = el('div', 'bal-otext');
+      txt.appendChild(el('span', 'bal-namn', o.namn));
+      txt.appendChild(el('span', 'bal-omrade', o.beskrivning));
+      // Byggnaderna i området, så att svaret går att se konsekvensen av
+      var iOmradet = P.byggnadsordning.filter(function (bid) { return DP.byggnader[bid].omrade === o.id; });
+      txt.appendChild(el('span', 'bal-obyggnader', iOmradet.map(function (bid) {
+        return DP.byggnader[bid].namn;
+      }).join(', ') || 'inga byggnader'));
+      rad.appendChild(txt);
+      lista.appendChild(rad);
+    });
+    kropp.appendChild(lista);
+    kropp.appendChild(godkannRad('omraden', 'Förvalet stämmer →'));
+  }
+
+  // ---- Fråga 2: kapacitet per utförare ----
+  // 3 dagar är förvalt för alla och kan ändras per person (beslut 31). Kapaciteten räknas i
+  // tid, så siffran visas också i timmar – det är timmarna cellerna jämförs mot.
+  function kapacitetSammanfattning(underlag) {
+    var per = {};
+    underlag.utforare.forEach(function (u) { (per[underlag.kapacitet[u.id]] = per[underlag.kapacitet[u.id]] || []).push(u.namn.split(' ')[0]); });
+    var nycklar = Object.keys(per);
+    if (nycklar.length === 1) { return 'Alla har ' + nycklar[0] + ' dagar i veckan'; }
+    return nycklar.map(function (d) { return per[d].join(', ') + ': ' + d + ' d'; }).join(' · ');
+  }
+  function kapacitetKropp(kropp, underlag) {
+    kropp.appendChild(el('p', 'forklar', 'Kapaciteten är den tid utföraren har för tillsyn och skötsel – ' +
+      'resten av veckan går till annat. En dag räknas som ' + DP.Balansering.TIMMAR_PER_DAG + ' timmar, ' +
+      'och en vecka är full när rutintillfällena når dit.'));
+    var lista = el('div', 'bal-kaplista');
+    underlag.utforare.forEach(function (u) {
+      var dagar = underlag.kapacitet[u.id];
+      var rad = el('div', 'bal-kaprad');
+      rad.dataset.utforare = u.id;
+      var av = el('span', 'avatar liten', u.namn[0]);
+      av.style.background = u.farg;
+      rad.appendChild(av);
+      var txt = el('div', 'bal-ktext');
+      txt.appendChild(el('span', 'bal-namn', u.namn));
+      txt.appendChild(el('span', 'bal-omrade', dagar * DP.Balansering.TIMMAR_PER_DAG + ' h i veckan'));
+      rad.appendChild(txt);
+      var val = el('div', 'chiprad bal-dagar');
+      [1, 2, 3, 4, 5].forEach(function (d) {
+        var c = el('button', 'chip' + (d === dagar ? ' pa' : ''), String(d));
+        c.dataset.dagar = String(d);
+        c.title = u.namn + ' har ' + d + ' dag' + (d === 1 ? '' : 'ar') + ' i veckan (' +
+          d * DP.Balansering.TIMMAR_PER_DAG + ' h)';
+        c.addEventListener('click', function () { if (d !== dagar) { P.sattKapacitet(u.id, d); } });
+        val.appendChild(c);
+      });
+      rad.appendChild(val);
+      lista.appendChild(rad);
+    });
+    kropp.appendChild(lista);
+    kropp.appendChild(godkannRad('kapacitet', 'Förvalet stämmer →'));
+  }
+
+  // Knappen som ger frågan grön bock utan att något tal ändras: förvalen är ett svar, och det
+  // ska gå lika fort att bekräfta dem som att ändra dem (beslut 37).
+  function godkannRad(fraga, text) {
+    var rad = el('div', 'knapprad hoger');
+    var k = el('button', 'knapp', text);
+    k.dataset.godkann = fraga;
+    k.title = 'Svaret stämmer – gå vidare';
+    k.addEventListener('click', function () {
+      P.godkannFraga(fraga);
+      oppenFraga = fraga === 'omraden' ? 2 : 0;
+      ritaBalansering();
+    });
+    rad.appendChild(k);
+    return rad;
+  }
+
+  // ---- Knappen Balansera ----
+  function balanseraKnapp(underlag, bst) {
+    var w = el('div', 'bal-balansera');
+    var rad = el('div', 'knapprad');
+    var k = el('button', 'knapp primar', bst.balanserad ? 'Balansera om' : 'Balansera');
+    k.id = 'balansera-knapp';
+    if (!underlag.byggnader.length) {
+      k.disabled = true;
+      k.title = 'Ingen byggnad är klar i alla sex stegen i Planering, så det finns inget att balansera';
+    } else {
+      k.title = 'Förskjuter byggnadernas besöksrytmer så att belastningen blir jämnare. ' +
+        'Frekvenser och utförare rörs aldrig. Allt blir ett steg i historiken.';
+      k.addEventListener('click', function () { korBalansering(underlag); });
+    }
+    rad.appendChild(k);
+    // Mediaspelaren hör till Planeringens tidsaxel och är dold här, men löftet att ett enda
+    // ångra tar tillbaka hela balanseringen är tomt om vägen dit inte syns där man står.
+    if (bst.balanserad) {
+      var ang = el('button', 'knapp sekundar', 'Ångra balanseringen');
+      ang.id = 'bal-angra';
+      ang.title = 'Tar tillbaka alla förskjutningar på en gång (Ctrl+Z)';
+      ang.addEventListener('click', function () { P.angra({ historik: true, kalla: DP.mitt(ang) }); });
+      rad.appendChild(ang);
+    }
+    w.appendChild(rad);
+    w.appendChild(el('div', 'bal-notis', underlag.byggnader.length
+      ? 'Balanseringen förskjuter besöksrytmerna och vid behov enskilda rondserier. ' +
+        'Den ändrar aldrig frekvenser, utförare eller kapacitet, och allt blir <b>ett</b> steg i ' +
+        'historiken – ett enda ångra tar tillbaka hela balanseringen.'
+      : 'Ge byggnaderna planering först: balanseringen räknar bara på byggnader som är klara i ' +
+        'alla sex stegen.'));
+    return w;
+  }
+
+  // Uträkningen görs i den fristående modulen, och resultatet skrivs till planeringen som ett
+  // enda historiksteg (beslut 36). Själva animeringen sköts av lyssnaren längre ner: den
+  // räknar ut vilka tillfällen som bytt vecka ur tillstånden, så ångra animerar flytten
+  // tillbaka av sig själv.
+  function korBalansering(underlag) {
+    var resultat = DP.Balansering.balansera(underlag);
+    P.tillampaBalansering(resultat);
+  }
+
+  // ---- Panelen med förklaringen i klartext (beslut 36 och 46) ----
+  function resultatpanel(res) {
+    var w = el('div', 'bal-grupp bal-resultat');
+    w.appendChild(el('h3', null, 'Så balanserades planeringen'));
+
+    var f = res.forbattring;
+    var sum = el('div', 'bal-vsum' + (f.overVeckorEfter ? ' over' : ''));
+    sum.innerHTML = 'Högsta veckan gick från <b>' + DP.Balansering.timmarText(f.toppTimmarFore) +
+      '</b> till <b>' + DP.Balansering.timmarText(f.toppTimmarEfter) + '</b>' +
+      ', och veckorna över kapaciteten från <b>' + f.overVeckorFore + '</b> till <b>' +
+      f.overVeckorEfter + '</b>.';
+    w.appendChild(sum);
+
+    var lista = el('div', 'bal-forklaring');
+    res.forklaring.forEach(function (r) {
+      var rad = el('div', 'bal-frad' + (r.typ === 'orord' ? ' orord' : ''));
+      rad.dataset.typ = r.typ;
+      if (r.byggnad && DP.byggnader[r.byggnad]) { rad.appendChild(fargprick(DP.byggnader[r.byggnad].farg)); }
+      rad.appendChild(el('span', 'bal-ftext', r.text));
+      lista.appendChild(rad);
+    });
+    w.appendChild(lista);
+
+    // Räcker kapaciteten inte sägs det rakt ut, med länkar dit man kan göra något åt det
+    // (beslut 46): kapacitetsfrågan, eller utföraren i Planering steg 4.
+    res.kvarstaende.forEach(function (k) {
+      var v = el('div', 'bal-varning bal-kvar');
+      v.dataset.utforare = k.utforare;
+      v.appendChild(el('div', null, '<b>' + k.namn + '</b> har mer än hen hinner i ' +
+        antalVeckorText(k.veckor.length) + ' (mest ' + DP.Balansering.timmarText(k.toppTimmar) +
+        ' mot ' + DP.Balansering.timmarText(k.kapacitetTimmar) + '). Förskjutningar räcker inte: ' +
+        'arbetet är mer än kapaciteten oavsett när det ligger.'));
+      var lankar = el('div', 'lankrad bal-kvarlankar');
+      var tillKap = el('button', 'lank bal-kaplank', 'Ändra kapaciteten →');
+      tillKap.dataset.utforare = k.utforare;
+      tillKap.title = 'Öppna frågan om hur många dagar i veckan ' + k.namn + ' har';
+      tillKap.addEventListener('click', function () {
+        oppenFraga = 2;
+        ritaBalansering();
+        var rad = document.querySelector('.bal-kaprad[data-utforare="' + k.utforare + '"]');
+        if (rad) { rad.scrollIntoView({ block: 'nearest' }); DP.puls(rad); }
+      });
+      lankar.appendChild(tillKap);
+      // Byggnaderna där utföraren har ronder – länken tar planeraren till steg 4 för den
+      // byggnad överbelastningen faktiskt kommer ur, inte till en allmän lista.
+      byggnaderForUtforare(k.utforare).forEach(function (bid) {
+        var b = DP.byggnader[bid];
+        var l = el('button', 'lank bal-steg4lank', 'Byt utförare i ' + b.namn + ' →');
+        l.dataset.byggnad = bid;
+        l.title = 'Öppna Planering steg 4 (Vem utför ronderna?) för ' + b.namn;
+        l.addEventListener('click', function () {
+          P.vaxlaByggnad(bid);
+          DP.Flode.oppnaSteg(4);
+          visa('planering');
+        });
+        lankar.appendChild(l);
+      });
+      v.appendChild(lankar);
+      w.appendChild(v);
+    });
+    return w;
+  }
+  // De klara byggnader där utföraren har minst en rond
+  function byggnaderForUtforare(utforareId) {
+    return P.klaraByggnader().filter(function (bid) {
+      return P.stateFor(bid).ronder.some(function (r) { return r.utforare === utforareId; });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Animering: brickorna flyger till sina nya veckor
+  //
+  // Skillnaden kommer färdigräknad i `info.flyttade` (byggnad -> tillfällen som bytt vecka).
+  // Den räknas i planeringen ur tillstånden före och efter, så ångra och gör om animerar
+  // flytten tillbaka av sig själva (beslut 36 och 69).
+  //
+  // Målet är cellen för rondens utförare och den nya veckan. Veckokolumnerna står still när
+  // tidsaxeln ritas om, så den gamla cellen finns kvar på sin plats – tom.
+  // ------------------------------------------------------------------
+  var ANIM_TAK = 40;   // fler brickor än så säger inget mer, och gör bilden rörig
+
+  function animeraFlyttade(flyttade) {
+    if (!flyttade || aktivt !== 'balansering') { return; }
+    var bidar = Object.keys(flyttade);
+    if (!bidar.length) { return; }
+    var kvar = ANIM_TAK;
+    bidar.forEach(function (bid) {
+      var s = P.stateFor(bid);
+      flyttade[bid].forEach(function (f) {
+        if (kvar <= 0) { return; }
+        var rond = s.ronder.filter(function (r) { return r.id === f.rond; })[0];
+        if (!rond) { return; }
+        var fran = balCell(rond.utforare, f.fran), till = balCell(rond.utforare, f.till);
+        if (!fran || !till) { return; }
+        kvar--;
+        var m = DP.mitt(till);
+        m.klar = function () { DP.puls(till); };
+        DP.flyg(DP.mitt(fran), [m], { text: '→', farg: DP.byggnader[bid].farg });
+      });
+    });
+  }
+  function balCell(utforareId, vecka) {
+    return document.querySelector('.bt-cell[data-utforare="' + utforareId + '"][data-vecka="' + vecka + '"]');
   }
 
   // ---------------- Veckolistan: "5 av 6" och tillfällena med planerad tid ----------------
@@ -7115,6 +7920,10 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
     var over = bel.rader.filter(function (r) { return r.over.length; });
     var manga = bel.rader.filter(function (r) { return r.manga.length; });
     var h = el('div', 'bt-fot-text');
+    // Foten säger olika saker före och efter en balansering. Att efteråt fortfarande kalla
+    // det "problemet balanseringen ska lösa" hade varit fel: balanseringen *är* gjord, och
+    // det som står kvar är kvarstående överbelastning som förskjutningar inte rår på (beslut 46).
+    var balanserad = P.balanseringStatus().klar;
     if (over.length || manga.length) {
       var delar = [];
       over.forEach(function (r) {
@@ -7127,15 +7936,25 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
         delar.push('<b>' + r.namn + '</b> har fler än ' + DP.Balansering.MANGA_TILLFALLEN +
           ' rutintillfällen i ' + veckorText(r.manga));
       });
-      h.innerHTML = '<span class="bt-fot-rub">Det här är problemet balanseringen ska lösa:</span> ' +
-        delar.join('. ') + '. Samtidigt står veckorna emellan tomma. ' +
-        'Balanseringen förskjuter byggnadernas besöksrytmer så att belastningen jämnas ut – ' +
-        'utan att någon frekvens ändras.';
+      h.innerHTML = balanserad
+        ? '<span class="bt-fot-rub">Det här står kvar efter balanseringen:</span> ' +
+          delar.join('. ') + '. Förskjutningar räcker inte längre – arbetet är mer än ' +
+          'kapaciteten oavsett när det ligger. Förklaringen här intill länkar till ' +
+          'kapacitetsfrågan och till vem som utför ronderna.'
+        : '<span class="bt-fot-rub">Det här är problemet balanseringen ska lösa:</span> ' +
+          delar.join('. ') + '. Samtidigt står veckorna emellan tomma. ' +
+          'Balanseringen förskjuter byggnadernas besöksrytmer så att belastningen jämnas ut – ' +
+          'utan att någon frekvens ändras.';
     } else {
-      h.innerHTML = '<span class="bt-fot-rub">Ingen utförare är över sin kapacitet.</span> ' +
-        'Tiden räcker varje vecka, och ingen har fler än ' + DP.Balansering.MANGA_TILLFALLEN +
-        ' rutintillfällen samma vecka. Belastningen kan ändå vara ojämn: titta på hur ' +
-        'brickorna klumpar ihop sig i vissa veckor medan andra står tomma.';
+      h.innerHTML = balanserad
+        ? '<span class="bt-fot-rub">Balanseringen gick jämnt ut.</span> ' +
+          'Ingen utförare är över sin kapacitet någon vecka, och ingen har fler än ' +
+          DP.Balansering.MANGA_TILLFALLEN + ' rutintillfällen samma vecka. ' +
+          'Frekvenserna är desamma som före – bara när i året tillfällena ligger har ändrats.'
+        : '<span class="bt-fot-rub">Ingen utförare är över sin kapacitet.</span> ' +
+          'Tiden räcker varje vecka, och ingen har fler än ' + DP.Balansering.MANGA_TILLFALLEN +
+          ' rutintillfällen samma vecka. Belastningen kan ändå vara ojämn: titta på hur ' +
+          'brickorna klumpar ihop sig i vissa veckor medan andra står tomma.';
     }
     w.appendChild(h);
     return w;
@@ -7301,12 +8120,16 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
   $('#ordlista-knapp').addEventListener('click', function () { oppnaOrdlista(); });
 
   // Processlinjens sammanfattning ändras när en byggnad blir klar, och när man byter byggnad
-  function uppdatera() {
+  function uppdatera(fore, efter, info) {
     rita();
-    if (aktivt === 'balansering') { ritaBalansering(); }
+    if (aktivt === 'balansering') {
+      ritaBalansering();
+      // Tidsaxeln är omritad, så cellerna finns på sina nya platser när brickorna flyger
+      animeraFlyttade(info && info.flyttade);
+    }
   }
   P.prenumerera(uppdatera);
-  P.prenumereraByte(uppdatera);
+  P.prenumereraByte(function () { uppdatera(); });
 
   DP.Vyer = { visa: visa, aktivt: function () { return aktivt; } };
 

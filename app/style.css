@@ -45,6 +45,10 @@ button { font: inherit; cursor: pointer; }
 .pl-namn { font-weight: 700; font-size: 13px; white-space: nowrap; }
 .pl-under { font-size: 11px; color: var(--svag); line-height: 1.25; }
 .pl-steg.aktiv .pl-under { color: var(--accent); }
+/* Grön bock på ett klart huvudsteg – samma signal som i Planeringens steg */
+.pl-steg.klar { border-color: #bfe5cd; }
+.pl-steg.klar.aktiv { border-color: var(--accent); }
+.pl-bock { color: var(--gron); margin-right: 4px; }
 .pl-pil { align-self: center; color: var(--svag); font-size: 12px; flex: none; }
 .pl-rad { display: flex; justify-content: flex-end; padding: 6px 10px 8px; border-bottom: 1px solid var(--linje); }
 .hs-innehall { flex: 1; overflow-y: auto; padding: 12px 14px 24px; min-height: 0; }

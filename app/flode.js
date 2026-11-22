@@ -904,7 +904,12 @@
     return lista.map(function (k) { return k.rond; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
   }
 
-  DP.Flode = { rita: rita, skrivStandard: skrivStandard };
+  // Öppnar ett steg i flödet. Balanseringens förklaring länkar hit när överbelastningen
+  // beror på vem som utför ronderna (beslut 46) – planeraren ska landa i steg 4, inte i
+  // flödets översikt och behöva leta.
+  function oppnaSteg(n) { ui.oppet = n; rita(); }
+
+  DP.Flode = { rita: rita, skrivStandard: skrivStandard, oppnaSteg: oppnaSteg };
   rita();
   DP.Tidsaxel.rita();
 })();
