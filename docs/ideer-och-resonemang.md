@@ -191,6 +191,12 @@ Förslag på ordning: Excel och genererad modell först (idé A), IFC-import sen
   okända installationstyper.
 - Inlästa byggnader får standardplaneringen (idé 3) som utgångspunkt.
 
+### Huvudsteget Byggnad som vägledd process
+
+I etapp 5 är huvudsteget Byggnad bara till för att orientera sig (beslut 42). Användaren ser framför sig att det
+senare får egna processer med frågor, på samma sätt som Planering och Balansering: *ändra något i en befintlig
+byggnad* eller *läsa in en ny byggnad*.
+
 ---
 
 ## 5. Verktyget som riktigt gränssnitt
@@ -203,3 +209,71 @@ för riktig planering och inte bara för utbildning. Arkitekturen förbereder f�
 - Planeringen är rena data (`app/planering.js`), skilda från visningen.
 - Alla ändringar går genom `Plan.andra()`, vilket gör det enkelt att senare skicka dem till ett API.
 - Byggnader beskrivs i ett generiskt format (`data/*.js`) som kan fyllas från Excel, IFC eller ett API.
+
+Användaren har bekräftat (2026-11-22) att verktyget får gå vidare mot en prototyp för hur ett
+fastighetsstödsystem kan fungera ur ett driftperspektiv, och inte bara spegla dagens system. Exempel på sådant
+som dagens system inte kan: kopiera en byggnads planering, koppla åtgärder automatiskt, ändra åtgärdstexter
+per installation eller rutintillfälle. Om verktyget senare ska användas för att utbilda i exakt dagens system
+behöver de delarna kunna stängas av.
+
+---
+
+## 6. Nedlagd tid och öppna rutintillfällen
+
+**Status:** idé, ingår inte i etapp 5 (beslut 29). Hör till etapp 6, Utförande (beslut 30).
+
+### Problemet i dag
+
+Principen är att ett rutintillfälle påbörjas och avslutas samma dag, så att man vet hur lång tid det tog som
+helhet. I praktiken avbryts ronden: kunden vill ha något fixat, man hittar ett fel och lagar det direkt eller åker
+och hämtar verktyg och reservdelar. Då hinner man inte klart, rutintillfället måste vara öppet och man återkommer
+dagen efter eller ännu senare. Då vet ingen längre hur lång tid själva tillfället tog.
+
+I dagens system går det bara att registrera en tidpost per rutintillfälle. Alternativet är tid per åtgärd, men
+det är orimligt i praktiken: 50 handbrandsläckare med en halv minut var går inte att registrera var för sig.
+
+### Idén
+
+- Ett rutintillfälle kan vara **öppet** och ha **flera arbetspass**. Vid varje pass registreras tiden för
+  rutintillfället som helhet, aldrig per åtgärd.
+- Summan av passen blir utfallet, som sedan jämförs med den planerade tiden (beslut 27). Planeraren tar ett
+  aktivt beslut om den planerade tiden ska justeras.
+- Avbrott för felavhjälpning bör registreras på det nya ärendet och inte på rutintillfället, så att utfallet
+  inte blir missvisande.
+
+---
+
+## 7. Erfarenhetsvärden för planerad tid
+
+**Status:** idé, senare än etapp 5.
+
+Två fastighetssystem har försökt räkna om planerad tid automatiskt utifrån nedlagd tid, och användarens
+erfarenhet är att det kan slå fel. Därför blir det inte automatiskt (beslut 27). Det som kan vara värt att
+pröva senare: tid samlas från många byggnader och rutintillfällen och används för att förfina **tyngderna** per
+åtgärd i bruttolistan, så att startförslaget blir bättre. Det påverkar bara förslaget, aldrig en tid som
+planeraren redan har satt.
+
+Förberett i etapp 5 (beslut 43): schablonen ligger som data, så att verklig statistik senare kan läggas in som ett
+erfarenhetsvärde per åtgärd, och då gäller det i stället för tyngden.
+
+---
+
+## 8. Rutintillfällen som spänner över flera byggnader
+
+**Status:** idé, ingår inte i etapp 5 (beslut 25).
+
+Vissa drifttekniker vill ha åtgärder av samma typ i flera byggnader i ett och samma rutintillfälle
+(rond × utförare × vecka i stället för byggnad × rond × utförare × vecka). Dagens fastighetssystem har stöd för
+det, men bara en modell åt gången för hela planeringen. Här behöver den begränsningen inte finnas, men det gör
+modellen mer komplex. Första steget är i stället att balanseringen lägger samma rond i närliggande byggnader i
+samma vecka, och att telefonen grupperar dem ("Brandskydd v. 12: Kasern 1, Kasern 2").
+
+---
+
+## 9. Fler byggnadstyper och avlägsna områden
+
+**Status:** idé, senare än etapp 5.
+
+För att öva på balansering med områden (beslut 28) kan fler byggnadstyper läggas till: militärrestaurang,
+avlägset förråd, mindre logement, skjutbana, skjuthall, brandövningsplats. Även avlägsna områden med några av
+byggnadstyperna, så att det finns flera områden man måste åka till.
