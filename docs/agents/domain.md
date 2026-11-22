@@ -12,12 +12,11 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## In this repo (single-context)
 
-`GLOSSARY.md` and `docs/adr/` do not exist yet. (`CONTEXT.md` is the old name for the same file, used by
-older versions of the skills; if one ever appears, `git mv` it to `GLOSSARY.md`.) Until they do, the domain knowledge lives in two Swedish documents
+`GLOSSARY.md` exists at the root (Swedish). `docs/adr/` does not exist yet. (`CONTEXT.md` is the old name for the same file, used by
+older versions of the skills; if one ever appears, `git mv` it to `GLOSSARY.md`.) Besides the glossary, the domain knowledge lives in two Swedish documents
 that **must** be read before exploring:
 
-- **`docs/koncept-och-beslut.md`**: concepts (byggnad, installation, åtgärd, rond, rutintillfälle …),
-  a numbered list of decisions, the stages (etapper) and open questions. Treat the numbered decisions like ADRs:
+- **`docs/koncept-och-beslut.md`**: a numbered list of decisions, the stages (etapper) and open questions. Treat the numbered decisions like ADRs:
   flag any output that contradicts one.
 - **`docs/ideer-och-resonemang.md`**: ideas and reasoning that are not built yet.
 

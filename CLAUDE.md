@@ -4,7 +4,7 @@ Interaktivt utbildningsverktyg (webbsida) där en driftplanerare lär sig planer
 byggnad → installationer → åtgärder → ronder → rutintillfällen. Byggt i en lång session med användaren;
 den här filen och `docs/` innehåller allt som behövs för att fortsätta utan den konversationen.
 
-**Läs först:** `docs/koncept-och-beslut.md` (begrepp, beslut, etapper, öppna frågor) och
+**Läs först:** `GLOSSARY.md` (begrepp), `docs/koncept-och-beslut.md` (beslut, etapper, öppna frågor) och
 `docs/ideer-och-resonemang.md` (idéer som inte är byggda än).
 
 ## Användaren och arbetssättet
@@ -94,8 +94,9 @@ valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej si
 
 ## Status
 
-Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). **Nästa: etapp 5 – flera byggnader**
-i en gemensam vy med riktig planering från de fyra byggnaderna (kraven står i beslutsdokumentet).
+Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). **Nästa: etapp 5 – Balansering**
+av flera byggnader med riktig planering från de fyra byggnaderna. Utformningen är bestämd i beslut 23–49 i
+beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
@@ -114,4 +115,4 @@ Standardetiketterna: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 ### Domain docs
 
-Single-context: `GLOSSARY.md` och `docs/adr/` i roten (finns inte än; tills vidare gäller `docs/koncept-och-beslut.md`). See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` i roten. ADR:er finns inte; de numrerade besluten i `docs/koncept-och-beslut.md` används i stället. See `docs/agents/domain.md`.

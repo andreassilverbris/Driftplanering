@@ -14,15 +14,7 @@ frågor parkeras.
 
 ## Begrepp
 
-| Begrepp | Betydelse |
-|---|---|
-| Byggnad, plan, rum | Fysisk struktur. Plan och rum är egna objekt med id och benämning. |
-| Signifikant installation | Registreras som individ (id med 8 siffror). Ska ha kopplad åtgärd. Klickbar. |
-| Övrig installation | Registreras inte. Syns i modellen men är inte klickbar. Kontrolleras översiktligt i *Kontroll byggnad invändigt*. |
-| Åtgärd | Post i bruttolistan, t.ex. *Kontroll handbrandsläckare*. |
-| Åtgärdstext | Lista med **kontrollpunkter**. |
-| Rond | Det man planerar mot (Byggnad invändigt, Brandskydd …). |
-| Rutintillfälle | Genereras per byggnad × utförare × rond × vecka, namn `Byggnad-Rond-ÅÅÅÅvVV`. |
+Begreppen står i [`GLOSSARY.md`](../GLOSSARY.md) i roten av repot.
 
 ## Beslut
 
@@ -65,6 +57,78 @@ frågor parkeras.
 22. **Matt Pococks skills installeras globalt på användarens Mac**, inte i repot, så att varje skill bara
     finns en gång. Uppdateras med `npx skills update -g`. Molnsessioner har därför inga skills.
 
+Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
+
+23. **Steg 5 är klart** när alla signifikanta installationer har minst en kopplad åtgärd och båda de generella
+    åtgärderna (Kontroll byggnad invändigt och utvändigt) är kopplade. Tidigare kunde steget aldrig bli klart.
+24. **Tre huvudsteg i en processlinje, inga flikar:** 1 Byggnad (förstå byggnaden, senare läsa in den) →
+    2 Planering (en byggnad i taget, stegen i frågeflödet) → 3 Balansering (alla byggnader för utförarnas skull).
+    Begrepp är inget steg utan en ordlista som alltid går att öppna. I Balansering tar tidsaxeln över ytan där
+    3D-modellen ligger.
+25. **Rutintillfället är fortfarande byggnad × rond × utförare × vecka.** Rutintillfällen som spänner över flera
+    byggnader byggs inte. Balanseringen kan i stället lägga samma rond i flera byggnader samma vecka, och
+    telefonen kan visa dem grupperade.
+26. **Balanseringen ändrar aldrig frekvenser, bara när tillfällena ligger**, i tre nivåer:
+    (1) förskjuta en byggnads besöksrytm, (2) förskjuta en rondserie (båda permanenta) och
+    (3) flytta ett enskilt rutintillfälle provisoriskt eller stryka det. Den automatiska balanseringen
+    arbetar på nivå 1 och vid behov nivå 2.
+27. **Planerad tid sätts per rond och byggnad (= per rutintillfälle) i dagsdelar**: kort (≈1 h), kvartsdag,
+    halvdag, heldag. Systemet föreslår ett startvärde från antalet kopplade installationer och åtgärdernas
+    tyngd (lätt/normal/tung) och visar uträkningen. Ändras åtgärderna i ronden markeras tiden med ett nytt
+    förslag. Över en heldag föreslås att ronden delas. Tiden justeras aldrig automatiskt; planeraren tar ett
+    aktivt beslut.
+28. **Närhet anges med områden.** Varje byggnad tillhör ett område. Balanseringen frågar vilka områden man
+    måste åka till och samlar besöken där i samma vecka. Garage, Kasern 1 och Kasern 2 ligger på Kasernområdet;
+    Hangaren ligger på Flygfältet, dit man åker.
+29. **Nedlagd tid och öppna rutintillfällen ingår inte i etapp 5** (se idé 6 i `ideer-och-resonemang.md`).
+30. **Bara planerad tid byggs i etapp 5.** Utfallet och jämförelsen med planerad tid byggs i etapp 6 (Utförande),
+    så att prototypen till slut visar hela kretsloppet.
+31. **Kapacitet räknas i tid.** Varje utförare har ett antal dagar per vecka för tillsyn och skötsel (standard 3 av 5).
+    En vecka är full när dagsdelarna når kapaciteten. En mjuk varning visas när en utförare har fler än
+    6 rutintillfällen en vecka (två per dag), även om tiden räcker.
+32. **Veckor utan tillsyn och skötsel** (förvalt v. 28–31 och v. 52): tillfällen som hamnar där flyttas automatiskt
+    provisoriskt till veckan före. Ligger flytten nära nästa ordinarie tillfälle föreslås att tillfället stryks.
+33. **Tidsaxeln i Balansering har en rad per utförare** och en kolumn per vecka för hela året. Cellen visar hur
+    full veckan är mot kapaciteten, och brickorna har byggnadens färg. En utförare kan fällas ut till en rad per
+    byggnad. Utseendet prövas och justeras vid behov.
+34. **Flytt för hand: dra och släpp och svara på en fråga** – bara denna gång (provisoriskt), hela rondserien
+    eller hela byggnadens besöksrytm. Senaste valet är förvalt. Målveckans fyllnad syns medan man drar. Varje flytt
+    är ett steg i historiken.
+35. **Planerad tid sätts i ett nytt steg 6 i Planering** ("Hur lång tid tar ronderna?"), förifyllt med systemets
+    förslag och uträkning. Steget blir klart när förslagen är godkända eller ändrade. Standardplaneringen fyller i det.
+36. **Den automatiska balanseringen är ett steg i historiken** och följs av en förklaring i klartext om vad som
+    flyttades och varför. Brickorna animeras till sina nya veckor.
+37. **Balansering ställer tre frågor, alla med förval:** (1) vilka områden man måste åka till (Flygfältet),
+    (2) hur många dagar i veckan varje utförare har för tillsyn och skötsel (3), (3) vilka veckor som saknar
+    tillsyn och skötsel (v. 28–31, v. 52). Sedan kommer knappen Balansera. Stegen får grön bock som i Planering.
+38. **Inom ett område sprids byggnaderna** för jämn belastning. **I ett område man åker till samlas byggnaderna**
+    i samma vecka så långt kapaciteten räcker, annars i veckorna efter varandra. Att samla inom ett område görs för hand.
+39. **Bara byggnader med klar planering** (alla sex stegen) ingår i balanseringen. Övriga visas gråade med en länk
+    till Planering. Det finns en snabbknapp för att ge standardplanering åt alla byggnader som saknar planering.
+40. **Förskjutningarna från balanseringen ligger kvar när planeringen ändras.** Steget Balansering markeras då med
+    "Planeringen har ändrats sedan du balanserade – balansera om?" och en lista över ändringarna. Inget räknas om
+    automatiskt. Provisoriska flyttar för tillfällen som inte längre finns tas bort och redovisas.
+41. **Halvårsronder med vald startmånad** får flyttas inom månaden men inte till en annan månad.
+42. **Steg 1 Byggnad får ingen grön bock** i etapp 5; det är till för att orientera sig. Senare kan det få egna
+    vägledande processer (ändra en byggnad, läsa in en ny), se idé 4.
+43. **Tidsschablonen ligger som data, inte i koden:** tyngd per åtgärd, minuter per tyngd, minuter för de generella
+    åtgärderna och gränserna för dagsdelarna ligger i en egen datafil. Senare kan en åtgärd få ett eget
+    erfarenhetsvärde från verklig statistik som ersätter tyngden (idé 7), utan att koden ändras.
+    Startvärden: lätt 3 min/st, normal 15 min/st, tung 45 min/st, Kontroll byggnad invändigt 2 min per rum,
+    utvändigt 30 min. Avrundning: ≤ 1 h kort, ≤ 2 h kvartsdag, ≤ 4 h halvdag, ≤ 8 h heldag.
+44. **Schablonens resultat godtas för konceptet.** Med standardplaneringen blir Byggnad invändigt en heldag i
+    kasernerna (65 rum) och en halvdag i hangaren (31 rum). Anna får 8 tillfällen i vecka 1 och över 3 dagar varje
+    kvartal, och det är övningsexemplet för balanseringen.
+45. **Ett tillfälle föreslås strykas** när det efter en provisorisk flytt hamnar högst en vecka från ett annat
+    tillfälle i samma rondserie. Balanseringens förklaring visar hur många som föreslås strykas, med knappen
+    *Stryk alla* och möjlighet att behålla enskilda.
+46. **Balanseringen byter aldrig utförare och ändrar aldrig kapacitet.** Räcker kapaciteten inte säger den vilka
+    utförare och veckor som är överbelastade och länkar till kapacitetsfrågan och till Planering steg 4.
+47. **Färg:** Planeringens tidsaxel visar rutintillfällen i utförarens färg, Balansering i byggnadens färg
+    (raderna är redan utförare).
+48. **Telefonen ändras inte i etapp 5.** Gruppering av veckans rutintillfällen hör till idé 8 och etapp 6.
+49. **`flerbyggnad.html` tas bort** när Balansering är byggd. Det i skissen som inte byggs skrivs ner först.
+
 ## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)
@@ -93,7 +157,8 @@ vilket är just det som skapar buggarna i dag.
 I gränssnittet besvarar man **en** fråga per byggnad och rond: *"Vem går ronden Brandskydd i Hangaren?"*.
 Alla åtgärder i ronden ärver utföraren, och under huven skrivs den till varje åtgärd så att det motsvarar
 fastighetssystemets datamodell. Varje utförare har en färg och en avatar, och rutintillfällen visas i
-utförarens färg i tidsaxeln och i flerbyggnadsvyn. Om en enskild åtgärd har en annan utförare än ronden
+utförarens färg i planeringens tidsaxel. I Balansering, där raderna redan är utförare, används byggnadens färg
+(beslut 47). Om en enskild åtgärd har en annan utförare än ronden
 markeras den med samma typ av symbol som en avvikande åtgärdstext.
 
 ### C. Åtgärdstext i tre nivåer
@@ -127,11 +192,13 @@ och byggs så att man senare kan välja version.
      (efter en förenklad riskanalys) och slippa två ronder i följd.
    - Etapp 5 ska använda den riktiga planeringen från Garage, Kasern 1, Kasern 2 och Hangar (inte påhittade data).
      Två kaserner finns just för att kunna öva på detta.
-6. **(Senare)** adapterlager mot riktigt API.
+   - **Utformningen är bestämd i beslut 23–49** (grillning 2026-11-22): huvudsteget Balansering, planerad tid i
+     ett nytt steg 6 i Planering, områden, kapacitet och veckor utan tillsyn och skötsel.
+6. **Utförande:** markera ett rutintillfälle som utfört, registrera tid (på sikt flera arbetspass, idé 6) och jämför
+   med planerad tid, så att planeraren kan ta ett aktivt beslut om att justera.
+7. **(Senare)** adapterlager mot riktigt API.
 
 ## Öppna frågor
 
-- Kapacitet i flerbyggnadsvyn: räkna i timmar (kräver tidsuppskattning per rond och byggnad) eller i antal rutintillfällen?
-- Hur många veckor före nästa ordinarie tillfälle ska verktyget föreslå att ett tillfälle stryks? (Skissen använder 1 vecka.)
 - Ska en rond kunna ha en annan utförare för en enskild åtgärd? (Inte byggt – utföraren gäller hela ronden.)
 - Ska planeringsåret vara fast (2027) eller rullande från dagens vecka?
