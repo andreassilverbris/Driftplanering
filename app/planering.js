@@ -89,7 +89,12 @@
       // Åtgärdstexter i tre nivåer. Den mest specifika vinner: rutintillfälle > installation > standard.
       standardTexter: {}, // atgardId -> [kontrollpunkter]   (ändrad standard i bruttolistan, gäller sessionen)
       instTexter: {},     // 'atgard|inst' -> [kontrollpunkter]
-      tillfalleTexter: {} // 'atgard|inst|rond|vecka' -> [kontrollpunkter]
+      tillfalleTexter: {}, // 'atgard|inst|rond|vecka' -> [kontrollpunkter]
+      // Planerad tid per rond (steg 6): rondId -> { dagsdel, godkand, forslagVidGodkandet }.
+      // forslagVidGodkandet är den dagsdel förslaget gav när planeraren tog ställning. Avviker det
+      // aktuella förslaget från den har förutsättningarna ändrats, och det visas – men den
+      // godkända tiden ändras aldrig av sig själv (beslut 27).
+      tider: {}
     };
   }
   // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ska Balanseringens svar
@@ -125,7 +130,7 @@
     var alla = klona(historik[pos].alla);
     var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
-    rensaTexter(ny);
+    stada(ny);
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: klona(historik[pos].gemensamt), text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
@@ -151,7 +156,7 @@
     };
     if (fn(andring) === false) { return; }
     var rordaIds = Object.keys(rorda);
-    rordaIds.forEach(function (id) { rensaTexter(alla[id]); });
+    rordaIds.forEach(function (id) { stada(alla[id]); });
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
@@ -274,16 +279,150 @@
     return delar.slice(0, -1).join(', ') + ' och ' + delar[delar.length - 1];
   }
 
+  // ------------------------------------------------------------------
+  // Planerad tid (steg 6)
+  // ------------------------------------------------------------------
+  // Förslaget på planerad tid för en rond: tidsschablonen tillämpad på rondens kopplingar
+  // (beslut 27 och 43). Det ger dagsdelen, minuterna bakom den, en förklaring i klartext och
+  // flaggan för delning. Uträkningen visas alltid, så att planeraren kan bedöma om den är
+  // rimlig i stället för att godkänna blint.
+  function tidForslag(rondId, s, bid) {
+    s = s || stateFor(bid);
+    var schablon = DP.tidsschablon;
+    var kopp = s.kopplingar.filter(function (k) { return k.rond === rondId; });
+    var nRum = DP.byggnader[bid || aktiv].rum.length;
+    var minuter = 0;
+    var perTyngd = { latt: 0, normal: 0, tung: 0 };
+    var nInst = 0;
+    var generella = [];
+
+    kopp.forEach(function (k) {
+      var a = atgard(k.atgard);
+      if (!a) { return; }
+      if (a.generell) {
+        var g = schablon.generella[a.id];
+        if (!g) { return; }
+        var m = g.perRum ? g.perRum * nRum : g.fast;
+        minuter += m;
+        generella.push({ namn: a.namn, minuter: m, perRum: !!g.perRum, rum: nRum });
+        return;
+      }
+      minuter += schablon.minuterPerInstallation(a);
+      nInst++;
+      perTyngd[schablon.tyngd(a)]++;
+    });
+
+    var dagsdel = schablon.dagsdelFor(minuter);
+    var over = !dagsdel;
+    // Ryms ronden inte på en dag föreslås en delning. Dagsdelen stannar då på heldag, så att
+    // en tid alltid går att godkänna medan planeraren bestämmer sig för att dela eller inte.
+    if (over) { dagsdel = schablon.DAGSDELAR[schablon.DAGSDELAR.length - 1]; }
+
+    return {
+      rond: rondId,
+      dagsdel: dagsdel.id,
+      minuter: minuter,
+      timmar: minuter / 60,
+      installationer: nInst,
+      perTyngd: perTyngd,
+      generella: generella,
+      foreslaDelning: over,
+      text: tidText(nInst, perTyngd, generella, minuter, dagsdel, over)
+    };
+  }
+
+  // Uträkningen i klartext: "41 installationer, varav 6 tunga, 65 rum → heldag"
+  function tidText(nInst, perTyngd, generella, minuter, dagsdel, over) {
+    var delar = [];
+    if (nInst) {
+      var d = nInst + (nInst === 1 ? ' installation' : ' installationer');
+      var varav = [];
+      if (perTyngd.tung) { varav.push(perTyngd.tung + ' tunga'); }
+      if (perTyngd.latt) { varav.push(perTyngd.latt + ' lätta'); }
+      if (varav.length) { d += ', varav ' + raknaUpp(varav); }
+      delar.push(d);
+    }
+    generella.forEach(function (g) {
+      delar.push(g.perRum ? g.rum + ' rum att gå igenom' : 'ett varv runt huset');
+    });
+    if (!delar.length) { delar.push('inga kopplade åtgärder'); }
+    return raknaUpp(delar) + ' → ' + timText(minuter) + ' → ' +
+      (over ? 'mer än en heldag' : dagsdel.namn);
+  }
+
+  // Minuter som timmar med en decimal, och rena minuter under timmen
+  function timText(minuter) {
+    if (minuter < 60) { return minuter + ' min'; }
+    var t = minuter / 60;
+    return (Math.round(t * 10) / 10).toString().replace('.', ',') + ' h';
+  }
+
+  // Luckorna i steg 6: ronder utan godkänd tid, och ronder där förutsättningarna ändrats
+  // sedan tiden godkändes. Steget är klart när varje rond har en godkänd eller ändrad tid
+  // (berättelse 18). En ändrad förutsättning gör inte steget ogrönt – den godkända tiden
+  // gäller tills planeraren tar ställning.
+  function tidStatus(s, bid) {
+    s = s || stateFor(bid);
+    var rader = s.ronder.map(function (r) {
+      var forslag = tidForslag(r.id, s, bid);
+      var sparad = s.tider[r.id];
+      var godkand = !!(sparad && sparad.godkand);
+      return {
+        rond: r.id,
+        forslag: forslag,
+        dagsdel: godkand ? sparad.dagsdel : forslag.dagsdel,
+        godkand: godkand,
+        forslagVidGodkandet: sparad ? sparad.forslagVidGodkandet : null,
+        // Förslaget har ändrats sedan tiden godkändes
+        andrad: godkand && sparad.forslagVidGodkandet !== forslag.dagsdel
+      };
+    });
+    var utan = rader.filter(function (x) { return !x.godkand; });
+    var andrade = rader.filter(function (x) { return x.andrad; });
+    return { rader: rader, utan: utan, andrade: andrade, klar: s.ronder.length > 0 && utan.length === 0,
+      n: rader.length - utan.length, tot: rader.length,
+      text: rader.length
+        ? (rader.length - utan.length) + ' av ' + rader.length + ' ronder har en godkänd tid' +
+          (andrade.length ? ' · ' + andrade.length + ' med ändrade förutsättningar' : '')
+        : '' };
+  }
+
+  // Timmar för en rond, för Balanseringens belastningsräkning: den godkända tiden om den finns,
+  // annars förslagets. Balansering tar bara med byggnader där steg 6 är klart, så i praktiken
+  // är det den godkända.
+  function tidTimmar(rondId, s, bid) {
+    s = s || stateFor(bid);
+    var sparad = s.tider[rondId];
+    var id = (sparad && sparad.godkand) ? sparad.dagsdel : tidForslag(rondId, s, bid).dagsdel;
+    var d = DP.tidsschablon.dagsdel(id);
+    return d ? d.timmar : 0;
+  }
+
+  // Används inuti andra(): godkänn eller ändra den planerade tiden för en rond. Förslaget
+  // som gällde vid godkännandet sparas, så att en senare ändring av kopplingarna kan upptäckas.
+  function sattTid(st, rondId, dagsdel, forslagetNu) {
+    st.tider[rondId] = { dagsdel: dagsdel, godkand: true, forslagVidGodkandet: forslagetNu };
+  }
+
+  // Tider för ronder som inte längre finns hänger inte kvar
+  function rensaTider(st) {
+    var finns = {};
+    st.ronder.forEach(function (r) { finns[r.id] = true; });
+    Object.keys(st.tider).forEach(function (id) { if (!finns[id]) { delete st.tider[id]; } });
+  }
+
   // Status per steg i Planering, för en valfri byggnad. Samma regler som frågeflödet visar:
-  // steg 4 är klart när steg 3 är klart (utföraren har alltid ett förval), och steg 5 när
-  // byggnaden inte har några luckor kvar i kopplingarna (beslut 23).
+  // steg 4 är klart när steg 3 är klart (utföraren har alltid ett förval), steg 5 när
+  // byggnaden inte har några luckor kvar i kopplingarna (beslut 23) och steg 6 när varje
+  // rond har en godkänd planerad tid (beslut 35).
   function stegStatus(s, bid) {
     s = s || stateFor(bid);
     var k1 = freqKomplett(s.bas);
     var k2 = k1 && s.ronder.length > 0;
     var k3 = k2 && s.ronder.every(function (r) { return r.besvarad && freqKomplett(r.freq); });
     var k5 = k3 && kopplingsStatus(s, bid).klar;
-    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: k5 };
+    var k6 = k5 && tidStatus(s, bid).klar;
+    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: k5, 6: k6 };
   }
 
   // Besök i byggnaden = alla veckor där minst ett rutintillfälle infaller
@@ -376,6 +515,14 @@
     });
   }
 
+  // Städning efter varje ändring av en byggnads planering: avvikande texter och planerade tider
+  // som inte längre har något att höra till tas bort. Allt som ändrar ett tillstånd går genom
+  // andra() eller andraFlera(), så det räcker att städa där.
+  function stada(st) {
+    rensaTexter(st);
+    rensaTider(st);
+  }
+
   // Vilka rutintillfällen och installationer fick ändrad gällande text mellan två tillstånd
   function textSkillnad(fore, efter) {
     var nycklar = {}, inst = {};
@@ -414,6 +561,7 @@
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
     signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
-    gemensamt: gemensamt, andraFlera: andraFlera
+    gemensamt: gemensamt, andraFlera: andraFlera,
+    tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid, timText: timText
   };
 })();

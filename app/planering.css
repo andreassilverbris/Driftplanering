@@ -217,3 +217,14 @@
 .ks-rad.ok { background: #f3fbf6; }
 .ks-rad.varn { background: #fff8e6; }
 .byggval select { min-width: 130px; }
+
+/* Steg 6: planerad tid per rond. Uträkningen står under rondnamnet, så att förslaget
+   alltid visas med sin motivering. */
+.tidrad { border: 1px solid var(--linje); border-radius: 8px; margin-bottom: 6px; padding: 8px 10px; background: #fff; }
+.tidrad.godkand { border-color: #bfe5cd; background: #f8fdfa; }
+.tidrad.andrad { border-color: #f0dca8; }
+.td-namn { font-size: 13px; }
+.td-utrakning { font-size: 12px; color: var(--dov); margin-top: 3px; }
+.tidrad .chiprad { margin-top: 7px; }
+.tidrad .notis { margin-top: 7px; }
+.tagg.gron { background: #dcf3e4; color: var(--gron); }

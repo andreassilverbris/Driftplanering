@@ -63,8 +63,10 @@
       { n: 2, titel: 'Vilka ronder behöver byggnaden?', sammanf: s.ronder.map(function (r) { return P.rondNamn(r.id); }).join(', '), kropp: steg2 },
       { n: 3, titel: 'Vilken frekvens ska varje rond ha?', sammanf: k[3] ? s.ronder.map(function (r) { return P.rondNamn(r.id) + ': ' + P.frekvens(r.freq.typ).namn.toLowerCase(); }).join(' · ') : obesvarade(s), kropp: steg3 },
       { n: 4, titel: 'Vem utför ronderna?', sammanf: k[4] ? utforareSammanf(s) : '', kropp: steg4 },
-      { n: 5, titel: 'Koppla åtgärder till installationerna', sammanf: k[4] ? kopplingsStatus(s).text : '', kropp: steg5 }
+      { n: 5, titel: 'Koppla åtgärder till installationerna', sammanf: k[4] ? kopplingsStatus(s).text : '', kropp: steg5 },
+      { n: 6, titel: 'Hur lång tid tar ronderna?', sammanf: k[5] ? P.tidStatus(s).text : '', kropp: steg6 }
     ];
+    var sista = steg[steg.length - 1].n;
 
     steg.forEach(function (st) {
       var tillg = tillganglig(st.n, k);
@@ -82,7 +84,7 @@
       if (oppen) {
         var kropp = el('div', 'steg-kropp');
         st.kropp(kropp, s, k);
-        if (st.n < 5) {
+        if (st.n < sista) {
           var nasta = knapp('Nästa →', 'knapp', function () { ui.oppet = st.n + 1; rita(); });
           nasta.disabled = !k[st.n];
           var rad = el('div', 'knapprad hoger');
@@ -400,6 +402,96 @@
       jordfelsbrytare: 'jordfelsbrytare', industriport: 'industriportar', pelarlyft: 'pelarlyftar', garageport: 'garageportar',
       nödbelysningsarmatur: 'nödbelysningsarmaturer', brandgaslucka: 'brandgasluckor', torkskåp: 'torkskåp', tvättmaskin: 'tvättmaskiner' };
     return pl[namn] || namn;
+  }
+
+  // ---------------- Steg 6: planerad tid ----------------
+  // Varje rond får ett förslag ur tidsschablonen, med uträkningen synlig. Planeraren godkänner,
+  // väljer en annan dagsdel eller godkänner alla på en gång. En godkänd tid ändras aldrig av sig
+  // själv: ändrade förutsättningar visas som en markering med ett nytt förslag (beslut 27 och 35).
+  function steg6(k, s) {
+    var ts = P.tidStatus(s);
+    var prog = el('div', 'progress' + (ts.klar ? ' klar' : ''));
+    prog.innerHTML = '<div class="prog-text">' + ts.text + '</div>';
+    prog.appendChild(el('div', 'prog-saknas', ts.klar
+      ? 'Alla ronder har en planerad tid. Byggnaden är klar för Balansering.'
+      : ts.utan.length + ' ' + (ts.utan.length === 1 ? 'rond väntar' : 'ronder väntar') + ' på ett ställningstagande.'));
+    k.appendChild(prog);
+    k.appendChild(el('p', 'forklar', 'Planerad tid sätts per rond i grova <b>dagsdelar</b>: kort (≈ 1 h), kvartsdag (2 h), halvdag (4 h) och heldag (8 h). ' +
+      'Förslaget räknas fram ur de kopplade åtgärderna och en tidsschablon. Uträkningen står under varje rond, så att du kan bedöma om den är rimlig – godkänn eller välj en annan dagsdel.'));
+
+    if (ts.utan.length > 1) {
+      var rad = el('div', 'knapprad');
+      rad.appendChild(knapp('Godkänn alla ' + ts.utan.length + ' förslag', 'knapp', function () { godkannAlla(); }));
+      k.appendChild(rad);
+    }
+
+    ts.rader.forEach(function (x) { k.appendChild(tidRad(x, s)); });
+  }
+
+  function dagsdelNamn(id) {
+    return (DP.tidsschablon.dagsdel(id) || {}).namn || id;
+  }
+
+  function tidRad(x, s) {
+    var rad = el('div', 'tidrad' + (x.godkand ? ' godkand' : '') + (x.andrad ? ' andrad' : ''));
+    rad.setAttribute('data-rond', x.rond);
+    var valdNamn = dagsdelNamn(x.dagsdel);
+    rad.appendChild(el('div', 'td-namn', '<b>' + P.rondNamn(x.rond) + '</b>' +
+      (x.godkand ? ' <span class="tagg gron">✓ ' + valdNamn + '</span>' : ' <span class="tagg">förslag: ' + valdNamn + '</span>')));
+    rad.appendChild(el('div', 'td-utrakning', x.forslag.text));
+
+    // Mer än en heldag: ronden ryms inte på en dag. Delningen görs för hand, med de verktyg
+    // som redan finns, så att planeraren bestämmer hur åtgärderna fördelas (beslut 27).
+    if (x.forslag.foreslaDelning) {
+      var delning = el('div', 'notis varning', '<b>Ronden tar mer än en heldag</b> (' + P.timText(x.forslag.minuter) +
+        '). Ett rutintillfälle ska rymmas på en dag. Dela ronden i två: lägg till en rond i steg 2 och flytta hälften av åtgärderna dit i steg 5.');
+      rad.appendChild(delning);
+    }
+
+    // Förutsättningarna har ändrats sedan tiden godkändes. Den godkända tiden står kvar.
+    if (x.andrad) {
+      var nyNamn = dagsdelNamn(x.forslag.dagsdel);
+      var notis = el('div', 'notis konflikt', '<b>Förutsättningarna har ändrats</b>, nytt förslag: ' + nyNamn +
+        '. Din tid (' + valdNamn + ') gäller tills du tar ställning.');
+      notis.appendChild(knapp('Använd ' + nyNamn, 'lank', function () { godkann(x.rond, x.forslag.dagsdel); }));
+      rad.appendChild(notis);
+    }
+
+    var val = el('div', 'chiprad');
+    if (!x.godkand) {
+      val.appendChild(knapp('Godkänn ' + valdNamn, 'knapp liten-knapp', function () { godkann(x.rond, x.forslag.dagsdel); }));
+    }
+    DP.tidsschablon.DAGSDELAR.forEach(function (d) {
+      var vald = x.godkand && x.dagsdel === d.id;
+      val.appendChild(knapp(d.namn + ' <span class="dov">' + d.timmar + ' h</span>', 'chip' + (vald ? ' pa' : ''), function () {
+        if (!vald) { godkann(x.rond, d.id); }
+      }));
+    });
+    rad.appendChild(val);
+    return rad;
+  }
+
+  // Att välja en dagsdel räknas som att ta ställning, oavsett om det är förslaget eller något
+  // annat. Förslaget som gällde sparas, så att en senare ändring av kopplingarna upptäcks.
+  function godkann(rondId, dagsdel) {
+    var s = P.state();
+    var forslag = P.tidForslag(rondId, s);
+    var d = DP.tidsschablon.dagsdel(dagsdel);
+    var text = dagsdel === forslag.dagsdel
+      ? 'Godkände ' + d.namn + ' för ' + P.rondNamn(rondId)
+      : 'Planerad tid för ' + P.rondNamn(rondId) + ': ' + d.namn;
+    P.andra(text, function (st) {
+      P.sattTid(st, rondId, dagsdel, forslag.dagsdel);
+    });
+  }
+
+  function godkannAlla() {
+    var s = P.state();
+    var utan = P.tidStatus(s).utan;
+    if (!utan.length) { return; }
+    P.andra('Godkände de ' + utan.length + ' föreslagna tiderna', function (st) {
+      utan.forEach(function (x) { P.sattTid(st, x.rond, x.forslag.dagsdel, x.forslag.dagsdel); });
+    });
   }
 
   // ---------------- Guiden för Lägg till ----------------

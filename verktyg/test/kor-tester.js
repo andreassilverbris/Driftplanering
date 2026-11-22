@@ -440,6 +440,201 @@ async function testSteg5Klart(browser) {
   await page.close();
 }
 
+// Etapp 5: steg 6 föreslår planerad tid i dagsdelar, visar uträkningen och godkänns (beslut 27, 35, 43)
+async function testSteg6Tid(browser) {
+  console.log('Etapp 5 – steg 6: planerad tid med förslag och uträkning');
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  const f = page.locator('#flode');
+
+  // Steg 6 öppnas efter steg 5, så byggnaden behöver en komplett planering först.
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[5] === true, 'steg 5 klart i Kasern 1');
+
+  // Schablonens siffror för standardplaneringen (beslut 44). De är hela poängen med steget:
+  // stämmer de inte är förslagen inte rimliga, och då hjälper inte gränssnittet.
+  const forslag = await page.evaluate(() => {
+    const x = DP.Plan.tidForslag('BI', DP.Plan.stateFor('kasern1'), 'kasern1');
+    return { k1: { dagsdel: x.dagsdel, timmar: Math.round(x.timmar * 10) / 10, text: x.text } };
+  });
+  kontroll(forslag.k1.dagsdel === 'heldag' && forslag.k1.timmar === 5.2,
+    'Kasern 1 Byggnad invändigt föreslås som heldag, 5,2 h (' + forslag.k1.dagsdel + ', ' + forslag.k1.timmar + ' h)');
+  kontroll(forslag.k1.text.includes('8 installationer') && forslag.k1.text.includes('2 tunga')
+    && forslag.k1.text.includes('65 rum') && forslag.k1.text.includes('5,2 h')
+    && forslag.k1.text.includes('heldag'),
+    'uträkningen står i klartext: "' + forslag.k1.text + '"');
+
+  // Steg 6 visas efter steg 5 med sin titel, och uträkningen syns i kortet
+  await f.locator('.steg-huvud', { hasText: 'Hur lång tid tar ronderna?' }).click();
+  await vanta(page, () => {
+    const kort = document.querySelectorAll('#flode .steg-kort');
+    return kort.length === 6 && kort[5].classList.contains('oppen');
+  }, 'steg 6 öppet');
+  const kort6 = f.locator('.steg-kort').nth(5);
+  kontroll(await f.locator('.steg-kort').count() === 6, 'sex steg i flödet');
+  kontroll((await kort6.innerText()).includes('Hur lång tid tar ronderna?'), 'steg 6 har titeln "Hur lång tid tar ronderna?"');
+  const rader = await kort6.locator('.tidrad').count();
+  kontroll(rader === 5, 'en rad per rond i Kasern 1 (' + rader + ')');
+  const bi = kort6.locator('.tidrad[data-rond="BI"]');
+  kontroll((await bi.locator('.td-utrakning').innerText()).includes('→ heldag'),
+    'uträkningen visas vid förslaget i steg 6');
+  await bild(page, 'etapp5-steg6-forslag');
+
+  // Godkänn alla: ett steg i historiken och grön bock
+  const foreAlla = await historiklangd(page);
+  await kort6.locator('button', { hasText: 'Godkänn alla' }).click();
+  await stegKlart(page, foreAlla, 'godkände alla förslag');
+  const godkant = await page.evaluate(() => ({ steg: DP.Plan.stegStatus(), ts: DP.Plan.tidStatus(), tider: DP.Plan.state().tider }));
+  kontroll(godkant.steg[6] === true && godkant.ts.klar === true && godkant.ts.utan.length === 0,
+    'Godkänn alla ger grön bock i steg 6');
+  kontroll(godkant.tider.BI.dagsdel === 'heldag' && godkant.tider.BI.godkand === true
+    && godkant.tider.BI.forslagVidGodkandet === 'heldag',
+    'den godkända tiden och förslaget vid godkännandet sparas');
+  const bockar = await f.locator('.steg-kort.klar').count();
+  kontroll(bockar === 6, 'alla sex stegen har bock (' + bockar + ')');
+  await bild(page, 'etapp5-steg6-godkant');
+
+  // Ångra och gör om: godkännandet är ett steg i historiken som allt annat
+  await angra(page);
+  await vanta(page, () => DP.Plan.stegStatus()[6] === false, 'bocken borta efter ångra');
+  kontroll(await page.evaluate(() => DP.Plan.stegStatus()[6] === false && Object.keys(DP.Plan.state().tider).length === 0),
+    'ångra tar bort godkännandena');
+  await gorOm(page);
+  await vanta(page, () => DP.Plan.stegStatus()[6] === true, 'bocken tillbaka efter gör om');
+  kontroll(await page.evaluate(() => DP.Plan.stegStatus()[6] === true), 'gör om ger godkännandena tillbaka');
+
+  // Att välja en annan dagsdel räknas som godkänt, och den tiden står kvar
+  const foreVal = await historiklangd(page);
+  await bi.locator('button.chip', { hasText: 'kvartsdag' }).click();
+  await stegKlart(page, foreVal, 'valde kvartsdag för Byggnad invändigt');
+  const valt = await page.evaluate(() => ({
+    tid: DP.Plan.state().tider.BI,
+    steg: DP.Plan.stegStatus(),
+    rad: DP.Plan.tidStatus().rader.filter(x => x.rond === 'BI')[0]
+  }));
+  kontroll(valt.tid.dagsdel === 'kvartsdag' && valt.tid.godkand === true && valt.steg[6] === true,
+    'att välja en annan dagsdel räknas som godkänt och steget är kvar grönt');
+  kontroll(valt.rad.andrad === false && valt.rad.forslagVidGodkandet === 'heldag',
+    'det förslag som gällde vid valet sparas, och raden är inte markerad som ändrad');
+
+  // Ändrade förutsättningar: flytta åtgärder ur ronden, så att förslaget sjunker från heldag
+  // till en mindre dagsdel. Kopplingarna finns kvar i en annan rond, så steg 5 är fortfarande
+  // klart – det är just en sådan omfördelning som gör ett godkänt förslag föråldrat.
+  // Den godkända tiden ska stå kvar, och steget förblir grönt (antagandet i specen).
+  const foreBort = await historiklangd(page);
+  await page.evaluate(() => {
+    DP.Plan.andra('Prov: flytta de generella åtgärderna till Brandskydd', function (st) {
+      st.kopplingar.forEach(function (k) { if (k.inst === 'BYGGNAD') { k.rond = 'BS'; } });
+    });
+    return 1;
+  });
+  await stegKlart(page, foreBort, 'flyttade de generella åtgärderna');
+  const andrad = await page.evaluate(() => ({
+    rad: DP.Plan.tidStatus().rader.filter(x => x.rond === 'BI')[0],
+    steg: DP.Plan.stegStatus(),
+    tid: DP.Plan.state().tider.BI
+  }));
+  kontroll(andrad.rad.andrad === true && andrad.rad.forslag.dagsdel !== 'kvartsdag',
+    'ett nytt förslag markeras som ändrade förutsättningar (nytt förslag: ' + andrad.rad.forslag.dagsdel + ')');
+  kontroll(andrad.tid.dagsdel === 'kvartsdag' && andrad.rad.dagsdel === 'kvartsdag',
+    'den godkända tiden ändras inte av sig själv');
+  kontroll(andrad.steg[6] === true, 'steg 6 förblir grönt när förutsättningarna ändras');
+  // Steg 6 är öppet sedan godkännandet, och lyssnaren har ritat om det efter flytten
+  await vanta(page, () => !!document.querySelector('#flode .tidrad.andrad'), 'markeringen i steg 6');
+  const bi2 = f.locator('.steg-kort').nth(5).locator('.tidrad[data-rond="BI"]');
+  kontroll((await bi2.innerText()).includes('Förutsättningarna har ändrats'),
+    'markeringen "Förutsättningarna har ändrats" visas med det nya förslaget');
+  await bild(page, 'etapp5-steg6-andrad');
+
+  // Ett förslag över en heldag: lägg alla åtgärder i Hangaren i samma rond, så att den blir
+  // för stor för en dag. Delningen föreslås men görs inte.
+  await byggnadsval(page, 'hangar');
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[5] === true, 'steg 5 klart i Hangaren');
+  const hangar = await page.evaluate(() => {
+    const las = rond => {
+      const x = DP.Plan.tidForslag(rond, DP.Plan.state());
+      return { dagsdel: x.dagsdel, timmar: Math.round(x.timmar * 10) / 10 };
+    };
+    return { bi: las('BI'), ve: las('VE') };
+  });
+  kontroll(hangar.bi.dagsdel === 'halvdag' && hangar.bi.timmar === 2.5,
+    'Hangar Byggnad invändigt föreslås som halvdag, 2,5 h (' + hangar.bi.dagsdel + ', ' + hangar.bi.timmar + ' h)');
+  kontroll(hangar.ve.dagsdel === 'halvdag' && hangar.ve.timmar === 3.8,
+    'Hangar Ventilation föreslås som halvdag, 3,8 h (' + hangar.ve.dagsdel + ', ' + hangar.ve.timmar + ' h)');
+
+  const foreFlytt = await historiklangd(page);
+  await page.evaluate(() => {
+    // Flytta alla åtgärder till Byggnad invändigt: en orimligt stor rond, som i verkligheten
+    // uppstår när planeraren lägger för mycket i samma rond.
+    DP.Plan.andra('Prov: allt i en rond', function (st) { st.kopplingar.forEach(function (k) { k.rond = 'BI'; }); });
+    return 1;
+  });
+  await stegKlart(page, foreFlytt, 'allt i en rond i Hangaren');
+  const stor = await page.evaluate(() => {
+    const x = DP.Plan.tidForslag('BI', DP.Plan.state());
+    return { delning: x.foreslaDelning, dagsdel: x.dagsdel, minuter: x.minuter, ronder: DP.Plan.state().ronder.length };
+  });
+  kontroll(stor.delning === true && stor.minuter > 480,
+    'ett förslag över 8 h flaggas för delning (' + Math.round(stor.minuter / 6) / 10 + ' h)');
+  kontroll(stor.dagsdel === 'heldag', 'dagsdelen stannar på heldag, så en tid går att godkänna');
+  await f.locator('.steg-huvud', { hasText: 'Hur lång tid tar ronderna?' }).click();
+  await vanta(page, () => !!document.querySelector('#flode .tidrad .notis.varning'), 'delningsförslaget i steg 6');
+  const storRad = f.locator('.steg-kort').nth(5).locator('.tidrad[data-rond="BI"]');
+  const storText = await storRad.innerText();
+  kontroll(storText.includes('mer än en heldag') && storText.includes('Dela ronden'),
+    'delningen föreslås i klartext');
+  kontroll(stor.ronder === await page.evaluate(() => DP.Plan.state().ronder.length),
+    'ingen delning sker automatiskt – ronderna är lika många (' + stor.ronder + ')');
+  await bild(page, 'etapp5-steg6-delning');
+
+  // Kasern 2 har en tvättmaskin mindre och en inbyggd hiss (beslut 17), så dess Byggnad
+  // invändigt blir en halvtimme tyngre än Kasern 1:s – samma rond, olika förutsättningar.
+  await byggnadsval(page, 'kasern2');
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[5] === true, 'steg 5 klart i Kasern 2');
+  const k2 = await page.evaluate(() => {
+    const x = DP.Plan.tidForslag('BI', DP.Plan.state());
+    return { dagsdel: x.dagsdel, timmar: Math.round(x.timmar * 10) / 10 };
+  });
+  kontroll(k2.dagsdel === 'heldag' && k2.timmar === 5.7,
+    'Kasern 2 Byggnad invändigt föreslås som heldag, 5,7 h (' + k2.dagsdel + ', ' + k2.timmar + ' h)');
+
+  // Garaget: den minsta byggnaden ska bli kort, så att små byggnader är lika lätta att förstå
+  await byggnadsval(page, 'garage');
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[5] === true, 'steg 5 klart i garaget');
+  const garage = await page.evaluate(() => {
+    const x = DP.Plan.tidForslag('BI', DP.Plan.state());
+    return { dagsdel: x.dagsdel, minuter: x.minuter, timmar: DP.Plan.tidTimmar('BI', DP.Plan.state()) };
+  });
+  kontroll(garage.dagsdel === 'kort' && garage.timmar === 1,
+    'Garage Byggnad invändigt föreslås som kort (' + garage.dagsdel + ', ' + garage.minuter + ' min)');
+
+  // Tidsschablonen ligger som data och går att läsa som data
+  const schablon = await page.evaluate(() => ({
+    minuter: DP.tidsschablon.MINUTER,
+    dagsdelar: DP.tidsschablon.DAGSDELAR.map(d => d.id + ':' + d.takMin),
+    hb: DP.tidsschablon.tyngd(DP.Plan.atgard('A010')),
+    lb: DP.tidsschablon.tyngd(DP.Plan.atgard('A020')),
+    vvb: DP.tidsschablon.tyngd(DP.Plan.atgard('A022')),
+    erfarenhet: Object.keys(DP.tidsschablon.erfarenhet).length
+  }));
+  kontroll(schablon.minuter.latt === 3 && schablon.minuter.normal === 15 && schablon.minuter.tung === 45,
+    'schablonens minuter per tyngd är 3, 15 och 45');
+  kontroll(schablon.dagsdelar.join(' ') === 'kort:60 kvartsdag:120 halvdag:240 heldag:480',
+    'dagsdelarnas gränser är 1, 2, 4 och 8 h');
+  kontroll(schablon.hb === 'latt' && schablon.lb === 'tung' && schablon.vvb === 'normal',
+    'tyngden per åtgärd: handbrandsläckare lätt, luftbehandlingsaggregat tung, varmvattenberedare normal');
+  kontroll(schablon.erfarenhet === 0, 'erfarenhetsvärden är förberedda men inte satta i etapp 5');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFlerbyggnadSkiss(browser) {
   console.log('Skiss – flera byggnader');
   const page = await nySida(browser, URL_FLER);
@@ -460,6 +655,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testByggnaderOchKopiering(browser);
     await testPlaneringFlerByggnader(browser);
     await testSteg5Klart(browser);
+    await testSteg6Tid(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

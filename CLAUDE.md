@@ -71,8 +71,9 @@ Skriptens ordning i `index.html` spelar roll:
 |---|---|
 | `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan) |
 | `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering), `DP.genereraOvriga()` |
+| `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
 | `data/garage.js`, `data/kasern.js` | Garage, Kasern 1 och 2 i `DP.byggnader` |
-| `app/planering.js` | `DP.Plan`: tillstånd per byggnad, frekvenser i veckor, rutintillfällen, åtgärdstexter i tre nivåer, historik |
+| `app/planering.js` | `DP.Plan`: tillstånd per byggnad, frekvenser i veckor, rutintillfällen, åtgärdstexter i tre nivåer, planerad tid per rond, historik |
 | `app/flyg.js` | Animering: brickor som flyger till tidsaxel/modell |
 | `app/dialog.js` | `DP.Dialog`: dialogruta, jämförelse av texter (`onValj` förberett), textredigerare |
 | `app/viewer.js` | `DP.Viewer`: generisk 3D-vy, `sattByggnad()`, lager, kamera, val, `blinka()`, gröna/avvikande installationer |
@@ -104,11 +105,18 @@ Skriptens ordning i `index.html` spelar roll:
   `kopplingsStatus` svarar på vad som fattas i steg 5: `saknas` (signifikanta installationer utan åtgärd),
   `saknarGenerella` (Kontroll byggnad invändigt/utvändigt som inte är kopplade), `klar` och `saknasText`
   i klartext. Steg 5 är klart när `klar` är sant (beslut 23).
+- **Planerad tid (steg 6):** `tidForslag(rond, s, bid)` tillämpar `DP.tidsschablon` på rondens kopplingar och
+  ger dagsdel, minuter, uträkningen i klartext och `foreslaDelning` när ronden inte ryms på en dag.
+  `tidStatus(s, bid)` ger en rad per rond med den godkända tiden, förslaget och flaggan `andrad`
+  (förutsättningarna har ändrats sedan tiden godkändes). Steg 6 är klart när varje rond har en godkänd tid;
+  en ändrad förutsättning gör det inte ogrönt, eftersom den godkända tiden gäller tills planeraren tar
+  ställning (beslut 27 och 35). `tidTimmar(rond, s, bid)` ger timmarna Balanseringen räknar belastning med.
 - `DP.Plan.prenumereraByte(fn(id))` – byte av byggnad: 3D-vyn byggs om, träd, flöde, tidsaxel och telefoner ritas om.
 
 **Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens), `ronder`
 (`id, freq, foljerBas, besvarad, utforare`), `kopplingar` (`atgard, inst, rond`; `inst` kan vara `'BYGGNAD'`
-för generella åtgärder), `standardTexter`, `instTexter`, `tillfalleTexter`.
+för generella åtgärder), `standardTexter`, `instTexter`, `tillfalleTexter`, `tider`
+(rond → `{ dagsdel, godkand, forslagVidGodkandet }`).
 
 **Byggnadsdata:** `plan` (nedifrån och upp, `elev`), `rum` (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`,
 valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej signifikanta), `stil`
@@ -116,7 +124,8 @@ valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej si
 
 ## Status
 
-Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). **Nästa: etapp 5 – Balansering**
+Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23) och
+steg 6, planerad tid med förslag och uträkning (beslut 27, 35 och 43), byggda. **Nästa: etapp 5 – Balansering**
 av flera byggnader med riktig planering från de fyra byggnaderna. Utformningen är bestämd i beslut 23–49 i
 beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
