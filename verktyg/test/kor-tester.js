@@ -158,6 +158,126 @@ async function testByggnaderOchKopiering(browser) {
   await page.close();
 }
 
+// Etapp 5, förarbete: planeringen räknar för valfri byggnad och kan ändra flera byggnader i ett steg
+async function testPlaneringFlerByggnader(browser) {
+  console.log('Etapp 5 – förarbete i planeringen');
+  const page = await nySida(browser, URL_INDEX);
+  const f = page.locator('#flode');
+
+  // Halvfärdigt läge: bara steg 1 besvarat. Det är läget där Balansering ska kunna se
+  // att byggnaden inte är klar, och det stegstatusen måste svara likadant för.
+  await f.locator('button.val', { hasText: 'Varje månad' }).click();
+  await page.waitForTimeout(600);
+  const halv = await page.evaluate(() => DP.Plan.stegStatus(DP.Plan.stateFor('garage'), 'garage'));
+  kontroll(await f.locator('.steg-kort.klar').count() === 1 && halv[1] && !halv[2] && !halv[3] && !halv[4],
+    'stegstatus i ett halvfärdigt läge: bara steg 1 klart');
+  await page.locator('.spelare button[title^="Ångra"]').click();
+  await page.waitForTimeout(600);
+
+  // Standardplanering i Garage och Kasern 2, med Garage aktivt på slutet
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await page.waitForTimeout(2600);
+  await page.selectOption('#byggnad', 'kasern2');
+  await page.waitForTimeout(1000);
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await page.waitForTimeout(2600);
+
+  // Hur Kasern 2 ser ut medan den är aktiv – jämförelsen görs sedan från Garage
+  const nar = await page.evaluate(() => ({
+    rt: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern2'), 'kasern2').map(t => t.namn + '@' + t.vecka),
+    besok: DP.Plan.besoksveckor(DP.Plan.stateFor('kasern2'), 'kasern2'),
+    steg: DP.Plan.stegStatus(DP.Plan.stateFor('kasern2'), 'kasern2'),
+    namn: DP.Plan.rutintillfalleNamn('BI', 5, 'kasern2')
+  }));
+  // Stegstatusen ska vara densamma som frågeflödet visar: stegen 1–4 gröna, 5 inte
+  const bockar = await f.locator('.steg-kort.klar').count();
+  kontroll(bockar === 4 && nar.steg[1] && nar.steg[2] && nar.steg[3] && nar.steg[4] && !nar.steg[5],
+    'stegstatus för Kasern 2 stämmer med flödets fyra bockar (' + bockar + ')');
+
+  await page.selectOption('#byggnad', 'garage');
+  await page.waitForTimeout(1000);
+  const fran = await page.evaluate(() => ({
+    rt: DP.Plan.rutintillfallen(DP.Plan.stateFor('kasern2'), 'kasern2').map(t => t.namn + '@' + t.vecka),
+    besok: DP.Plan.besoksveckor(DP.Plan.stateFor('kasern2'), 'kasern2'),
+    steg: DP.Plan.stegStatus(DP.Plan.stateFor('kasern2'), 'kasern2'),
+    namn: DP.Plan.rutintillfalleNamn('BI', 5, 'kasern2'),
+    aktiv: DP.Plan.aktivId()
+  }));
+  kontroll(fran.aktiv === 'garage' && fran.rt.length > 0 && JSON.stringify(fran.rt) === JSON.stringify(nar.rt),
+    'rutintillfällen och namn för Kasern 2 är likadana medan Garage är aktivt (' + fran.rt.length + ' st)');
+  kontroll(fran.namn === nar.namn && fran.namn.indexOf('Kasern2-') === 0,
+    'rutintillfällets namn bygger på rätt byggnad: ' + fran.namn);
+  kontroll(JSON.stringify(fran.besok) === JSON.stringify(nar.besok) && fran.besok.length > 0,
+    'besöksveckor för Kasern 2 är likadana (' + fran.besok.length + ' veckor)');
+  kontroll(JSON.stringify(fran.steg) === JSON.stringify(nar.steg), 'stegstatus för Kasern 2 är likadan');
+
+  // Ett steg som ändrar två byggnader och det gemensamma tillståndet
+  const fore = await page.evaluate(() => ({
+    hist: DP.Plan.historik().lista.length,
+    garage: DP.Plan.stateFor('garage').ronder.length,
+    kasern2: DP.Plan.stateFor('kasern2').ronder.length
+  }));
+  await page.evaluate(() => {
+    window.provInfo = [];
+    DP.Plan.prenumerera(function (fore, e, info) { window.provInfo.push((info.byggnader || []).slice().sort().join(',')); });
+    return 1;
+  });
+  const efter = await page.evaluate(() => {
+    DP.Plan.andraFlera('Prov: ändra två byggnader', function (a) {
+      a.tillstand('garage').ronder = [];
+      a.tillstand('kasern2').ronder = [];
+      a.gemensamt.prov = 'balansering';
+    });
+    return {
+      hist: DP.Plan.historik().lista.length,
+      aktiv: DP.Plan.aktivId(),
+      garage: DP.Plan.stateFor('garage').ronder.length,
+      kasern2: DP.Plan.stateFor('kasern2').ronder.length,
+      gem: DP.Plan.gemensamt().prov
+    };
+  });
+  kontroll(efter.hist === fore.hist + 1 && efter.garage === 0 && efter.kasern2 === 0 && efter.gem === 'balansering',
+    'ett steg ändrar två byggnader och det gemensamma tillståndet');
+
+  await page.locator('.spelare button[title^="Ångra"]').click();
+  await page.waitForTimeout(600);
+  const angrat = await page.evaluate(() => ({
+    aktiv: DP.Plan.aktivId(),
+    garage: DP.Plan.stateFor('garage').ronder.length,
+    kasern2: DP.Plan.stateFor('kasern2').ronder.length,
+    gem: DP.Plan.gemensamt().prov
+  }));
+  kontroll(angrat.garage === fore.garage && angrat.kasern2 === fore.kasern2 && angrat.gem === undefined,
+    'ångra återställer båda byggnaderna och det gemensamma tillståndet');
+  kontroll(angrat.aktiv === 'garage', 'ångra av ett flerbyggnadssteg byter inte aktiv byggnad');
+  const info = await page.evaluate(() => window.provInfo);
+  kontroll(info.length === 2 && info[0] === 'garage,kasern2' && info[1] === 'garage,kasern2',
+    'lyssnarna får samma rörda byggnader vid ändringen och vid ångra (' + JSON.stringify(info) + ')');
+
+  // Ett steg som bara ändrar det gemensamma tillståndet rör ingen byggnad
+  const bara = await page.evaluate(() => {
+    window.provInfo = [];
+    DP.Plan.andraFlera('Prov: bara gemensamt', function (a) { a.gemensamt.svar = 'flygfaltet'; });
+    return { gem: DP.Plan.gemensamt().svar, info: window.provInfo };
+  });
+  kontroll(bara.gem === 'flygfaltet' && bara.info.length === 1 && bara.info[0] === '',
+    'ett steg som bara ändrar det gemensamma tillståndet rör ingen byggnad');
+
+  // En byggnad i taget fungerar som förut: ångra växlar till den byggnad steget gällde
+  await page.evaluate(() => { DP.Plan.vaxlaByggnad('kasern2'); DP.Plan.andra('Prov: töm ronderna', function (s) { s.ronder = []; }); return 1; });
+  await page.waitForTimeout(600);
+  await page.selectOption('#byggnad', 'garage');
+  await page.waitForTimeout(800);
+  await page.locator('.spelare button[title^="Ångra"]').click();
+  await page.waitForTimeout(800);
+  kontroll(await page.evaluate(() => DP.Plan.aktivId() === 'kasern2' && DP.Plan.state().ronder.length > 0),
+    'ångra av ett enbyggnadssteg växlar tillbaka till den byggnaden');
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFlerbyggnadSkiss(browser) {
   console.log('Skiss – flera byggnader');
   const page = await nySida(browser, URL_FLER);
@@ -175,6 +295,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testPlaneringsflode(browser);
     await testAtgardstexter(browser);
     await testByggnaderOchKopiering(browser);
+    await testPlaneringFlerByggnader(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {
     console.log('  FEL  testet avbröts: ' + e.message.split('\n')[0]);

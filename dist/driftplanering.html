@@ -2424,6 +2424,11 @@ details.rum > summary:hover button.liten { visibility: visible; }
       tillfalleTexter: {} // 'atgard|inst|rond|vecka' -> [kontrollpunkter]
     };
   }
+  // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ska Balanseringens svar
+  // ligga (områden man åker till, kapacitet per utförare, veckor utan tillsyn och skötsel). Tomt så länge.
+  function tomtGemensamt() {
+    return {};
+  }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
 
   // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
@@ -2435,12 +2440,13 @@ details.rum > summary:hover button.liten { visibility: visible; }
     BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
     return a;
   }
-  var historik = [{ alla: allaTomma(), text: 'Start', byggnad: null }];
+  var historik = [{ alla: allaTomma(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
   var pos = 0;
   var lyssnare = [], byteLyssnare = [];
 
   function state() { return historik[pos].alla[aktiv]; }
-  function stateFor(id) { return historik[pos].alla[id]; }
+  function stateFor(id) { return historik[pos].alla[id || aktiv]; }
+  function gemensamt() { return historik[pos].gemensamt; }
   function B() { return DP.byggnader[aktiv]; }
   function meddela(fore, efter, info) {
     lyssnare.forEach(function (fn) { fn(fore, efter, info || {}); });
@@ -2453,9 +2459,48 @@ details.rum > summary:hover button.liten { visibility: visible; }
     if (fn(ny) === false) { return; }
     rensaTexter(ny);
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, text: B().namn + ': ' + text, byggnad: aktiv });
+    historik.push({ alla: alla, gemensamt: klona(historik[pos].gemensamt), text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
-    meddela(fore, ny, info);
+    meddela(fore, ny, utokaInfo(info, [aktiv]));
+  }
+
+  // Ändring som rör flera byggnader och/eller det gemensamma tillståndet, som ett enda steg i
+  // historiken. fn får ({ tillstand: fn(id), gemensamt: objekt }) och muterar kopior fritt.
+  // Steget hör inte till någon byggnad, så att ångra och gör om inte byter aktiv byggnad.
+  function andraFlera(text, fn, info) {
+    var fore = state();
+    var alla = klona(historik[pos].alla);
+    var gem = klona(historik[pos].gemensamt);
+    var rorda = {};
+    var andring = {
+      // Byggnadens planering, att mutera. Markerar samtidigt byggnaden som rörd av steget.
+      tillstand: function (id) {
+        if (!alla[id]) { return null; }
+        rorda[id] = true;
+        return alla[id];
+      },
+      gemensamt: gem
+    };
+    if (fn(andring) === false) { return; }
+    var rordaIds = Object.keys(rorda);
+    rordaIds.forEach(function (id) { rensaTexter(alla[id]); });
+    historik = historik.slice(0, pos + 1);
+    historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
+    pos = historik.length - 1;
+    meddela(fore, state(), utokaInfo(info, rordaIds));
+  }
+
+  // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker.
+  function utokaInfo(info, byggnader) {
+    var ut = info ? klonaInfo(info) : {};
+    ut.byggnader = byggnader;
+    return ut;
+  }
+  // Info kan innehålla DOM-noder och funktioner, så den kopieras ytligt
+  function klonaInfo(info) {
+    var ut = {};
+    Object.keys(info).forEach(function (n) { ut[n] = info[n]; });
+    return ut;
   }
   function ga(till, info) {
     if (till < 0 || till >= historik.length || till === pos) { return; }
@@ -2463,8 +2508,9 @@ details.rum > summary:hover button.liten { visibility: visible; }
     var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
     if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
+    var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), info || { historik: true });
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice()));
   }
   function vaxlaByggnad(id) {
     if (!DP.byggnader[id] || id === aktiv) { return; }
@@ -2484,17 +2530,21 @@ details.rum > summary:hover button.liten { visibility: visible; }
   function utforare(id) { return UTFORARE.filter(function (u) { return u.id === id; })[0] || UTFORARE[0]; }
   function atgard(id) { return DP.atgarder.filter(function (a) { return a.id === id; })[0]; }
 
-  function rutintillfalleNamn(rondId, v) { return B().namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v); }
+  // De härledda uppgifterna nedan gäller den aktiva byggnaden om inget byggnads-id anges.
+  // Balanseringen räknar på alla byggnader samtidigt och skickar därför alltid med id:t.
+  function rutintillfalleNamn(rondId, v, bid) {
+    return DP.byggnader[bid || aktiv].namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
+  }
 
   // Alla rutintillfällen som planeringen genererar
-  function rutintillfallen(s) {
-    s = s || state();
+  function rutintillfallen(s, bid) {
+    s = s || stateFor(bid);
     var ut = [];
     s.ronder.forEach(function (r) {
       if (!freqKomplett(r.freq)) { return; }
       var atg = s.kopplingar.filter(function (k) { return k.rond === r.id; });
       veckorFor(r.freq).forEach(function (v) {
-        ut.push({ nyckel: r.id + ':' + v, rond: r.id, vecka: v, namn: rutintillfalleNamn(r.id, v), utforare: r.utforare, atgarder: atg });
+        ut.push({ nyckel: r.id + ':' + v, rond: r.id, vecka: v, namn: rutintillfalleNamn(r.id, v, bid), utforare: r.utforare, atgarder: atg });
       });
     });
     return ut;
@@ -2513,11 +2563,37 @@ details.rum > summary:hover button.liten { visibility: visible; }
     return (s || state()).kopplingar.filter(function (k) { return k.inst === instId; });
   }
 
+  function signifikanta(bid) {
+    return DP.byggnader[bid || aktiv].installationer.filter(function (i) { return i.signifikant; });
+  }
+
+  // Hur många signifikanta installationer som har en kopplad åtgärd, och vilka som saknar
+  function kopplingsStatus(s, bid) {
+    s = s || stateFor(bid);
+    var kopplade = {};
+    s.kopplingar.forEach(function (x) { kopplade[x.inst] = true; });
+    var sig = signifikanta(bid);
+    var saknas = sig.filter(function (i) { return !kopplade[i.id]; });
+    return { n: sig.length - saknas.length, tot: sig.length, saknas: saknas,
+      text: (sig.length - saknas.length) + ' av ' + sig.length + ' signifikanta installationer har kopplad åtgärd' };
+  }
+
+  // Status per steg i Planering, för en valfri byggnad. Samma regler som frågeflödet visar:
+  // steg 4 är klart när steg 3 är klart (utföraren har alltid ett förval), och steg 5 är
+  // ännu inte klart i något läge (beslut 23 byggs i en egen biljett).
+  function stegStatus(s, bid) {
+    s = s || stateFor(bid);
+    var k1 = freqKomplett(s.bas);
+    var k2 = k1 && s.ronder.length > 0;
+    var k3 = k2 && s.ronder.every(function (r) { return r.besvarad && freqKomplett(r.freq); });
+    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: false };
+  }
+
   // Besök i byggnaden = alla veckor där minst ett rutintillfälle infaller
-  function besoksveckor(s) {
-    s = s || state();
+  function besoksveckor(s, bid) {
+    s = s || stateFor(bid);
     var set = {};
-    rutintillfallen(s).forEach(function (r) { set[r.vecka] = true; });
+    rutintillfallen(s, bid).forEach(function (r) { set[r.vecka] = true; });
     return Object.keys(set).map(Number).sort(function (a, c) { return a - c; });
   }
 
@@ -2639,7 +2715,9 @@ details.rum > summary:hover button.liten { visibility: visible; }
     prenumerera: function (fn) { lyssnare.push(fn); },
     instIndex: instIndex, rondNamn: rondNamn, utforare: utforare, atgard: atgard,
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
-    kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor
+    kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
+    signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
+    gemensamt: gemensamt, andraFlera: andraFlera
   };
 })();
 
@@ -4851,7 +4929,7 @@ details.rum > summary:hover button.liten { visibility: visible; }
   var b, signifikanta;
   function indexera() {
     b = P.byggnad();
-    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+    signifikanta = P.signifikanta();
   }
   indexera();
   var typer = DP.installationstyper;
@@ -4880,14 +4958,10 @@ details.rum > summary:hover button.liten { visibility: visible; }
   }
 
   // ------------------------------------------------------------------
-  // Status per steg
+  // Status per steg – reglerna ligger i planeringen, så att den också kan svara för
+  // en byggnad som inte är aktiv (Balansering behöver det).
   // ------------------------------------------------------------------
-  function klara(s) {
-    var k1 = P.freqKomplett(s.bas);
-    var k2 = k1 && s.ronder.length > 0;
-    var k3 = k2 && s.ronder.every(function (r) { return r.besvarad && P.freqKomplett(r.freq); });
-    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: false };
-  }
+  var klara = P.stegStatus;
   function tillganglig(n, k) {
     for (var i = 1; i < n; i++) { if (!k[i]) { return false; } }
     return true;
@@ -5144,12 +5218,7 @@ details.rum > summary:hover button.liten { visibility: visible; }
   }
 
   // ---------------- Steg 5 ----------------
-  function kopplingsStatus(s) {
-    var kopplade = {};
-    s.kopplingar.forEach(function (x) { kopplade[x.inst] = true; });
-    var n = signifikanta.filter(function (i) { return kopplade[i.id]; }).length;
-    return { n: n, tot: signifikanta.length, saknas: signifikanta.filter(function (i) { return !kopplade[i.id]; }), text: n + ' av ' + signifikanta.length + ' signifikanta installationer har kopplad åtgärd' };
-  }
+  var kopplingsStatus = P.kopplingsStatus;
 
   function steg5(k, s) {
     var st = kopplingsStatus(s);
@@ -5499,6 +5568,13 @@ details.rum > summary:hover button.liten { visibility: visible; }
     DP.Tidsaxel.rita();
     DP.Telefon.rita();
     DP.ui.uppdatera();
+
+    // info.byggnader säger vilka byggnader steget ändrade. Ett steg som inte rörde den aktiva
+    // byggnaden (Balansering ändrar flera på en gång) har inget att animera här; vyerna är redan omritade.
+    if (info.byggnader && info.byggnader.indexOf(P.aktivId()) < 0) {
+      DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+      return;
+    }
 
     var set = {};
     efter.kopplingar.forEach(function (k) { set[k.inst] = true; });

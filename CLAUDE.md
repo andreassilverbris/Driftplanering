@@ -86,10 +86,21 @@ Skriptens ordning i `index.html` spelar roll:
 **Dataflödet:**
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
-- Historiken sparar ögonblicksbilder av *alla* byggnaders tillstånd plus vilken byggnad steget gällde.
-  `angra`/`gorOm`/`gaTill` växlar byggnad vid behov.
+- `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
+  (Balansering). `fn` får `{ tillstand: fn(id), gemensamt }` – `tillstand(id)` lämnar byggnadens planering
+  att mutera och markerar byggnaden som rörd av steget.
+  Steget hör inte till någon byggnad, så ångra och gör om byter inte aktiv byggnad.
+- Historiken sparar ögonblicksbilder av *alla* byggnaders tillstånd, det **gemensamma tillståndet**
+  (`DP.Plan.gemensamt()`, inte per byggnad – Balanseringens svar ska ligga där) plus vilken byggnad steget
+  gällde. `angra`/`gorOm`/`gaTill` växlar byggnad vid behov.
 - `DP.Plan.prenumerera(fn(fore, efter, info))` – lyssnaren i `flode.js` ritar om allt och räknar ut skillnaden
   (tillagda/borttagna kopplingar, ändrade texter) för att animera. Animeringar fungerar därför även vid ångra.
+  `info.byggnader` säger vilka byggnader steget ändrade (sparat i historiksteget, så ångra och gör om ger
+  samma lista); rörde det inte den aktiva byggnaden finns inget att animera.
+- De härledda uppgifterna i `DP.Plan` gäller den aktiva byggnaden om inget byggnads-id anges, och svarar för en
+  valfri byggnad när det gör det: `rutintillfallen(s, bid)`, `rutintillfalleNamn(rond, vecka, bid)`,
+  `besoksveckor(s, bid)`, `signifikanta(bid)`, `kopplingsStatus(s, bid)` och `stegStatus(s, bid)`
+  (stegstatusen är flödets, så Balansering kan se vilka byggnader som är klara).
 - `DP.Plan.prenumereraByte(fn(id))` – byte av byggnad: 3D-vyn byggs om, träd, flöde, tidsaxel och telefoner ritas om.
 
 **Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens), `ronder`

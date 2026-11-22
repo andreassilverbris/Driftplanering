@@ -10,7 +10,7 @@
   var b, signifikanta;
   function indexera() {
     b = P.byggnad();
-    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+    signifikanta = P.signifikanta();
   }
   indexera();
   var typer = DP.installationstyper;
@@ -39,14 +39,10 @@
   }
 
   // ------------------------------------------------------------------
-  // Status per steg
+  // Status per steg – reglerna ligger i planeringen, så att den också kan svara för
+  // en byggnad som inte är aktiv (Balansering behöver det).
   // ------------------------------------------------------------------
-  function klara(s) {
-    var k1 = P.freqKomplett(s.bas);
-    var k2 = k1 && s.ronder.length > 0;
-    var k3 = k2 && s.ronder.every(function (r) { return r.besvarad && P.freqKomplett(r.freq); });
-    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: false };
-  }
+  var klara = P.stegStatus;
   function tillganglig(n, k) {
     for (var i = 1; i < n; i++) { if (!k[i]) { return false; } }
     return true;
@@ -303,12 +299,7 @@
   }
 
   // ---------------- Steg 5 ----------------
-  function kopplingsStatus(s) {
-    var kopplade = {};
-    s.kopplingar.forEach(function (x) { kopplade[x.inst] = true; });
-    var n = signifikanta.filter(function (i) { return kopplade[i.id]; }).length;
-    return { n: n, tot: signifikanta.length, saknas: signifikanta.filter(function (i) { return !kopplade[i.id]; }), text: n + ' av ' + signifikanta.length + ' signifikanta installationer har kopplad åtgärd' };
-  }
+  var kopplingsStatus = P.kopplingsStatus;
 
   function steg5(k, s) {
     var st = kopplingsStatus(s);
@@ -658,6 +649,13 @@
     DP.Tidsaxel.rita();
     DP.Telefon.rita();
     DP.ui.uppdatera();
+
+    // info.byggnader säger vilka byggnader steget ändrade. Ett steg som inte rörde den aktiva
+    // byggnaden (Balansering ändrar flera på en gång) har inget att animera här; vyerna är redan omritade.
+    if (info.byggnader && info.byggnader.indexOf(P.aktivId()) < 0) {
+      DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+      return;
+    }
 
     var set = {};
     efter.kopplingar.forEach(function (k) { set[k.inst] = true; });
