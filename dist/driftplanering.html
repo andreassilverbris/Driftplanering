@@ -244,19 +244,120 @@ details.rum > summary:hover button.liten { visibility: visible; }
  * Döljningen sker med CSS på behållaren: vyn byggs aldrig om, så kamera, valt plan och
  * vald installation finns kvar när man går tillbaka till Byggnad eller Planering.
  */
-.balansering-yta { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #fff; }
+.balansering-yta { display: none; flex: 1; min-height: 0; background: #fff; }
 body.i-balansering #vy { display: none; }
 body.i-balansering .tidsaxel { display: none; }
-body.i-balansering .balansering-yta { display: block; }
+body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 
-.bal-skal { padding: 28px 32px; max-width: 760px; }
-.bal-skal h2 { margin: 0 0 6px; font-size: 20px; }
-.bal-skal .bal-ingress { color: var(--dov); line-height: 1.6; margin: 0 0 18px; }
-.bal-kommer { border: 1px solid var(--linje); border-radius: var(--radie); padding: 14px 18px; background: #fafbfc; }
-.bal-kommer h3 { margin: 0 0 8px; font-size: 14px; }
-.bal-kommer ol { margin: 0; padding-left: 20px; color: var(--dov); line-height: 1.7; }
-.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; }
+.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; font-size: 12px; }
 .bal-status b { color: var(--text); }
+
+/* Sidopanelen i Balansering: byggnaderna som räknas med, hur tidsaxeln läses och veckolistan */
+.bal-grupp { margin-top: 14px; }
+.bal-grupp h3 { margin: 0 0 7px; font-size: 13px; }
+.bal-byggnader { display: flex; flex-direction: column; gap: 3px; }
+.bal-byggnad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 6px; }
+/* Gråad = byggnaden är inte klar i alla sex stegen och räknas inte med (beslut 39) */
+.bal-byggnad.grad { background: #f7f8f9; }
+.bal-byggnad.grad .bal-namn { color: var(--svag); }
+.bal-byggnad.grad .bal-farg { opacity: .3; }
+.bal-farg { width: 11px; height: 11px; border-radius: 3px; flex: none; background: var(--svag); }
+.bal-bnamn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-namn { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bal-omrade { font-size: 11px; color: var(--svag); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bal-med { font-size: 11px; color: var(--gron); font-weight: 600; flex: none; }
+.bal-lank { font-size: 11px; color: var(--accent); background: var(--accent-svag); border: 1px solid #b8cff8; border-radius: 999px; padding: 3px 9px; flex: none; }
+.bal-lank:hover { background: #d6e4fc; }
+.bal-notis { font-size: 12px; color: var(--dov); line-height: 1.55; margin-top: 7px; }
+.bal-punkter { margin: 0; padding-left: 17px; font-size: 12px; color: var(--dov); line-height: 1.55; }
+.bal-punkter b { color: var(--text); }
+.bal-veckolista { border-top: 1px solid var(--linje); padding-top: 12px; }
+.bal-vsum { font-size: 12px; color: var(--dov); background: #fafbfc; border: 1px solid var(--linje); border-radius: 6px; padding: 5px 8px; }
+.bal-vsum b { color: var(--text); }
+.bal-vsum.over { background: #fdecec; border-color: #f3c3c1; }
+.bal-vsum.manga { border-color: #e8c98a; }
+.bal-varning { font-size: 12px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: #fdecec; border: 1px solid #f3c3c1; color: #a33; line-height: 1.5; }
+.bal-varning.mjuk { background: #fdf5e6; border-color: #e8c98a; color: #8a6414; }
+.bal-tillfallen { display: flex; flex-direction: column; gap: 2px; margin-top: 7px; }
+.bal-tillfalle { display: flex; align-items: center; gap: 8px; padding: 4px 7px; border-bottom: 1px solid #f0f2f4; }
+.bal-tnamn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-tid { font-size: 11px; color: var(--dov); flex: none; white-space: nowrap; }
+
+/* Balanseringens tidsaxel: en rad per utförare, en kolumn per vecka (beslut 33) */
+.bal-tidsaxel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.bt-huvud { display: flex; align-items: center; gap: 18px; padding: 9px 16px; border-bottom: 1px solid var(--linje); flex: none; }
+.bt-rubrik { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-rubrik span { color: var(--dov); font-size: 12px; margin-left: 6px; }
+.bt-forklaring { display: flex; gap: 14px; margin-left: auto; font-size: 11px; color: var(--dov); flex: none; }
+.bt-fpost { display: flex; align-items: center; gap: 5px; }
+.bt-prov { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--linje); flex: none; }
+.bt-prov.lagom { background: #cfe6d6; }
+.bt-prov.nara { background: #f3dfae; }
+.bt-prov.over { background: #f0b4b1; }
+.bt-prov.manga { background: #fff; box-shadow: inset 0 0 0 2px #d98b1f; }
+.bt-tom { padding: 28px 32px; max-width: 720px; color: var(--dov); line-height: 1.6; }
+
+/* Varje utförarrad har en fast höjd, satt i vyer.js tillsammans med radmallen (beslut 58):
+ * hög nog att fyllnaden mot kapaciteten går att läsa, låg nog att fyra utförare och hela
+ * året ryms på 1920x1200 utan att sidan scrollar. Fäller man ut utförare växer antalet
+ * rader, och då får gridden scrolla i stället för att trycka ihop raderna. */
+.bt-grid {
+  display: grid; min-height: 0; overflow: auto; padding: 0 16px 8px;
+  align-content: start; flex: none; max-height: 100%;
+}
+.bt-grid > div, .bt-grid > button { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #e8ebee; }
+.bt-etikett { justify-content: flex-start !important; gap: 7px; padding-right: 10px; font-size: 13px; overflow: hidden; }
+.bt-manad { font-size: 11px; font-weight: 700; color: var(--dov); border-left: 1px solid #e3e7eb; justify-content: flex-start !important; padding-left: 5px; text-transform: uppercase; }
+
+.bt-vecka { font-size: 10px; color: var(--svag); border-left: 1px solid #f3f5f7; }
+.bt-vecka-etikett { font-size: 11px; color: var(--svag); }
+/* Vecka utan tillsyn och skötsel: markerad så att det syns varför den är tom (berättelse 56) */
+.bt-vecka.utan { background: #eceef1; color: var(--dov); font-weight: 700; }
+
+.bt-utforare { gap: 6px; }
+.bt-fall { width: 18px; height: 18px; padding: 0; border: 1px solid var(--linje); background: #fff; border-radius: 4px; color: var(--dov); font-size: 9px; line-height: 1; flex: none; }
+.bt-fall:hover { border-color: var(--accent); color: var(--accent); }
+.bt-unamn { min-width: 0; display: flex; flex-direction: column; }
+.bt-nrad { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-krad { font-size: 11px; color: var(--svag); line-height: 1.4; white-space: nowrap; }
+.bt-vrad { font-size: 11px; color: #c0392b; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.bt-vrad.mjuk { color: #8a6414; }
+.bt-under { padding-left: 32px; font-size: 12px; color: var(--dov); background: #fcfcfd; }
+.bt-bnamn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Cellen: fyllnaden mot kapaciteten som en stapel underifrån, brickorna ovanpå */
+.bt-cell {
+  position: relative; border-left: 1px solid #f3f5f7; border-bottom: 1px solid #f0f2f4;
+  background: #fff; padding: 0; overflow: hidden; align-items: flex-start !important;
+}
+.bt-cell.utan { background: #f4f5f7; }
+.bt-cell.har { background: #f6faf7; }
+.bt-cell.nara { background: #fcf2dc; }
+.bt-cell.over { background: #fbe0de; }
+.bt-cell.vald { box-shadow: inset 0 0 0 2px var(--accent); z-index: 2; }
+.bt-cell:hover { box-shadow: inset 0 0 0 1px #b8cff8; }
+/* Fyllnaden mot kapaciteten: en stapel underifrån med en tydlig överkant. Kanten är det som
+ * faktiskt går att läsa av – själva ytan hamnar bakom brickorna, och utan en linje att sikta
+ * på går skillnaden mellan 83 % och 108 % inte att se. Brickorna ligger i cellens övre del
+ * så att stapelns topp har någonstans att synas. */
+.bt-fyll {
+  position: absolute; left: 0; right: 0; bottom: 0; background: #cfe6d6;
+  border-top: 2px solid #4a9c6b; pointer-events: none;
+}
+.bt-cell.nara .bt-fyll { background: #f3dfae; border-top-color: #c9922a; }
+.bt-cell.over .bt-fyll { background: #f0b4b1; border-top-color: #c0392b; }
+/* Ringen = fler än 6 rutintillfällen. Den mjuka varningen gäller även när tiden räcker (beslut 31) */
+.bt-ring { position: absolute; inset: 2px; border: 2px solid #d98b1f; border-radius: 4px; pointer-events: none; }
+.bt-brickor {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 2px;
+  align-items: flex-start; justify-content: center; padding: 3px;
+}
+.bt-bricka { width: 11px; height: 11px; border-radius: 3px; background: var(--svag); flex: none; box-shadow: 0 0 0 1px rgba(255,255,255,.7); }
+
+.bt-ucell { align-items: center !important; }
+.bt-ucell .bt-brickor { position: relative; align-items: center; justify-content: center; }
+.bt-ucell .bt-bricka { width: 12px; height: 12px; }
+.bt-ucell.utan { background: #f4f5f7; }
 
 /* ---------- Tidsaxel ---------- */
 .tidsaxel { flex: none; height: 290px; background: #fff; border-top: 1px solid var(--linje); display: flex; flex-direction: column; min-height: 0; }
@@ -408,6 +509,12 @@ body.i-balansering .balansering-yta { display: block; }
 .tidrad .chiprad { margin-top: 7px; }
 .tidrad .notis { margin-top: 7px; }
 .tagg.gron { background: #dcf3e4; color: var(--gron); }
+
+/* Foten under Balanseringens tidsaxel: slutsatsen i klartext */
+.bt-fot { padding: 14px 18px; border-top: 1px solid var(--linje); background: #fafbfc; }
+.bt-fot-text { max-width: 1100px; font-size: 13px; color: var(--dov); line-height: 1.65; }
+.bt-fot-text b { color: var(--text); }
+.bt-fot-rub { font-weight: 700; color: var(--text); }
 
 </style>
 </head>
@@ -2002,6 +2109,9 @@ body.i-balansering .balansering-yta { display: block; }
     id: 'hangar',
     namn: 'Hangar',
     typ: 'hangar',
+    omrade: 'flygfaltet',
+    // Byggnadsfärg för brickorna i Balanseringens tidsaxel (beslut 47)
+    farg: '#2f8f66',
     beskrivning: 'Komplex byggnad med hög installationstäthet: kontorsdel i tre plan och en stor hall för fordon.',
     stil: { tak: 'platt', motX: 12, dekor: 'hangar' },
     konstanter: { PLANHOJD: PLANHOJD, BJALKLAG: BJALKLAG, FRIHOJD: FRIHOJD, HANGARHOJD: HANGARHOJD },
@@ -2058,6 +2168,16 @@ body.i-balansering .balansering-yta { display: block; }
     { id: 'A092', namn: 'Kontroll torkskåp', galler: ['torkskap'], foreslagenRond: 'BI',
       kontrollpunkter: ['Att värme och fläkt fungerar', 'Att timer fungerar', 'Att luddfilter är rent', 'Att dörren stänger tätt'] }
   ].forEach(function (a) { DP.atgarder.push(a); });
+
+  // ---------------- Områden ----------------
+  // Närhet anges med områden (beslut 28). Ett område är byggnader som ligger så nära varandra
+  // att avståndet inte spelar någon roll för veckoplaneringen. Ett område man åker till ligger
+  // så långt bort att man vill samla besöken där till samma vecka; vilka de är svarar planeraren
+  // på i Balansering, och Flygfältet är förvalt.
+  DP.omraden = [
+    { id: 'kasernomradet', namn: 'Kasernområdet', beskrivning: 'Byggnaderna ligger inom gångavstånd från varandra.' },
+    { id: 'flygfaltet', namn: 'Flygfältet', beskrivning: 'Ligger en bit bort – dit åker man.', akerTill: true }
+  ];
 
   // ---------------- Byggnadstyper och standardplanering ----------------
   //   freq: 'bas' = samma som besöken, annars { typ, startManad }
@@ -2353,6 +2473,9 @@ body.i-balansering .balansering-yta { display: block; }
     id: 'garage',
     namn: 'Garage',
     typ: 'garage',
+    omrade: 'kasernomradet',
+    // Byggnadsfärg: brickorna i Balanseringens tidsaxel har byggnadens färg (beslut 47)
+    farg: '#d08a2f',
     beskrivning: 'Enkel byggnad för två bilar. Bra att börja med: bara tre signifikanta installationer – en handbrandsläckare och två portar.',
     stil: { tak: 'sadel', sadel: { bas: HOJD, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N', dekor: 'garage', fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
     konstanter: { PLANHOJD: HOJD, BJALKLAG: 0.2, FRIHOJD: HOJD },
@@ -2530,6 +2653,10 @@ body.i-balansering .balansering-yta { display: block; }
       id: 'kasern' + nr,
       namn: 'Kasern ' + nr,
       typ: 'kasern',
+      omrade: 'kasernomradet',
+      // Byggnadsfärg för brickorna i Balanseringens tidsaxel (beslut 47). Kasernerna är nära
+      // varandra i färg men går att skilja, som de gör i verkligheten.
+      farg: nr === 1 ? '#3f7fb5' : '#6a5bb8',
       beskrivning: nr === 1
         ? 'Klassisk kasern i tegel från 1900-talets början: källare, tre våningar och vind. Logement längs en mittkorridor.'
         : 'Likadan som Kasern 1, men renoverad: en hiss har byggts in i trapphuset och tvättstugan har en tvättmaskin.',
@@ -2543,6 +2670,167 @@ body.i-balansering .balansering-yta { display: block; }
 
   DP.byggnader.kasern1 = skapa(1);
   DP.byggnader.kasern2 = skapa(2);
+})();
+
+</script>
+  <script>
+/*
+ * Balanseringens uträkningar: en fristående modul utan DOM.
+ *
+ * Modulen tar emot ett **underlag** – alla klara byggnaders rondserier med utförare, planerad
+ * tid och vilka veckor de ligger i – och svarar på frågor om det. Den vet ingenting om sidan,
+ * om DP.Plan eller om hur tillståndet ser ut. Därför går den att pröva med ett underlag som
+ * byggs direkt i ett test, och samma uträkning används både av tidsaxeln i Balansering och
+ * (senare) av den automatiska balanseringen.
+ *
+ * Här finns belastningsfunktionen: för ett underlag ger den, per utförare och vecka, planerad
+ * tid i dagar, antal rutintillfällen och vilka de är. Kapacitet räknas i tid (beslut 31):
+ * en dag är 8 timmar, och utförarens kapacitet är antalet dagar × 8 h. Den mjuka varningen
+ * går vid fler än 6 rutintillfällen en vecka, även när tiden räcker – många små saker samma
+ * vecka är ett problem i sig.
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP;
+
+  var TIMMAR_PER_DAG = 8;
+  var MANGA_TILLFALLEN = 6;   // fler än så i en vecka ger den mjuka varningen
+  var KAPACITET_FORVAL = 3;   // dagar i veckan för tillsyn och skötsel (beslut 31)
+
+  function avrunda(tal, decimaler) {
+    var f = Math.pow(10, decimaler || 0);
+    return Math.round(tal * f) / f;
+  }
+
+  // ------------------------------------------------------------------
+  // Belastning per utförare och vecka
+  //
+  // Underlaget:
+  //   {
+  //     antalVeckor: 52,
+  //     byggnader: [{ id, namn, farg, omrade,
+  //                   ronder: [{ id, namn, utforare, timmar, veckor: [1, 5, 9 …] }] }],
+  //     utforare:   [{ id, namn, farg }],            // ordningen är radordningen
+  //     kapacitet:  { anna: 3, … },                  // dagar i veckan, förval 3
+  //     veckorUtan: [28, 29, 30, 31, 52]             // veckor utan tillsyn och skötsel
+  //   }
+  //
+  // Svaret har en rad per utförare, och varje rad en cell per vecka (index 1..antalVeckor,
+  // cell 0 används inte – veckonummer är 1-baserade och då slipper vi räkna om överallt).
+  // ------------------------------------------------------------------
+  function belastning(underlag) {
+    var antalVeckor = underlag.antalVeckor || 52;
+    var kapacitet = underlag.kapacitet || {};
+    var veckorUtan = underlag.veckorUtan || [];
+    var utan = {};
+    veckorUtan.forEach(function (v) { utan[v] = true; });
+
+    var rader = (underlag.utforare || []).map(function (u) {
+      var dagar = kapacitet[u.id] === undefined ? KAPACITET_FORVAL : kapacitet[u.id];
+      var rad = {
+        utforare: u.id,
+        namn: u.namn,
+        farg: u.farg,
+        kapacitetDagar: dagar,
+        kapacitetTimmar: dagar * TIMMAR_PER_DAG,
+        veckor: [],
+        // Summor över året, så att raden kan säga hur det ser ut i stort
+        over: [],      // veckor över kapaciteten
+        manga: [],     // veckor med fler än 6 tillfällen
+        tillfallen: 0,
+        timmar: 0
+      };
+      for (var v = 0; v <= antalVeckor; v++) {
+        rad.veckor.push({
+          vecka: v, timmar: 0, dagar: 0, tillfallen: [],
+          kapacitetTimmar: rad.kapacitetTimmar, kapacitetDagar: dagar,
+          andel: 0, over: false, manga: false, utanTillsyn: !!utan[v]
+        });
+      }
+      return rad;
+    });
+
+    var radFor = {};
+    rader.forEach(function (r) { radFor[r.utforare] = r; });
+
+    (underlag.byggnader || []).forEach(function (b) {
+      (b.ronder || []).forEach(function (r) {
+        var rad = radFor[r.utforare];
+        if (!rad) { return; }   // en utförare som inte har någon rad hör inte hit
+        (r.veckor || []).forEach(function (v) {
+          if (v < 1 || v > antalVeckor) { return; }
+          var cell = rad.veckor[v];
+          cell.timmar += r.timmar || 0;
+          cell.tillfallen.push({
+            byggnad: b.id, byggnadNamn: b.namn, farg: b.farg,
+            rond: r.id, rondNamn: r.namn, vecka: v, timmar: r.timmar || 0,
+            dagsdel: r.dagsdel || null, namn: r.namnPerVecka ? r.namnPerVecka[v] : null
+          });
+        });
+      });
+    });
+
+    rader.forEach(function (rad) {
+      rad.veckor.forEach(function (cell) {
+        cell.timmar = avrunda(cell.timmar, 2);
+        cell.dagar = avrunda(cell.timmar / TIMMAR_PER_DAG, 2);
+        cell.antal = cell.tillfallen.length;
+        cell.andel = cell.kapacitetTimmar ? cell.timmar / cell.kapacitetTimmar : (cell.timmar ? 1 : 0);
+        // Över kapaciteten: tiden räcker inte. Många tillfällen: tiden kan räcka, men
+        // antalet är ändå en varning (beslut 31).
+        cell.over = cell.timmar > cell.kapacitetTimmar;
+        cell.manga = cell.antal > MANGA_TILLFALLEN;
+        // Tillfällena sorteras så att samma underlag alltid ger samma ordning i listan
+        cell.tillfallen.sort(function (a, b) {
+          if (a.byggnad !== b.byggnad) { return a.byggnad < b.byggnad ? -1 : 1; }
+          return a.rond < b.rond ? -1 : (a.rond > b.rond ? 1 : 0);
+        });
+        if (cell.vecka >= 1) {
+          if (cell.over) { rad.over.push(cell.vecka); }
+          if (cell.manga) { rad.manga.push(cell.vecka); }
+          rad.tillfallen += cell.antal;
+          rad.timmar += cell.timmar;
+        }
+      });
+      rad.timmar = avrunda(rad.timmar, 2);
+      rad.toppTimmar = rad.veckor.reduce(function (m, c) { return c.vecka >= 1 && c.timmar > m ? c.timmar : m; }, 0);
+      rad.toppDagar = avrunda(rad.toppTimmar / TIMMAR_PER_DAG, 2);
+    });
+
+    return {
+      antalVeckor: antalVeckor,
+      rader: rader,
+      veckorUtan: veckorUtan.slice(),
+      // Den högsta belastningen någon utförare har någon vecka – måttet balanseringen
+      // i första hand ska pressa ner (beslut 38 och reglerna i specen).
+      toppTimmar: rader.reduce(function (m, r) { return r.toppTimmar > m ? r.toppTimmar : m; }, 0),
+      overVeckor: rader.reduce(function (n, r) { return n + r.over.length; }, 0),
+      mangaVeckor: rader.reduce(function (n, r) { return n + r.manga.length; }, 0),
+      rad: function (utforareId) { return radFor[utforareId] || null; }
+    };
+  }
+
+  // Kapaciteten i en vecka i klartext, för celler och för veckolistan: "4 h av 24 h · 5 av 6"
+  function cellText(cell) {
+    return timmarText(cell.timmar) + ' av ' + timmarText(cell.kapacitetTimmar) +
+      ' · ' + cell.antal + ' av ' + MANGA_TILLFALLEN + ' tillfällen';
+  }
+  // Timmar i klartext. Heter inte timText som DP.Plan.timText, eftersom den tar minuter –
+  // två funktioner med samma namn och olika enhet i samma namnrymd är en fälla.
+  function timmarText(timmar) {
+    var t = avrunda(timmar, 1);
+    return (t === Math.round(t) ? String(Math.round(t)) : String(t).replace('.', ',')) + ' h';
+  }
+
+  DP.Balansering = {
+    TIMMAR_PER_DAG: TIMMAR_PER_DAG,
+    MANGA_TILLFALLEN: MANGA_TILLFALLEN,
+    KAPACITET_FORVAL: KAPACITET_FORVAL,
+    belastning: belastning,
+    cellText: cellText,
+    timmarText: timmarText
+  };
 })();
 
 </script>
@@ -2693,8 +2981,11 @@ body.i-balansering .balansering-yta { display: block; }
       tider: {}
     };
   }
-  // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ska Balanseringens svar
-  // ligga (områden man åker till, kapacitet per utförare, veckor utan tillsyn och skötsel). Tomt så länge.
+  // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ligger Balanseringens
+  // svar – områden man åker till (`akerTill`), kapacitet per utförare i dagar (`kapacitet`) och
+  // veckor utan tillsyn och skötsel (`veckorUtan`). Tomt betyder "inte besvarad", och
+  // balanseringsUnderlag() använder då förvalen. Frågorna som sätter svaren byggs i en
+  // senare biljett; belastningsräkningen läser dem redan nu.
   function tomtGemensamt() {
     return {};
   }
@@ -3136,6 +3427,57 @@ body.i-balansering .balansering-yta { display: block; }
     return { 1: k1, 2: k2, 3: k3, 4: k3, 5: k5, 6: k6 };
   }
 
+  // En byggnad är klar för Balansering när alla sex stegen i Planering är klara (beslut 39).
+  // Halvfärdiga byggnader balanseras inte: en planering utan tider eller kopplingar säger
+  // inget om belastningen, och att räkna på den hade gett en falsk bild.
+  function byggnadKlar(bid) {
+    var k = stegStatus(null, bid);
+    return [1, 2, 3, 4, 5, 6].every(function (n) { return k[n]; });
+  }
+  function klaraByggnader() { return BYGGNADSORDNING.filter(byggnadKlar); }
+
+  // Underlaget till DP.Balansering: de klara byggnadernas rondserier med utförare, planerad
+  // tid i timmar och de veckor tillfällena ligger i. Veckorna räknas här, med båda
+  // förskjutningarna, så att balanseringsmodulen själv inte behöver veta något om frekvenser
+  // eller om hur tillståndet ser ut.
+  //
+  // Svaren i det gemensamma tillståndet gäller när de finns. Kapacitetsfrågan och frågan om
+  // veckor utan tillsyn och skötsel byggs i en senare biljett, så tills de finns gäller
+  // förvalen: 3 dagar i veckan för alla (beslut 31) och inga veckor utkorsade.
+  function balanseringsUnderlag() {
+    var gem = gemensamt();
+    var kap = {};
+    UTFORARE.forEach(function (u) {
+      var svar = gem.kapacitet && gem.kapacitet[u.id];
+      kap[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
+    });
+    return {
+      antalVeckor: ANTAL_VECKOR,
+      utforare: UTFORARE.map(function (u) { return { id: u.id, namn: u.namn, farg: u.farg }; }),
+      kapacitet: kap,
+      veckorUtan: (gem.veckorUtan || []).slice(),
+      akerTill: (gem.akerTill || DP.omraden.filter(function (o) { return o.akerTill; }).map(function (o) { return o.id; })).slice(),
+      byggnader: klaraByggnader().map(function (bid) {
+        var s = stateFor(bid), b = DP.byggnader[bid];
+        return {
+          id: bid, namn: b.namn, farg: b.farg, omrade: b.omrade,
+          ronder: s.ronder.filter(function (r) { return freqKomplett(r.freq); }).map(function (r) {
+            var veckor = veckorForRond(r, s);
+            var namnPerVecka = {};
+            veckor.forEach(function (v) { namnPerVecka[v] = rutintillfalleNamn(r.id, v, bid); });
+            var sparad = s.tider[r.id];
+            return {
+              id: r.id, namn: rondNamn(r.id), utforare: r.utforare,
+              timmar: tidTimmar(r.id, s, bid),
+              dagsdel: sparad && sparad.godkand ? sparad.dagsdel : tidForslag(r.id, s, bid).dagsdel,
+              veckor: veckor, namnPerVecka: namnPerVecka
+            };
+          })
+        };
+      })
+    };
+  }
+
   // Besök i byggnaden = alla veckor där minst ett rutintillfälle infaller
   function besoksveckor(s, bid) {
     s = s || stateFor(bid);
@@ -3303,6 +3645,7 @@ body.i-balansering .balansering-yta { display: block; }
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
     signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
+    byggnadKlar: byggnadKlar, klaraByggnader: klaraByggnader, balanseringsUnderlag: balanseringsUnderlag,
     gemensamt: gemensamt, andraFlera: andraFlera,
     tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid,
     behallTid: behallTid, arvTid: arvTid, timText: timText,
@@ -6185,31 +6528,45 @@ body.i-balansering .balansering-yta { display: block; }
 
   function harPlanering(s) { return s.ronder.length > 0 || s.kopplingar.length > 0; }
 
+  // Standardplanering som en ändring av ett tillstånd, oberoende av vilken byggnad som är aktiv.
+  // Används både av knappen här och av "Standardplanering för alla" i Balansering, som skriver
+  // flera byggnader i ett enda historiksteg (beslut 39). Därför tar den byggnads-id:t och läser
+  // installationerna därifrån i stället för modulens `signifikanta`.
+  function skrivStandard(st, bid) {
+    var bb = DP.byggnader[bid], typ = DP.byggnadstyper[bb.typ];
+    if (!typ) { return false; }
+    var sig = bb.installationer.filter(function (i) { return i.signifikant; });
+    var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
+    st.bas = bas;
+    st.ronder = typ.standard.ronder.map(function (r) {
+      var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
+      return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
+    });
+    var finns = st.ronder.map(function (r) { return r.id; });
+    st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
+    DP.atgarder.forEach(function (a) {
+      var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
+      if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
+      sig.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; })
+        .forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
+    });
+    // Steg 6 fylls i med godkända förslag, så att alla sex stegen är besvarade direkt
+    // (beslut 35, berättelse 22). Förslagen räknas på de kopplingar som just lagts.
+    st.tider = {};
+    st.ronder.forEach(function (r) {
+      var f = P.tidForslag(r.id, st, bid);
+      P.sattTid(st, r.id, f.dagsdel, f);
+    });
+    return true;
+  }
+
   // Standardplanering: byggnadstypens ronder och frekvenser + alla matchande åtgärder i föreslagen rond
   function standardplanering(kalla) {
     var typ = DP.byggnadstyper[b.typ], s = P.state();
     var gor = function () {
+      var bid = P.aktivId();
       P.andra('Standardplanering för ' + typ.namn.toLowerCase(), function (st) {
-        var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
-        st.bas = bas;
-        st.ronder = typ.standard.ronder.map(function (r) {
-          var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
-          return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
-        });
-        var finns = st.ronder.map(function (r) { return r.id; });
-        st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
-        DP.atgarder.forEach(function (a) {
-          var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
-          if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
-          matchande(a).forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
-        });
-        // Steg 6 fylls i med godkända förslag, så att alla sex stegen är besvarade direkt
-        // (beslut 35, berättelse 22). Förslagen räknas på de kopplingar som just lagts.
-        st.tider = {};
-        st.ronder.forEach(function (r) {
-          var f = P.tidForslag(r.id, st);
-          P.sattTid(st, r.id, f.dagsdel, f);
-        });
+        return skrivStandard(st, bid);
       }, { kalla: kalla, standard: true });
       ui.oppet = 5; ui.guide = null;
       rita();
@@ -6412,7 +6769,7 @@ body.i-balansering .balansering-yta { display: block; }
     return lista.map(function (k) { return k.rond; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
   }
 
-  DP.Flode = { rita: rita };
+  DP.Flode = { rita: rita, skrivStandard: skrivStandard };
   rita();
   DP.Tidsaxel.rita();
 })();
@@ -6444,6 +6801,15 @@ body.i-balansering .balansering-yta { display: block; }
   var aktivt = 'planering';
 
   function $(sel) { return document.querySelector(sel); }
+  // En liten fyrkant i en byggnads färg – byggnadslistan, veckolistan och de utfällda raderna
+  // pekar alla ut en byggnad på samma sätt
+  function fargprick(farg) {
+    var e = el('span', 'bal-farg', null);
+    e.style.background = farg;
+    return e;
+  }
+  // "1 vecka" / "4 veckor"
+  function antalVeckorText(n) { return n + (n === 1 ? ' vecka' : ' veckor'); }
   function el(tag, cls, html) {
     var e = document.createElement(tag);
     if (cls) { e.className = cls; }
@@ -6454,14 +6820,10 @@ body.i-balansering .balansering-yta { display: block; }
   // ------------------------------------------------------------------
   // Hur långt Planering har kommit: en byggnad är klar när alla sex stegen är klara
   // ------------------------------------------------------------------
-  function klaraByggnader() {
-    return P.byggnadsordning.filter(function (id) {
-      var k = P.stegStatus(null, id);
-      return Object.keys(k).every(function (n) { return k[n]; });
-    });
-  }
+  // Reglerna ligger i planeringen, så att processlinjen och Balansering alltid är eniga om
+  // vilka byggnader som är klara (beslut 39).
   function planeringSammanfattning() {
-    return klaraByggnader().length + ' av ' + P.byggnadsordning.length + ' byggnader klara';
+    return P.klaraByggnader().length + ' av ' + P.byggnadsordning.length + ' byggnader klara';
   }
 
   // ------------------------------------------------------------------
@@ -6498,48 +6860,420 @@ body.i-balansering .balansering-yta { display: block; }
   }
 
   // ------------------------------------------------------------------
-  // Balanseringens skal
+  // Balanseringens tidsaxel: en rad per utförare, en kolumn per vecka
   //
-  // Vyn är ännu bara en förklaring av vad som kommer. Den är med redan nu för att
-  // processlinjen ska svara på frågan "vad gör jag sist?" innan uträkningen finns.
+  // Tidsaxeln visar hela året ur utförarnas perspektiv (beslut 33), så att problemet syns
+  // innan något balanseras. Cellen säger hur full veckan är jämfört med utförarens kapacitet,
+  // och brickorna har byggnadens färg – raderna är redan utförare, så färgen får säga vilken
+  // byggnad veckan består av (beslut 47).
+  //
+  // Bara byggnader där alla sex stegen i Planering är klara räknas med (beslut 39). De övriga
+  // visas gråade med en länk till Planering för just den byggnaden, så att planeraren ser
+  // varför de saknas och kommer dit med ett klick.
   // ------------------------------------------------------------------
+  var MAN_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+  var UTFORARRAD = 86;    // px per utförarrad – hög nog att läsa fyllnaden i, låg nog att fyra ryms
+  var BYGGNADSRAD = 30;   // px per byggnadsrad när en utförare är utfälld
+  var utfalld = {};     // utförar-id -> true när raden är fälld ut till en rad per byggnad
+  var valdVecka = null; // { utforare, vecka } – veckan vars tillfällen visas i listan
+
   function ritaBalansering() {
     var sido = $('#balansering'), yta = $('#balansering-yta');
     if (!sido || !yta) { return; }
 
+    var underlag = P.balanseringsUnderlag();
+    var bel = DP.Balansering.belastning(underlag);
+
+    ritaSidopanel(sido, underlag, bel);
+    ritaYta(yta, underlag, bel);
+  }
+
+  // ---------------- Sidopanelen: vad Balansering är, och vilka byggnader som räknas ----------------
+  function ritaSidopanel(sido, underlag, bel) {
     sido.innerHTML = '';
     sido.appendChild(el('div', 'sammanfattning',
       '<b>Balansering</b> fördelar alla byggnaders rutintillfällen över årets veckor, så att ' +
       'varje utförare får en jämn belastning. Frekvenserna ändras aldrig – bara när i året ' +
       'tillfällena ligger.'));
-    sido.appendChild(el('div', 'bal-status',
-      'Frågorna och knappen Balansera hamnar här. Så länge vyn är ett skal står förklaringen av ' +
-      'vad som kommer bredvid.'));
 
-    yta.innerHTML = '';
-    var skal = el('div', 'bal-skal');
-    skal.appendChild(el('h2', null, 'Balansering'));
-    skal.appendChild(el('p', 'bal-ingress',
-      'Hittills har du planerat en byggnad i taget. Varje rond börjar då i vecka 1, så alla ' +
-      'byggnaders månadsronder hamnar i samma veckor. Här ser du planeringen ur utförarnas ' +
-      'perspektiv i stället, och fördelar tillfällena så att ingen får allt en vecka och inget ' +
-      'veckorna efter.'));
-    var kommer = el('div', 'bal-kommer');
-    kommer.appendChild(el('h3', null, 'Så kommer det att gå till'));
-    var ol = el('ol');
+    // Byggnaderna: klara räknas med, övriga är gråade med en länk till Planering
+    var klara = {};
+    underlag.byggnader.forEach(function (b) { klara[b.id] = true; });
+    var grupp = el('div', 'bal-grupp');
+    grupp.appendChild(el('h3', null, 'Byggnader i balanseringen'));
+    var lista = el('div', 'bal-byggnader');
+    P.byggnadsordning.forEach(function (bid) {
+      var b = DP.byggnader[bid], med = !!klara[bid];
+      var rad = el('div', 'bal-byggnad' + (med ? '' : ' grad'));
+      rad.dataset.byggnad = bid;
+      rad.appendChild(fargprick(b.farg));
+      var text = el('div', 'bal-bnamn');
+      text.appendChild(el('span', 'bal-namn', b.namn));
+      var omr = DP.omraden.filter(function (o) { return o.id === b.omrade; })[0];
+      text.appendChild(el('span', 'bal-omrade', omr ? omr.namn : ''));
+      rad.appendChild(text);
+      if (med) {
+        rad.appendChild(el('span', 'bal-med', '✓ räknas med'));
+      } else {
+        // Länken tar planeraren till Planering för just den byggnaden (berättelse 26)
+        var lank = el('button', 'bal-lank', 'Planera →');
+        lank.title = 'Öppna Planering för ' + b.namn + ' – byggnaden räknas med när alla sex stegen är klara';
+        lank.addEventListener('click', function () {
+          P.vaxlaByggnad(bid);
+          visa('planering');
+        });
+        rad.appendChild(lank);
+      }
+      lista.appendChild(rad);
+    });
+    grupp.appendChild(lista);
+
+    var utan = P.byggnadsordning.filter(function (bid) { return !klara[bid]; });
+    if (utan.length) {
+      grupp.appendChild(el('div', 'bal-notis',
+        utan.length + (utan.length === 1 ? ' byggnad är' : ' byggnader är') + ' inte klar' +
+        (utan.length === 1 ? '' : 'a') + ' i alla sex stegen i Planering och räknas därför inte med. ' +
+        'Du kan ge dem standardplanering direkt här, eller planera dem en i taget.'));
+      // Snabbknapp för att öva: standardplanering åt alla som saknar planering, i ett steg (beslut 39)
+      var rad = el('div', 'knapprad');
+      var k = el('button', 'knapp sekundar liten-knapp', 'Standardplanering för alla');
+      k.title = 'Ger standardplanering åt de ' + utan.length + ' byggnader som inte är klara. Ett enda ångra tar bort allt.';
+      k.addEventListener('click', function () { standardForAlla(utan); });
+      rad.appendChild(k);
+      grupp.appendChild(rad);
+    }
+    sido.appendChild(grupp);
+
+    // Vad tidsaxeln visar, i klartext
+    var f = el('div', 'bal-grupp');
+    f.appendChild(el('h3', null, 'Så läser du tidsaxeln'));
+    var ul = el('ul', 'bal-punkter');
     [
-      'Du svarar på tre frågor: vilka områden måste man åka till, hur många dagar i veckan varje utförare har för tillsyn och skötsel, och vilka veckor ingen tillsyn och skötsel görs.',
-      'Du trycker på Balansera. Byggnadernas besöksrytmer förskjuts, och vid behov enskilda rondserier, tills belastningen är jämn.',
-      'Tidsaxeln visar hela året med en rad per utförare, och hur full varje vecka är jämfört med utförarens kapacitet.',
-      'Du justerar för hand genom att dra en bricka till en annan vecka, och svarar på om flytten gäller bara denna gång, hela rondserien eller hela byggnadens besöksrytm.'
-    ].forEach(function (t) { ol.appendChild(el('li', null, t)); });
-    kommer.appendChild(ol);
-    skal.appendChild(kommer);
-    skal.appendChild(el('div', 'bal-status',
-      'Begreppen som dyker upp här – besöksrytm, rondserie, kapacitet, provisorisk flytt och ' +
-      'stryka – finns förklarade i <b>Ordlistan</b>, som går att öppna utan att du lämnar det ' +
-      'steg du står i.'));
-    yta.appendChild(skal);
+      'En <b>rad per utförare</b> och en <b>kolumn per vecka</b> för hela året.',
+      'Cellen visar hur full veckan är jämfört med utförarens <b>kapacitet</b> – ' +
+        DP.Balansering.KAPACITET_FORVAL + ' dagar i veckan så länge kapacitetsfrågan inte är byggd.',
+      'En <b>röd</b> cell betyder att tiden inte räcker. En <b>ring</b> betyder fler än ' +
+        DP.Balansering.MANGA_TILLFALLEN + ' rutintillfällen samma vecka – tiden kan räcka, men antalet är ändå en varning.',
+      'Brickorna har <b>byggnadens färg</b>. Fäll ut en utförare för att se en rad per byggnad.',
+      'Klicka på en vecka för att se utförarens rutintillfällen med planerad tid.'
+    ].forEach(function (t) { ul.appendChild(el('li', null, t)); });
+    f.appendChild(ul);
+    sido.appendChild(f);
+
+    // Veckolistan: utförarens rutintillfällen i den valda veckan (berättelse 55)
+    sido.appendChild(veckolista(bel));
+
+    sido.appendChild(el('div', 'bal-status',
+      'Frågorna om områden, kapacitet och veckor utan tillsyn och skötsel, knappen <b>Balansera</b> ' +
+      'och flytt för hand byggs i nästa steg. Begreppen – besöksrytm, rondserie, kapacitet, ' +
+      'provisorisk flytt och stryka – finns i <b>Ordlistan</b>.'));
+  }
+
+  // Standardplanering åt alla byggnader som inte är klara, i ett enda historiksteg (beslut 39).
+  // Ett enda ångra tar därför bort planeringen i alla byggnader som fick den, och eftersom
+  // steget inte hör till någon byggnad byter ångra inte aktiv byggnad.
+  function standardForAlla(utan) {
+    var namn = utan.map(function (bid) { return DP.byggnader[bid].namn; });
+    DP.Dialog.visa({
+      titel: 'Standardplanering för alla',
+      html: '<p>' + namn.join(', ') + ' får standardplanering för sin byggnadstyp: ronder, ' +
+        'frekvenser, utförare, alla matchande åtgärder och godkända planerade tider.</p>' +
+        '<p>Det är ett sätt att snabbt komma igång med att öva på balansering. Gå igenom ' +
+        'stegen i Planering efteråt och justera det som inte passar.</p>' +
+        '<div class="notis">Allt blir <b>ett</b> steg i historiken, så ett enda ångra tar bort det igen.</div>',
+      bredd: 560,
+      knappar: [
+        { text: 'Skapa planering', prim: true, gor: function () {
+          P.andraFlera('Standardplanering för ' + namn.join(', '), function (a) {
+            utan.forEach(function (bid) { DP.Flode.skrivStandard(a.tillstand(bid), bid); });
+          }, { standard: true });
+        } },
+        { text: 'Avbryt' }
+      ]
+    });
+  }
+
+  // ---------------- Veckolistan: "5 av 6" och tillfällena med planerad tid ----------------
+  function veckolista(bel) {
+    var w = el('div', 'bal-grupp bal-veckolista');
+    if (!valdVecka) {
+      w.appendChild(el('h3', null, 'Veckans rutintillfällen'));
+      w.appendChild(el('div', 'bal-notis', 'Klicka på en vecka i tidsaxeln för att se vilka ' +
+        'rutintillfällen som ligger där, med planerad tid.'));
+      return w;
+    }
+    var rad = bel.rad(valdVecka.utforare);
+    if (!rad) { valdVecka = null; return veckolista(bel); }
+    var cell = rad.veckor[valdVecka.vecka];
+    w.appendChild(el('h3', null, rad.namn + ' · v. ' + valdVecka.vecka));
+    var sum = el('div', 'bal-vsum' + (cell.over ? ' over' : '') + (cell.manga ? ' manga' : ''));
+    sum.innerHTML = '<b>' + cell.antal + ' av ' + DP.Balansering.MANGA_TILLFALLEN + '</b> rutintillfällen · ' +
+      DP.Balansering.timmarText(cell.timmar) + ' av ' + DP.Balansering.timmarText(cell.kapacitetTimmar) +
+      ' (' + cell.kapacitetDagar + ' dagar)';
+    w.appendChild(sum);
+    if (cell.over) {
+      w.appendChild(el('div', 'bal-varning', 'Tiden räcker inte: veckan är ' +
+        DP.Balansering.timmarText(cell.timmar - cell.kapacitetTimmar) + ' över kapaciteten.'));
+    }
+    if (cell.manga) {
+      w.appendChild(el('div', 'bal-varning mjuk', 'Fler än ' + DP.Balansering.MANGA_TILLFALLEN +
+        ' rutintillfällen samma vecka. Tiden kan räcka, men många små saker på en vecka är ändå mycket.'));
+    }
+    if (cell.utanTillsyn) {
+      w.appendChild(el('div', 'bal-varning mjuk', 'Veckan är markerad som vecka utan tillsyn och skötsel.'));
+    }
+    if (!cell.antal) {
+      w.appendChild(el('div', 'bal-notis', 'Inga rutintillfällen den här veckan.'));
+      return w;
+    }
+    var ul = el('div', 'bal-tillfallen');
+    cell.tillfallen.forEach(function (t) {
+      var r = el('div', 'bal-tillfalle');
+      r.appendChild(fargprick(t.farg));
+      var txt = el('div', 'bal-tnamn');
+      txt.appendChild(el('span', 'bal-namn', t.byggnadNamn + ' · ' + t.rondNamn));
+      txt.appendChild(el('span', 'bal-omrade', t.namn || ''));
+      r.appendChild(txt);
+      r.appendChild(el('span', 'bal-tid', dagsdelText(t)));
+      ul.appendChild(r);
+    });
+    w.appendChild(ul);
+    return w;
+  }
+  function dagsdelText(t) {
+    var d = t.dagsdel ? DP.tidsschablon.dagsdel(t.dagsdel) : null;
+    return (d ? d.namn + ' · ' : '') + DP.Balansering.timmarText(t.timmar);
+  }
+
+  // ---------------- Ytan: tidsaxeln ----------------
+  function ritaYta(yta, underlag, bel) {
+    yta.innerHTML = '';
+    var w = el('div', 'bal-tidsaxel');
+
+    var huvud = el('div', 'bt-huvud');
+    var rub = el('div', 'bt-rubrik');
+    rub.innerHTML = '<b>Belastning per utförare ' + P.AR + '</b> <span>hela året, en rad per utförare · ' +
+      'brickorna har byggnadens färg</span>';
+    huvud.appendChild(rub);
+    huvud.appendChild(forklaringsrad(underlag));
+    w.appendChild(huvud);
+
+    if (!underlag.byggnader.length) {
+      w.appendChild(el('div', 'bt-tom',
+        'Ingen byggnad är klar i alla sex stegen i Planering, så det finns ingen belastning att ' +
+        'visa än. Ge byggnaderna standardplanering här intill, eller planera dem en i taget.'));
+      yta.appendChild(w);
+      return;
+    }
+
+    var n = bel.antalVeckor;
+    var grid = el('div', 'bt-grid');
+    grid.style.gridTemplateColumns = '210px repeat(' + n + ', minmax(0, 1fr))';
+    // Radhöjderna sätts här och inte i CSS, eftersom antalet rader beror på vilka utförare
+    // som är utfällda. Utförarraderna har en **fast** höjd (beslut 58): lät man dem dela på
+    // hela ytan blev cellerna så höga att fyllnaden mot kapaciteten inte gick att läsa.
+    // Mallen räknas ut i samma ordning som raderna ritas – en utförarrad, följd av
+    // eventuella byggnadsrader i lägre höjd.
+    var rader = ['24px', '22px'];
+    bel.rader.forEach(function (rad) {
+      rader.push(UTFORARRAD + 'px');
+      if (!utfalld[rad.utforare]) { return; }
+      var antalByggnader = Math.max(1, byggnaderFor(underlag, rad.utforare).length);
+      for (var i = 0; i < antalByggnader; i++) { rader.push(BYGGNADSRAD + 'px'); }
+    });
+    grid.style.gridTemplateRows = rader.join(' ');
+
+    // Månadsrad
+    grid.appendChild(el('div', 'bt-etikett bt-man-etikett', ''));
+    var v = 1;
+    while (v <= n) {
+      var m = P.manadForVecka(v), span = 0;
+      while (v + span <= n && P.manadForVecka(v + span) === m) { span++; }
+      var mc = el('div', 'bt-manad', MAN_KORT[m]);
+      mc.style.gridColumn = 'span ' + span;
+      grid.appendChild(mc);
+      v += span;
+    }
+    // Veckorad
+    grid.appendChild(el('div', 'bt-etikett bt-vecka-etikett', 'Vecka'));
+    for (v = 1; v <= n; v++) {
+      var vc = el('div', 'bt-vecka' + (bel.veckorUtan.indexOf(v) >= 0 ? ' utan' : ''), String(v));
+      grid.appendChild(vc);
+    }
+
+    bel.rader.forEach(function (rad) { ritaRad(grid, rad, n, underlag); });
+    w.appendChild(grid);
+    w.appendChild(fot(bel));
+    yta.appendChild(w);
+  }
+
+  // Foten under tidsaxeln: vad bilden säger, i klartext. Problemet ska gå att se innan något
+  // balanseras (berättelse 50–52), och en tidsaxel full av färger säger inte av sig själv
+  // vad som är fel – den som är ny i verktyget behöver läsa slutsatsen.
+  function fot(bel) {
+    var w = el('div', 'bt-fot');
+    var over = bel.rader.filter(function (r) { return r.over.length; });
+    var manga = bel.rader.filter(function (r) { return r.manga.length; });
+    var h = el('div', 'bt-fot-text');
+    if (over.length || manga.length) {
+      var delar = [];
+      over.forEach(function (r) {
+        delar.push('<b>' + r.namn + '</b> har mer än hen hinner i ' + veckorText(r.over) +
+          ' (mest ' + DP.Balansering.timmarText(r.toppTimmar) + ' mot ' +
+          DP.Balansering.timmarText(r.kapacitetTimmar) + ')');
+      });
+      manga.forEach(function (r) {
+        if (over.indexOf(r) >= 0) { return; }
+        delar.push('<b>' + r.namn + '</b> har fler än ' + DP.Balansering.MANGA_TILLFALLEN +
+          ' rutintillfällen i ' + veckorText(r.manga));
+      });
+      h.innerHTML = '<span class="bt-fot-rub">Det här är problemet balanseringen ska lösa:</span> ' +
+        delar.join('. ') + '. Samtidigt står veckorna emellan tomma. ' +
+        'Balanseringen förskjuter byggnadernas besöksrytmer så att belastningen jämnas ut – ' +
+        'utan att någon frekvens ändras.';
+    } else {
+      h.innerHTML = '<span class="bt-fot-rub">Ingen utförare är över sin kapacitet.</span> ' +
+        'Tiden räcker varje vecka, och ingen har fler än ' + DP.Balansering.MANGA_TILLFALLEN +
+        ' rutintillfällen samma vecka. Belastningen kan ändå vara ojämn: titta på hur ' +
+        'brickorna klumpar ihop sig i vissa veckor medan andra står tomma.';
+    }
+    w.appendChild(h);
+    return w;
+  }
+  // "v. 1", "v. 1 och 14" eller "4 veckor" – en uppräkning som inte blir oläslig lång
+  function veckorText(veckor) {
+    if (veckor.length === 1) { return 'v. ' + veckor[0]; }
+    if (veckor.length <= 4) {
+      return 'v. ' + veckor.slice(0, -1).join(', ') + ' och ' + veckor[veckor.length - 1];
+    }
+    return veckor.length + ' veckor';
+  }
+
+  // Förklaringen av färgskalan, så att cellerna går att läsa utan att gissa
+  function forklaringsrad(underlag) {
+    var w = el('div', 'bt-forklaring');
+    [
+      ['bt-prov lagom', 'inom kapaciteten'],
+      ['bt-prov nara', 'nästan full'],
+      ['bt-prov over', 'över kapaciteten'],
+      ['bt-prov manga', 'fler än ' + DP.Balansering.MANGA_TILLFALLEN + ' tillfällen']
+    ].forEach(function (p) {
+      var d = el('span', 'bt-fpost');
+      d.appendChild(el('span', p[0], null));
+      d.appendChild(el('span', null, p[1]));
+      w.appendChild(d);
+    });
+    return w;
+  }
+
+  function ritaRad(grid, rad, n, underlag) {
+    var ut = !!utfalld[rad.utforare];
+    var lab = el('div', 'bt-etikett bt-utforare' + (ut ? ' utfalld' : ''));
+    var fall = el('button', 'bt-fall', ut ? '▾' : '▸');
+    fall.title = ut ? 'Fäll in ' + rad.namn : 'Fäll ut ' + rad.namn + ' till en rad per byggnad';
+    fall.dataset.utforare = rad.utforare;
+    fall.addEventListener('click', function () {
+      utfalld[rad.utforare] = !utfalld[rad.utforare];
+      ritaBalansering();
+    });
+    lab.appendChild(fall);
+    var av = el('span', 'avatar', rad.namn[0]);
+    av.style.background = rad.farg;
+    lab.appendChild(av);
+    var namn = el('div', 'bt-unamn');
+    namn.appendChild(el('span', 'bt-nrad', rad.namn));
+    namn.appendChild(el('span', 'bt-krad', rad.kapacitetDagar + ' dagar/v · ' +
+      rad.tillfallen + ' tillfällen/år'));
+    if (rad.over.length || rad.manga.length) {
+      var varning = rad.over.length
+        ? antalVeckorText(rad.over.length) + ' över kapaciteten'
+        : antalVeckorText(rad.manga.length) + ' med många tillfällen';
+      namn.appendChild(el('span', 'bt-vrad' + (rad.over.length ? '' : ' mjuk'), varning));
+    }
+    lab.appendChild(namn);
+    grid.appendChild(lab);
+
+    for (var v = 1; v <= n; v++) {
+      grid.appendChild(cellFor(rad, rad.veckor[v]));
+    }
+
+    // Utfälld: en rad per byggnad som utföraren har tillfällen i
+    if (!ut) { return; }
+    var byggnader = byggnaderFor(underlag, rad.utforare);
+    if (!byggnader.length) {
+      var tom = el('div', 'bt-etikett bt-under', 'Inga tillfällen');
+      tom.style.gridColumn = '1 / -1';
+      grid.appendChild(tom);
+      return;
+    }
+    byggnader.forEach(function (b) {
+      var bl = el('div', 'bt-etikett bt-under');
+      bl.appendChild(fargprick(b.farg));
+      bl.appendChild(el('span', 'bt-bnamn', b.namn));
+      grid.appendChild(bl);
+      for (var vecka = 1; vecka <= n; vecka++) {
+        // Veckan utan tillsyn och skötsel är redan uträknad per cell i belastningen –
+        // byggnadsraden läser den ur utförarens cell i stället för att slå upp den igen.
+        var ucell = el('div', 'bt-cell bt-ucell' + (rad.veckor[vecka].utanTillsyn ? ' utan' : ''));
+        ucell.dataset.utforare = rad.utforare;
+        ucell.dataset.byggnad = b.id;
+        ucell.dataset.vecka = String(vecka);
+        rad.veckor[vecka].tillfallen
+          .filter(function (t) { return t.byggnad === b.id; })
+          .forEach(function (t) { ucell.appendChild(bricka(t)); });
+        grid.appendChild(ucell);
+      }
+    });
+  }
+  // Byggnaderna en utförare har tillfällen i – raderna en utfälld utförare delas upp i
+  function byggnaderFor(underlag, utforareId) {
+    return underlag.byggnader.filter(function (b) {
+      return b.ronder.some(function (r) { return r.utforare === utforareId && r.veckor.length; });
+    });
+  }
+
+  // Cellen: hur full veckan är mot kapaciteten, med brickorna i byggnadens färg
+  function cellFor(rad, cell) {
+    var klasser = 'bt-cell';
+    if (cell.utanTillsyn) { klasser += ' utan'; }
+    if (cell.antal) { klasser += ' har'; }
+    if (cell.over) { klasser += ' over'; }
+    else if (cell.andel >= 0.75) { klasser += ' nara'; }
+    if (cell.manga) { klasser += ' manga'; }
+    if (valdVecka && valdVecka.utforare === rad.utforare && valdVecka.vecka === cell.vecka) { klasser += ' vald'; }
+    var k = el('button', klasser);
+    k.dataset.utforare = rad.utforare;
+    k.dataset.vecka = String(cell.vecka);
+    k.dataset.antal = String(cell.antal);
+    k.dataset.andel = String(Math.round(cell.andel * 100));
+    k.title = rad.namn + ', v. ' + cell.vecka + '\n' + DP.Balansering.cellText(cell) +
+      (cell.over ? '\nÖver kapaciteten' : '') +
+      (cell.manga ? '\nFler än ' + DP.Balansering.MANGA_TILLFALLEN + ' rutintillfällen' : '') +
+      (cell.utanTillsyn ? '\nVecka utan tillsyn och skötsel' : '');
+    // Fyllnaden ritas som en stapel underifrån: andelen av kapaciteten, aldrig över 100 %
+    // (en överfull vecka säger sin röda färg, inte en stapel som växer ur cellen).
+    var fyll = el('div', 'bt-fyll', null);
+    fyll.style.height = Math.min(100, Math.round(cell.andel * 100)) + '%';
+    k.appendChild(fyll);
+    var brickor = el('div', 'bt-brickor');
+    cell.tillfallen.forEach(function (t) { brickor.appendChild(bricka(t)); });
+    k.appendChild(brickor);
+    if (cell.manga) { k.appendChild(el('span', 'bt-ring', null)); }
+    k.addEventListener('click', function () {
+      valdVecka = { utforare: rad.utforare, vecka: cell.vecka };
+      ritaBalansering();
+    });
+    return k;
+  }
+
+  // En bricka = ett rutintillfälle, i byggnadens färg (beslut 47)
+  function bricka(t) {
+    var d = el('span', 'bt-bricka');
+    d.style.background = t.farg;
+    d.dataset.byggnad = t.byggnad;
+    d.dataset.rond = t.rond;
+    d.title = (t.namn || t.byggnadNamn + ' · ' + t.rondNamn) + '\n' + dagsdelText(t);
+    return d;
   }
 
   // ------------------------------------------------------------------

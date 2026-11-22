@@ -83,19 +83,120 @@
  * Döljningen sker med CSS på behållaren: vyn byggs aldrig om, så kamera, valt plan och
  * vald installation finns kvar när man går tillbaka till Byggnad eller Planering.
  */
-.balansering-yta { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #fff; }
+.balansering-yta { display: none; flex: 1; min-height: 0; background: #fff; }
 body.i-balansering #vy { display: none; }
 body.i-balansering .tidsaxel { display: none; }
-body.i-balansering .balansering-yta { display: block; }
+body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 
-.bal-skal { padding: 28px 32px; max-width: 760px; }
-.bal-skal h2 { margin: 0 0 6px; font-size: 20px; }
-.bal-skal .bal-ingress { color: var(--dov); line-height: 1.6; margin: 0 0 18px; }
-.bal-kommer { border: 1px solid var(--linje); border-radius: var(--radie); padding: 14px 18px; background: #fafbfc; }
-.bal-kommer h3 { margin: 0 0 8px; font-size: 14px; }
-.bal-kommer ol { margin: 0; padding-left: 20px; color: var(--dov); line-height: 1.7; }
-.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; }
+.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; font-size: 12px; }
 .bal-status b { color: var(--text); }
+
+/* Sidopanelen i Balansering: byggnaderna som räknas med, hur tidsaxeln läses och veckolistan */
+.bal-grupp { margin-top: 14px; }
+.bal-grupp h3 { margin: 0 0 7px; font-size: 13px; }
+.bal-byggnader { display: flex; flex-direction: column; gap: 3px; }
+.bal-byggnad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 6px; }
+/* Gråad = byggnaden är inte klar i alla sex stegen och räknas inte med (beslut 39) */
+.bal-byggnad.grad { background: #f7f8f9; }
+.bal-byggnad.grad .bal-namn { color: var(--svag); }
+.bal-byggnad.grad .bal-farg { opacity: .3; }
+.bal-farg { width: 11px; height: 11px; border-radius: 3px; flex: none; background: var(--svag); }
+.bal-bnamn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-namn { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bal-omrade { font-size: 11px; color: var(--svag); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bal-med { font-size: 11px; color: var(--gron); font-weight: 600; flex: none; }
+.bal-lank { font-size: 11px; color: var(--accent); background: var(--accent-svag); border: 1px solid #b8cff8; border-radius: 999px; padding: 3px 9px; flex: none; }
+.bal-lank:hover { background: #d6e4fc; }
+.bal-notis { font-size: 12px; color: var(--dov); line-height: 1.55; margin-top: 7px; }
+.bal-punkter { margin: 0; padding-left: 17px; font-size: 12px; color: var(--dov); line-height: 1.55; }
+.bal-punkter b { color: var(--text); }
+.bal-veckolista { border-top: 1px solid var(--linje); padding-top: 12px; }
+.bal-vsum { font-size: 12px; color: var(--dov); background: #fafbfc; border: 1px solid var(--linje); border-radius: 6px; padding: 5px 8px; }
+.bal-vsum b { color: var(--text); }
+.bal-vsum.over { background: #fdecec; border-color: #f3c3c1; }
+.bal-vsum.manga { border-color: #e8c98a; }
+.bal-varning { font-size: 12px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: #fdecec; border: 1px solid #f3c3c1; color: #a33; line-height: 1.5; }
+.bal-varning.mjuk { background: #fdf5e6; border-color: #e8c98a; color: #8a6414; }
+.bal-tillfallen { display: flex; flex-direction: column; gap: 2px; margin-top: 7px; }
+.bal-tillfalle { display: flex; align-items: center; gap: 8px; padding: 4px 7px; border-bottom: 1px solid #f0f2f4; }
+.bal-tnamn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-tid { font-size: 11px; color: var(--dov); flex: none; white-space: nowrap; }
+
+/* Balanseringens tidsaxel: en rad per utförare, en kolumn per vecka (beslut 33) */
+.bal-tidsaxel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.bt-huvud { display: flex; align-items: center; gap: 18px; padding: 9px 16px; border-bottom: 1px solid var(--linje); flex: none; }
+.bt-rubrik { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-rubrik span { color: var(--dov); font-size: 12px; margin-left: 6px; }
+.bt-forklaring { display: flex; gap: 14px; margin-left: auto; font-size: 11px; color: var(--dov); flex: none; }
+.bt-fpost { display: flex; align-items: center; gap: 5px; }
+.bt-prov { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--linje); flex: none; }
+.bt-prov.lagom { background: #cfe6d6; }
+.bt-prov.nara { background: #f3dfae; }
+.bt-prov.over { background: #f0b4b1; }
+.bt-prov.manga { background: #fff; box-shadow: inset 0 0 0 2px #d98b1f; }
+.bt-tom { padding: 28px 32px; max-width: 720px; color: var(--dov); line-height: 1.6; }
+
+/* Varje utförarrad har en fast höjd, satt i vyer.js tillsammans med radmallen (beslut 58):
+ * hög nog att fyllnaden mot kapaciteten går att läsa, låg nog att fyra utförare och hela
+ * året ryms på 1920x1200 utan att sidan scrollar. Fäller man ut utförare växer antalet
+ * rader, och då får gridden scrolla i stället för att trycka ihop raderna. */
+.bt-grid {
+  display: grid; min-height: 0; overflow: auto; padding: 0 16px 8px;
+  align-content: start; flex: none; max-height: 100%;
+}
+.bt-grid > div, .bt-grid > button { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #e8ebee; }
+.bt-etikett { justify-content: flex-start !important; gap: 7px; padding-right: 10px; font-size: 13px; overflow: hidden; }
+.bt-manad { font-size: 11px; font-weight: 700; color: var(--dov); border-left: 1px solid #e3e7eb; justify-content: flex-start !important; padding-left: 5px; text-transform: uppercase; }
+
+.bt-vecka { font-size: 10px; color: var(--svag); border-left: 1px solid #f3f5f7; }
+.bt-vecka-etikett { font-size: 11px; color: var(--svag); }
+/* Vecka utan tillsyn och skötsel: markerad så att det syns varför den är tom (berättelse 56) */
+.bt-vecka.utan { background: #eceef1; color: var(--dov); font-weight: 700; }
+
+.bt-utforare { gap: 6px; }
+.bt-fall { width: 18px; height: 18px; padding: 0; border: 1px solid var(--linje); background: #fff; border-radius: 4px; color: var(--dov); font-size: 9px; line-height: 1; flex: none; }
+.bt-fall:hover { border-color: var(--accent); color: var(--accent); }
+.bt-unamn { min-width: 0; display: flex; flex-direction: column; }
+.bt-nrad { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-krad { font-size: 11px; color: var(--svag); line-height: 1.4; white-space: nowrap; }
+.bt-vrad { font-size: 11px; color: #c0392b; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.bt-vrad.mjuk { color: #8a6414; }
+.bt-under { padding-left: 32px; font-size: 12px; color: var(--dov); background: #fcfcfd; }
+.bt-bnamn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Cellen: fyllnaden mot kapaciteten som en stapel underifrån, brickorna ovanpå */
+.bt-cell {
+  position: relative; border-left: 1px solid #f3f5f7; border-bottom: 1px solid #f0f2f4;
+  background: #fff; padding: 0; overflow: hidden; align-items: flex-start !important;
+}
+.bt-cell.utan { background: #f4f5f7; }
+.bt-cell.har { background: #f6faf7; }
+.bt-cell.nara { background: #fcf2dc; }
+.bt-cell.over { background: #fbe0de; }
+.bt-cell.vald { box-shadow: inset 0 0 0 2px var(--accent); z-index: 2; }
+.bt-cell:hover { box-shadow: inset 0 0 0 1px #b8cff8; }
+/* Fyllnaden mot kapaciteten: en stapel underifrån med en tydlig överkant. Kanten är det som
+ * faktiskt går att läsa av – själva ytan hamnar bakom brickorna, och utan en linje att sikta
+ * på går skillnaden mellan 83 % och 108 % inte att se. Brickorna ligger i cellens övre del
+ * så att stapelns topp har någonstans att synas. */
+.bt-fyll {
+  position: absolute; left: 0; right: 0; bottom: 0; background: #cfe6d6;
+  border-top: 2px solid #4a9c6b; pointer-events: none;
+}
+.bt-cell.nara .bt-fyll { background: #f3dfae; border-top-color: #c9922a; }
+.bt-cell.over .bt-fyll { background: #f0b4b1; border-top-color: #c0392b; }
+/* Ringen = fler än 6 rutintillfällen. Den mjuka varningen gäller även när tiden räcker (beslut 31) */
+.bt-ring { position: absolute; inset: 2px; border: 2px solid #d98b1f; border-radius: 4px; pointer-events: none; }
+.bt-brickor {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 2px;
+  align-items: flex-start; justify-content: center; padding: 3px;
+}
+.bt-bricka { width: 11px; height: 11px; border-radius: 3px; background: var(--svag); flex: none; box-shadow: 0 0 0 1px rgba(255,255,255,.7); }
+
+.bt-ucell { align-items: center !important; }
+.bt-ucell .bt-brickor { position: relative; align-items: center; justify-content: center; }
+.bt-ucell .bt-bricka { width: 12px; height: 12px; }
+.bt-ucell.utan { background: #f4f5f7; }
 
 /* ---------- Tidsaxel ---------- */
 .tidsaxel { flex: none; height: 290px; background: #fff; border-top: 1px solid var(--linje); display: flex; flex-direction: column; min-height: 0; }
@@ -247,3 +348,9 @@ body.i-balansering .balansering-yta { display: block; }
 .tidrad .chiprad { margin-top: 7px; }
 .tidrad .notis { margin-top: 7px; }
 .tagg.gron { background: #dcf3e4; color: var(--gron); }
+
+/* Foten under Balanseringens tidsaxel: slutsatsen i klartext */
+.bt-fot { padding: 14px 18px; border-top: 1px solid var(--linje); background: #fafbfc; }
+.bt-fot-text { max-width: 1100px; font-size: 13px; color: var(--dov); line-height: 1.65; }
+.bt-fot-text b { color: var(--text); }
+.bt-fot-rub { font-weight: 700; color: var(--text); }

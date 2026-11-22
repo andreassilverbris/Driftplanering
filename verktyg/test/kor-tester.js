@@ -1257,6 +1257,289 @@ async function testProcesslinjen(browser) {
   await page.close();
 }
 
+// Etapp 5: Balanseringens tidsaxel – belastning per utförare (berättelse 25–27 och 50–55).
+//
+// Två saker prövas. Den ena är modulen DP.Balansering, med ett underlag som byggs direkt i
+// testet: den är en ren uträkning utan DOM, så den går att ställa precis vilken fråga som helst
+// utan att klicka ihop en planering som råkar ge rätt siffror. Den andra är tidsaxeln i sidan,
+// med den planering som standardplaneringen faktiskt ger.
+async function testBalanseringensTidsaxel(browser) {
+  console.log('Etapp 5 – Balanseringens tidsaxel');
+  const page = await nySida(browser, URL_INDEX);
+
+  // ------------------------------------------------------------------
+  // Belastningsfunktionen, med underlag som byggs i testet
+  // ------------------------------------------------------------------
+  const bel = await page.evaluate(() => {
+    const B = DP.Balansering;
+    // Två byggnader, en utförare. Kapacitet 2 dagar = 16 h.
+    const underlag = {
+      antalVeckor: 10,
+      utforare: [{ id: 'anna', namn: 'Anna Berg', farg: '#4f6fd0' }, { id: 'bertil', namn: 'Bertil Ek', farg: '#c8642f' }],
+      kapacitet: { anna: 2 },           // bertil utelämnad -> förvalet gäller
+      veckorUtan: [7],
+      byggnader: [
+        { id: 'a', namn: 'Hus A', farg: '#111', omrade: 'o1', ronder: [
+          { id: 'R1', namn: 'Rond 1', utforare: 'anna', timmar: 8, dagsdel: 'heldag', veckor: [1, 3, 5] },
+          { id: 'R2', namn: 'Rond 2', utforare: 'anna', timmar: 4, dagsdel: 'halvdag', veckor: [1] }
+        ] },
+        { id: 'b', namn: 'Hus B', farg: '#222', omrade: 'o1', ronder: [
+          { id: 'R1', namn: 'Rond 1', utforare: 'anna', timmar: 8, dagsdel: 'heldag', veckor: [1] },
+          { id: 'R3', namn: 'Rond 3', utforare: 'bertil', timmar: 1, dagsdel: 'kort', veckor: [2] }
+        ] }
+      ]
+    };
+    const r = B.belastning(underlag);
+    const anna = r.rad('anna'), bertil = r.rad('bertil');
+    // Sju korta tillfällen samma vecka: tiden räcker (7 h av 24 h) men antalet gör inte det
+    const mjuk = B.belastning({
+      antalVeckor: 3,
+      utforare: [{ id: 'anna', namn: 'Anna Berg' }],
+      byggnader: [{ id: 'a', namn: 'Hus A', ronder: [1, 2, 3, 4, 5, 6, 7].map(n => (
+        { id: 'R' + n, namn: 'Rond ' + n, utforare: 'anna', timmar: 1, veckor: [2] })) }]
+    }).rad('anna');
+    const sex = B.belastning({
+      antalVeckor: 3,
+      utforare: [{ id: 'anna', namn: 'Anna Berg' }],
+      byggnader: [{ id: 'a', namn: 'Hus A', ronder: [1, 2, 3, 4, 5, 6].map(n => (
+        { id: 'R' + n, namn: 'Rond ' + n, utforare: 'anna', timmar: 1, veckor: [2] })) }]
+    }).rad('anna');
+    return {
+      v1: { timmar: anna.veckor[1].timmar, dagar: anna.veckor[1].dagar, antal: anna.veckor[1].antal,
+            over: anna.veckor[1].over, manga: anna.veckor[1].manga,
+            namn: anna.veckor[1].tillfallen.map(t => t.byggnad + ':' + t.rond) },
+      v3: { timmar: anna.veckor[3].timmar, antal: anna.veckor[3].antal, over: anna.veckor[3].over },
+      v2tom: { timmar: anna.veckor[2].timmar, antal: anna.veckor[2].antal },
+      v7utan: anna.veckor[7].utanTillsyn,
+      annaKap: anna.kapacitetTimmar, bertilKap: bertil.kapacitetTimmar,
+      annaOver: anna.over, annaTillfallen: anna.tillfallen, annaTopp: anna.toppTimmar,
+      bertilTillfallen: bertil.tillfallen,
+      mjuk: { antal: mjuk.veckor[2].antal, timmar: mjuk.veckor[2].timmar, manga: mjuk.veckor[2].manga, over: mjuk.veckor[2].over, veckor: mjuk.manga },
+      sex: { antal: sex.veckor[2].antal, manga: sex.veckor[2].manga }
+    };
+  });
+
+  // Planerad tid i dagar: 20 h på 8 h/dag = 2,5 dagar
+  kontroll(bel.v1.timmar === 20 && bel.v1.dagar === 2.5 && bel.v1.antal === 3,
+    'belastningen i v. 1 är 20 h = 2,5 dagar på 3 rutintillfällen (' + bel.v1.timmar + ' h, ' + bel.v1.dagar + ' dagar, ' + bel.v1.antal + ' st)');
+  kontroll(JSON.stringify(bel.v1.namn) === JSON.stringify(['a:R1', 'a:R2', 'b:R1']),
+    'cellen vet vilka rutintillfällena är, i samma ordning varje gång: ' + bel.v1.namn.join(', '));
+  kontroll(bel.annaKap === 16 && bel.bertilKap === 24,
+    'kapaciteten är dagarna × 8 h, och en utförare utan svar får förvalet 3 dagar (' + bel.annaKap + ' h, ' + bel.bertilKap + ' h)');
+  kontroll(bel.v1.over === true && bel.v3.over === false,
+    'v. 1 är över kapaciteten (20 h av 16 h) och v. 3 är det inte (' + bel.v3.timmar + ' h)');
+  kontroll(JSON.stringify(bel.annaOver) === JSON.stringify([1]) && bel.annaTopp === 20,
+    'raden sammanfattar vilka veckor som är över och hur hög toppen är (v. ' + bel.annaOver.join(', ') + ', ' + bel.annaTopp + ' h)');
+  kontroll(bel.v2tom.timmar === 0 && bel.v2tom.antal === 0 && bel.annaTillfallen === 5 && bel.bertilTillfallen === 1,
+    'tomma veckor är tomma och årssumman räknar varje tillfälle en gång (Anna ' + bel.annaTillfallen + ', Bertil ' + bel.bertilTillfallen + ')');
+  kontroll(bel.v7utan === true, 'veckor utan tillsyn och skötsel är markerade i cellen');
+
+  // Den mjuka varningen: fler än 6 tillfällen, även när tiden räcker (beslut 31)
+  kontroll(bel.mjuk.antal === 7 && bel.mjuk.manga === true && bel.mjuk.over === false && bel.mjuk.timmar === 7,
+    'fler än 6 rutintillfällen ger varningen även när tiden räcker (7 st, ' + bel.mjuk.timmar + ' h av 24 h, över: ' + bel.mjuk.over + ')');
+  kontroll(JSON.stringify(bel.mjuk.veckor) === JSON.stringify([2]), 'raden vet vilka veckor som har för många tillfällen');
+  kontroll(bel.sex.antal === 6 && bel.sex.manga === false,
+    'exakt 6 tillfällen ger ingen varning – gränsen går vid fler än 6');
+
+  // Samma underlag ger samma svar: uträkningen är deterministisk (berättelse 49)
+  const lika = await page.evaluate(() => {
+    const u = {
+      antalVeckor: 5,
+      utforare: [{ id: 'anna', namn: 'Anna' }],
+      byggnader: [
+        { id: 'b', namn: 'B', ronder: [{ id: 'R', namn: 'R', utforare: 'anna', timmar: 2, veckor: [1, 3] }] },
+        { id: 'a', namn: 'A', ronder: [{ id: 'R', namn: 'R', utforare: 'anna', timmar: 2, veckor: [1] }] }
+      ]
+    };
+    const ett = DP.Balansering.belastning(u).rad('anna').veckor[1].tillfallen.map(t => t.byggnad);
+    const tva = DP.Balansering.belastning(u).rad('anna').veckor[1].tillfallen.map(t => t.byggnad);
+    return { ett, tva };
+  });
+  kontroll(JSON.stringify(lika.ett) === JSON.stringify(lika.tva) && JSON.stringify(lika.ett) === JSON.stringify(['a', 'b']),
+    'samma underlag ger samma resultat två gånger (' + lika.ett.join(', ') + ')');
+
+  // ------------------------------------------------------------------
+  // Tidsaxeln i sidan
+  // ------------------------------------------------------------------
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => !!document.querySelector('#balansering .bal-byggnad'), 'Balansering ritad');
+
+  // Berättelse 26: ingen byggnad är planerad än, så alla fyra är gråade med en länk till Planering
+  kontroll(await page.locator('.bal-byggnad.grad').count() === 4 && await page.locator('.bal-byggnad .bal-lank').count() === 4,
+    'alla fyra byggnader är gråade med en länk till Planering innan något är planerat');
+  kontroll((await page.locator('.bt-tom').innerText()).includes('Ingen byggnad är klar'),
+    'tidsaxeln säger varför den är tom');
+
+  // Länken öppnar Planering för just den byggnaden
+  await page.locator('.bal-byggnad[data-byggnad="kasern1"] .bal-lank').click();
+  await vanta(page, () => DP.Plan.aktivId() === 'kasern1' && DP.Vyer.aktivt() === 'planering', 'Planering för Kasern 1');
+  kontroll(await page.evaluate(() => DP.Plan.aktivId()) === 'kasern1' && await page.locator('#hs-planering').isVisible(),
+    'länken på en gråad byggnad öppnar Planering för just den byggnaden');
+
+  // Berättelse 27: standardplanering åt alla som saknar planering, i ett enda historiksteg
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  const foreHist = await historiklangd(page);
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await stegKlart(page, foreHist, 'standardplanering för alla');
+  await vanta(page, () => document.querySelectorAll('.bt-utforare').length === 4, 'tidsaxeln ritad med fyra utförare');
+
+  const efter = await page.evaluate(() => ({
+    klara: DP.Plan.klaraByggnader(),
+    hist: DP.Plan.historik().lista.length,
+    aktiv: DP.Plan.aktivId()
+  }));
+  kontroll(efter.klara.length === 4 && efter.hist === foreHist + 1,
+    'alla fyra byggnaderna räknas med efter "Standardplanering för alla", i ett enda historiksteg');
+  kontroll(await page.locator('.bal-byggnad.grad').count() === 0 && await page.locator('.bal-med').count() === 4,
+    'ingen byggnad är gråad längre');
+
+  // Ett enda ångra tar bort planeringen i alla byggnader som fick den
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await angra(page);
+  const angrat = await page.evaluate(() => ({ klara: DP.Plan.klaraByggnader(), aktiv: DP.Plan.aktivId() }));
+  kontroll(angrat.klara.length === 0, 'ett enda ångra tar bort planeringen i alla byggnader som fick den');
+  kontroll(angrat.aktiv === efter.aktiv, 'ångra av steget byter inte aktiv byggnad (' + angrat.aktiv + ')');
+  await gorOm(page);
+  await vanta(page, () => DP.Plan.klaraByggnader().length === 4, 'gör om ger planeringen tillbaka');
+
+  // Tidsaxeln: en rad per utförare och en kolumn per vecka för hela året (berättelse 50)
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => document.querySelectorAll('.bt-utforare').length === 4, 'tidsaxeln ritad igen');
+  const veckor = await page.evaluate(() => DP.Plan.ANTAL_VECKOR);
+  kontroll(await page.locator('.bt-utforare').count() === 4 && await page.locator('.bt-vecka').count() === veckor,
+    'en rad per utförare och en kolumn per vecka för hela året (' + veckor + ' veckor)');
+
+  // Berättelse 51: cellen visar hur full veckan är. Annas topp med standardplaneringen är
+  // v. 1: sex rutintillfällen och 26 h mot kapaciteten 24 h, alltså en överfull cell.
+  //
+  // Biljett #14 och beslut 44 säger "8 rutintillfällen" i v. 1. Den siffran stämmer inte med
+  // den standardplanering koden faktiskt skapar: garaget är halvårsrond med start i april och
+  // ligger i v. 14 och 40, och Byggnad utvändigt är kvartalsrond i kasernerna och hangaren.
+  // Anna får därför 6 tillfällen i v. 1, och ingen vecka i året når över 6. Testet kontrollerar
+  // det koden ger – överfull cell ja, mjuk varning nej – och den mjuka varningen prövas i
+  // stället mot ett eget underlag ovan. Avvikelsen är anmäld som en egen biljett.
+  const topp = await page.evaluate(() => {
+    const bel = DP.Balansering.belastning(DP.Plan.balanseringsUnderlag());
+    const anna = bel.rad('anna');
+    return { over: anna.over, timmar: anna.veckor[1].timmar, antal: anna.veckor[1].antal, kap: anna.kapacitetTimmar };
+  });
+  kontroll(topp.timmar === 26 && topp.antal === 6 && topp.kap === 24 && JSON.stringify(topp.over) === JSON.stringify([1]),
+    'Annas topp ligger i v. 1: ' + topp.antal + ' rutintillfällen och ' + topp.timmar + ' h mot ' + topp.kap + ' h');
+  const cell = page.locator('.bt-cell[data-utforare="anna"][data-vecka="1"]');
+  kontroll((await cell.getAttribute('class')).includes('over') && (await cell.getAttribute('data-antal')) === '6',
+    'cellen för Annas v. 1 är markerad som överfull');
+  kontroll((await page.locator('.bt-fot-text').innerText()).includes('Anna Berg')
+    && (await page.locator('.bt-fot-text').innerText()).includes('v. 1'),
+    'förklaringen under tidsaxeln säger vem som har för mycket och vilken vecka');
+
+  // Berättelse 53: brickorna har byggnadens färg
+  const fargerIV1 = await page.evaluate(() => {
+    const c = document.querySelector('.bt-cell[data-utforare="anna"][data-vecka="1"]');
+    return Array.prototype.map.call(c.querySelectorAll('.bt-bricka'), b => b.dataset.byggnad + '=' + b.style.background);
+  });
+  const vantade = await page.evaluate(() => ({
+    kasern1: DP.byggnader.kasern1.farg, kasern2: DP.byggnader.kasern2.farg, hangar: DP.byggnader.hangar.farg
+  }));
+  const rgb = h => { const n = parseInt(h.slice(1), 16); return 'rgb(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ')'; };
+  kontroll(fargerIV1.length === 6
+    && fargerIV1.filter(f => f.startsWith('kasern1=')).every(f => f.endsWith(rgb(vantade.kasern1)))
+    && fargerIV1.filter(f => f.startsWith('hangar=')).every(f => f.endsWith(rgb(vantade.hangar))),
+    'brickorna har byggnadens färg (' + fargerIV1.join(', ') + ')');
+
+  // Berättelse 54: en utförare kan fällas ut till en rad per byggnad
+  kontroll(await page.locator('.bt-under').count() === 0, 'ingen utförare är utfälld från början');
+  await page.locator('.bt-fall[data-utforare="anna"]').click();
+  await vanta(page, () => document.querySelectorAll('.bt-under').length > 0, 'Anna utfälld');
+  const utfallda = await page.locator('.bt-under .bt-bnamn').allInnerTexts();
+  kontroll(utfallda.length === 4 && utfallda.join(',') === 'Garage,Kasern 1,Kasern 2,Hangar',
+    'Anna fälls ut till en rad per byggnad hon har tillfällen i: ' + utfallda.join(', '));
+  const ubricka = await page.evaluate(() => {
+    const c = document.querySelector('.bt-ucell[data-utforare="anna"][data-byggnad="kasern1"][data-vecka="1"]');
+    const b = c && c.querySelector('.bt-bricka');
+    return b ? b.style.background : null;
+  });
+  kontroll(ubricka === rgb(vantade.kasern1), 'brickorna i den utfällda raden har också byggnadens färg (' + ubricka + ')');
+  await bild(page, 'etapp5-balansering-utfalld');
+  await page.locator('.bt-fall[data-utforare="anna"]').click();
+  await vanta(page, () => document.querySelectorAll('.bt-under').length === 0, 'Anna infälld igen');
+
+  // Berättelse 55: klick på en vecka visar rutintillfällena med planerad tid och antal
+  await page.locator('.bt-cell[data-utforare="anna"][data-vecka="1"]').click();
+  await vanta(page, () => !!document.querySelector('.bal-tillfalle'), 'veckolistan öppen');
+  const sum = await page.locator('.bal-vsum').innerText();
+  kontroll(sum.includes('6 av 6') && sum.includes('26 h av 24 h'),
+    'veckolistan visar antalet som "x av 6" och tiden mot kapaciteten: ' + sum.replace(/\n/g, ' '));
+  const rader = await page.locator('.bal-tillfalle').allInnerTexts();
+  kontroll(rader.length === 6 && rader.some(r => r.includes('Kasern 1 · Byggnad invändigt') && r.includes('heldag'))
+    && rader.some(r => r.includes('Hangar · Byggnad invändigt') && r.includes('halvdag')),
+    'varje rutintillfälle visas med byggnad, rond och planerad tid (' + rader.length + ' rader)');
+  kontroll((await page.locator('.bal-varning').first().innerText()).includes('Tiden räcker inte'),
+    'veckolistan säger rakt ut att tiden inte räcker');
+
+  // En vecka inom kapaciteten visar ingen varning
+  await page.locator('.bt-cell[data-utforare="anna"][data-vecka="5"]').click();
+  await vanta(page, () => {
+    const h = document.querySelector('.bal-veckolista h3');
+    return h && h.textContent.indexOf('v. 5') >= 0;
+  }, 'veckolistan för v. 5');
+  kontroll(await page.locator('.bal-varning').count() === 0 && (await page.locator('.bal-vsum').innerText()).includes('av 6'),
+    'en vecka inom kapaciteten visas utan varning');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
+// Huvudvyn ska rymmas på 1920×1200 utan att sidan scrollar, även i Balansering med fyra
+// utförare och hela året. Samma mätning som i processlinjetestet: overflow:hidden gör att
+// dokumentet aldrig kan växa förbi fönstret, så det är layoutens underkant och tidsaxelns
+// egen scrollhöjd som säger om något inte får plats.
+async function testBalanseringRymsPaSkarmen(browser) {
+  console.log('Etapp 5 – Balansering på 1920×1200');
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
+  page.fel = [];
+  page.on('pageerror', e => page.fel.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') { page.fel.push(m.text()); } });
+  page.on('dialog', d => d.accept());
+  await page.goto(URL_INDEX);
+  await vanta(page, () => !!(window.DP && DP.Vyer && DP.Balansering) && !!document.querySelector('.pl-steg'), 'appen ritad');
+
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await vanta(page, () => document.querySelectorAll('.bt-utforare').length === 4, 'tidsaxeln med fyra utförare');
+  await page.locator('.bt-cell[data-utforare="anna"][data-vecka="1"]').click();
+  await vanta(page, () => !!document.querySelector('.bal-tillfalle'), 'veckolistan öppen');
+  await rorelsePaus(page);
+  await bild(page, 'etapp5-balansering-tidsaxel');
+
+  const matt = await page.evaluate(() => {
+    const layout = document.querySelector('.layout').getBoundingClientRect();
+    const grid = document.querySelector('.bt-grid');
+    const sido = document.querySelector('#hs-balansering');
+    return {
+      fonster: window.innerHeight,
+      layoutBotten: Math.round(layout.bottom),
+      gridScroll: grid.scrollHeight, gridKlient: grid.clientHeight,
+      sidoScroll: sido.scrollHeight, sidoKlient: sido.clientHeight,
+      sistaVeckan: !!document.querySelector('.bt-cell[data-vecka="' + DP.Plan.ANTAL_VECKOR + '"]'),
+      breddOk: Math.round(document.querySelector('.bt-grid').scrollWidth) <= Math.round(grid.clientWidth) + 1
+    };
+  });
+  kontroll(matt.layoutBotten <= matt.fonster,
+    'layouten slutar vid fönsterkanten i Balansering (' + matt.layoutBotten + ' av ' + matt.fonster + ' px)');
+  kontroll(matt.gridScroll <= matt.gridKlient,
+    'tidsaxeln med fyra utförare ryms utan att scrolla (' + matt.gridScroll + ' av ' + matt.gridKlient + ' px)');
+  kontroll(matt.breddOk && matt.sistaVeckan,
+    'hela året ryms på bredden, till och med sista veckan');
+  // Sidopanelen får scrolla: där ligger veckolistan, som växer med antalet tillfällen.
+  // Det som inte får hända är att den inte går att nå alls.
+  kontroll(matt.sidoKlient > 600, 'sidopanelen har plats åt byggnaderna och veckolistan (' + matt.sidoKlient + ' px)');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFlerbyggnadSkiss(browser) {
   console.log('Skiss – flera byggnader');
   const page = await nySida(browser, URL_FLER);
@@ -1281,6 +1564,8 @@ async function testFlerbyggnadSkiss(browser) {
     await testTidFoljerMed(browser);
     await testForskjutning(browser);
     await testProcesslinjen(browser);
+    await testBalanseringensTidsaxel(browser);
+    await testBalanseringRymsPaSkarmen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

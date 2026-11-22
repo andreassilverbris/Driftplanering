@@ -157,6 +157,10 @@
       id: 'kasern' + nr,
       namn: 'Kasern ' + nr,
       typ: 'kasern',
+      omrade: 'kasernomradet',
+      // Byggnadsfärg för brickorna i Balanseringens tidsaxel (beslut 47). Kasernerna är nära
+      // varandra i färg men går att skilja, som de gör i verkligheten.
+      farg: nr === 1 ? '#3f7fb5' : '#6a5bb8',
       beskrivning: nr === 1
         ? 'Klassisk kasern i tegel från 1900-talets början: källare, tre våningar och vind. Logement längs en mittkorridor.'
         : 'Likadan som Kasern 1, men renoverad: en hiss har byggts in i trapphuset och tvättstugan har en tvättmaskin.',

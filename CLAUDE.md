@@ -70,7 +70,7 @@ Skriptens ordning i `index.html` spelar roll:
 | Fil | Ansvar |
 |---|---|
 | `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan) |
-| `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering), `DP.genereraOvriga()` |
+| `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering), `DP.omraden`, `DP.genereraOvriga()` |
 | `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
 | `data/ordlista.js` | `DP.ordlista`: begreppen i fyra grupper, det som ordlistedialogen visar |
 | `data/garage.js`, `data/kasern.js` | Garage, Kasern 1 och 2 i `DP.byggnader` |
@@ -83,7 +83,8 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/tidsaxel.js` | `DP.Tidsaxel`: tidsaxel för året + mediaspelaren (ångra/gör om) |
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
-| `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens skal och ordlistan |
+| `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka |
+| `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens tidsaxel och ordlistan |
 | `flerbyggnad.html` | Fristående skiss för flera byggnader med påhittade data (ska ersättas i etapp 5) |
 
 **Dataflödet:**
@@ -136,6 +137,16 @@ Skriptens ordning i `index.html` spelar roll:
   efter med `parihop`: tillfälle nummer *n* före svarar mot nummer *n* efter. Listorna kan vara olika
   långa (varannan månad ger 6 eller 7 tillfällen beroende på fas), och det sista tillfället saknar då
   motsvarighet – men de övriga har flyttat som vanligt.
+- **Balanseringens underlag:** `DP.Plan.balanseringsUnderlag()` samlar ihop de byggnader där alla sex stegen
+  är klara (`byggnadKlar(bid)`, `klaraByggnader()` – beslut 39) till en ren datastruktur: per byggnad id, namn,
+  färg, område och ronder med utförare, planerad tid i timmar, dagsdel och **de veckor tillfällena ligger i**.
+  Veckorna räknas där, med båda förskjutningarna, så att `DP.Balansering` själv inte behöver veta något om
+  frekvenser eller tillstånd. Underlaget bär också svaren ur det gemensamma tillståndet (`kapacitet` i dagar,
+  `veckorUtan`, `akerTill`) med förval när de inte är besvarade.
+- **`DP.Balansering.belastning(underlag)`** ger en rad per utförare och en cell per vecka: planerad tid i
+  timmar och dagar, antal rutintillfällen och vilka de är, om veckan är över kapaciteten (`over`) och om den
+  har fler än 6 tillfällen (`manga`, den mjuka varningen i beslut 31). En dag är 8 h och kapaciteten är
+  dagarna × 8 h. Modulen är fristående från DOM och testas med ett underlag som byggs i testet.
 - `DP.Plan.prenumereraByte(fn(id))` – byte av byggnad: 3D-vyn byggs om, träd, flöde, tidsaxel och telefoner ritas om.
 
 **Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens),
@@ -147,21 +158,27 @@ förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med 
 
 **Byggnadsdata:** `plan` (nedifrån och upp, `elev`), `rum` (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`,
 valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej signifikanta), `stil`
-(tak platt/sadel, färger, fönster, dekor). 3D-modellen räknas fram ur detta – en ny byggnad kräver bara en datafil.
+(tak platt/sadel, färger, fönster, dekor), `omrade` (id i `DP.omraden` – beslut 28) och `farg`
+(brickornas färg i Balanseringens tidsaxel, beslut 47). 3D-modellen räknas fram ur detta – en ny
+byggnad kräver bara en datafil.
 
 ## Status
 
 Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23),
 steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53),
-processlinjen och ordlistan (beslut 54–55) samt förskjutningarna i planeringen (beslut 26, 41 och 56) byggda.
+processlinjen och ordlistan (beslut 54–55), förskjutningarna i planeringen (beslut 26, 41 och 56) samt
+Balanseringens tidsaxel med belastning per utförare (beslut 28, 31, 33, 39 och 47) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
-**Nästa: etapp 5 – Balansering** av flera byggnader med riktig planering från de fyra byggnaderna.
+**Nästa: etapp 5 – Balansering**, de tre frågorna och knappen Balansera som förskjuter besöksrytmerna.
 Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
-- Huvudsteget Balansering är ännu bara ett skal som förklarar vad som kommer; uträkningen byggs i senare biljetter.
-- Förskjutningarna finns i planeringen men har inget gränssnitt: de sätts av `DP.Balansering` och av flytt
-  för hand, som byggs i senare biljetter. Provisoriska flyttar och strykningar (nivå 3) finns inte än.
+- Balansering visar belastningen men balanserar inte än: de tre frågorna (områden man åker till, kapacitet
+  per utförare, veckor utan tillsyn och skötsel), knappen Balansera, förklaringen och flytt för hand byggs
+  i senare biljetter. Tills frågorna finns gäller förvalen – 3 dagar i veckan för alla, inga utkorsade veckor.
+- Förskjutningarna finns i planeringen men har inget gränssnitt: de sätts av balanseringens uträkning och
+  av flytt för hand, som båda byggs i senare biljetter. `DP.Balansering` räknar hittills bara belastning.
+  Provisoriska flyttar och strykningar (nivå 3) finns inte än.
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
 - Den fristående filen saknar länken till skissen.
 

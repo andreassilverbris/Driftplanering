@@ -663,31 +663,45 @@
 
   function harPlanering(s) { return s.ronder.length > 0 || s.kopplingar.length > 0; }
 
+  // Standardplanering som en ändring av ett tillstånd, oberoende av vilken byggnad som är aktiv.
+  // Används både av knappen här och av "Standardplanering för alla" i Balansering, som skriver
+  // flera byggnader i ett enda historiksteg (beslut 39). Därför tar den byggnads-id:t och läser
+  // installationerna därifrån i stället för modulens `signifikanta`.
+  function skrivStandard(st, bid) {
+    var bb = DP.byggnader[bid], typ = DP.byggnadstyper[bb.typ];
+    if (!typ) { return false; }
+    var sig = bb.installationer.filter(function (i) { return i.signifikant; });
+    var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
+    st.bas = bas;
+    st.ronder = typ.standard.ronder.map(function (r) {
+      var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
+      return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
+    });
+    var finns = st.ronder.map(function (r) { return r.id; });
+    st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
+    DP.atgarder.forEach(function (a) {
+      var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
+      if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
+      sig.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; })
+        .forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
+    });
+    // Steg 6 fylls i med godkända förslag, så att alla sex stegen är besvarade direkt
+    // (beslut 35, berättelse 22). Förslagen räknas på de kopplingar som just lagts.
+    st.tider = {};
+    st.ronder.forEach(function (r) {
+      var f = P.tidForslag(r.id, st, bid);
+      P.sattTid(st, r.id, f.dagsdel, f);
+    });
+    return true;
+  }
+
   // Standardplanering: byggnadstypens ronder och frekvenser + alla matchande åtgärder i föreslagen rond
   function standardplanering(kalla) {
     var typ = DP.byggnadstyper[b.typ], s = P.state();
     var gor = function () {
+      var bid = P.aktivId();
       P.andra('Standardplanering för ' + typ.namn.toLowerCase(), function (st) {
-        var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
-        st.bas = bas;
-        st.ronder = typ.standard.ronder.map(function (r) {
-          var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
-          return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
-        });
-        var finns = st.ronder.map(function (r) { return r.id; });
-        st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
-        DP.atgarder.forEach(function (a) {
-          var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
-          if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
-          matchande(a).forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
-        });
-        // Steg 6 fylls i med godkända förslag, så att alla sex stegen är besvarade direkt
-        // (beslut 35, berättelse 22). Förslagen räknas på de kopplingar som just lagts.
-        st.tider = {};
-        st.ronder.forEach(function (r) {
-          var f = P.tidForslag(r.id, st);
-          P.sattTid(st, r.id, f.dagsdel, f);
-        });
+        return skrivStandard(st, bid);
       }, { kalla: kalla, standard: true });
       ui.oppet = 5; ui.guide = null;
       rita();
@@ -890,7 +904,7 @@
     return lista.map(function (k) { return k.rond; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
   }
 
-  DP.Flode = { rita: rita };
+  DP.Flode = { rita: rita, skrivStandard: skrivStandard };
   rita();
   DP.Tidsaxel.rita();
 })();

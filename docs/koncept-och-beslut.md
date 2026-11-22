@@ -201,6 +201,30 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     som vanligt och ska bära sina texter med sig och animeras. Just den frekvensen hade annars varit den
     enda som tyst tappade både texter och animering.
 
+57. **Balanseringens underlag bär färdiga veckor** (biljett #14, berättelse 25–27 och 50–55).
+    `DP.Balansering` är en ren uträkning utan DOM, och den vet därför ingenting om frekvenser,
+    startmånader eller förskjutningar: `DP.Plan.balanseringsUnderlag()` räknar fram **vilka veckor**
+    varje rondserie ligger i och skickar listan med. Det gör att modulen går att pröva med ett
+    underlag som byggs direkt i ett test – tre rader data i stället för en hopklickad planering
+    som råkar ge rätt siffror – och att veckoberäkningen bara finns på ett ställe (beslut 56).
+    Underlaget bär också planerad tid i **timmar**, inte i dagsdel, eftersom belastningen räknas
+    i tid: kort 1 h, kvartsdag 2 h, halvdag 4 h, heldag 8 h och en dag 8 h (beslut 31).
+
+58. **Tidsaxeln i Balansering har fast radhöjd och en slutsats under sig** (biljett #14, beslut 33).
+    Fyra utförarrader som delar på hela ytan blev 250 px höga celler där fyllnaden mot kapaciteten
+    inte gick att läsa – stapeln blev en pelare och brickorna låg och skvalpade i tomrum. Raderna
+    har därför en fast höjd, och ytan som blir över tar frågorna och Balansera-panelen i nästa
+    biljett. Under tidsaxeln står **slutsatsen i klartext**: vem som har mer än hen hinner, vilka
+    veckor det gäller och att veckorna emellan står tomma. En tidsaxel full av färger säger inte
+    av sig själv vad som är fel, och problemet ska synas *innan* något balanseras (berättelse 50–52).
+
+59. **Byggnaden som inte är klar visas, den döljs inte** (biljett #14, berättelse 26). Balansering
+    räknar bara med byggnader där alla sex stegen är klara (beslut 39), men de övriga står kvar i
+    listan – gråade, med sitt område och en knapp som öppnar Planering för just den byggnaden.
+    Att utelämna dem hade besvarat frågan "varför saknas Kasern 2?" med tystnad. Knappen
+    *Standardplanering för alla* ger alla som saknar planering en standardplanering i **ett**
+    historiksteg, så att ett enda ångra tar bort den igen.
+
 ## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)

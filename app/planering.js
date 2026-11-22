@@ -144,8 +144,11 @@
       tider: {}
     };
   }
-  // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ska Balanseringens svar
-  // ligga (områden man åker till, kapacitet per utförare, veckor utan tillsyn och skötsel). Tomt så länge.
+  // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ligger Balanseringens
+  // svar – områden man åker till (`akerTill`), kapacitet per utförare i dagar (`kapacitet`) och
+  // veckor utan tillsyn och skötsel (`veckorUtan`). Tomt betyder "inte besvarad", och
+  // balanseringsUnderlag() använder då förvalen. Frågorna som sätter svaren byggs i en
+  // senare biljett; belastningsräkningen läser dem redan nu.
   function tomtGemensamt() {
     return {};
   }
@@ -587,6 +590,57 @@
     return { 1: k1, 2: k2, 3: k3, 4: k3, 5: k5, 6: k6 };
   }
 
+  // En byggnad är klar för Balansering när alla sex stegen i Planering är klara (beslut 39).
+  // Halvfärdiga byggnader balanseras inte: en planering utan tider eller kopplingar säger
+  // inget om belastningen, och att räkna på den hade gett en falsk bild.
+  function byggnadKlar(bid) {
+    var k = stegStatus(null, bid);
+    return [1, 2, 3, 4, 5, 6].every(function (n) { return k[n]; });
+  }
+  function klaraByggnader() { return BYGGNADSORDNING.filter(byggnadKlar); }
+
+  // Underlaget till DP.Balansering: de klara byggnadernas rondserier med utförare, planerad
+  // tid i timmar och de veckor tillfällena ligger i. Veckorna räknas här, med båda
+  // förskjutningarna, så att balanseringsmodulen själv inte behöver veta något om frekvenser
+  // eller om hur tillståndet ser ut.
+  //
+  // Svaren i det gemensamma tillståndet gäller när de finns. Kapacitetsfrågan och frågan om
+  // veckor utan tillsyn och skötsel byggs i en senare biljett, så tills de finns gäller
+  // förvalen: 3 dagar i veckan för alla (beslut 31) och inga veckor utkorsade.
+  function balanseringsUnderlag() {
+    var gem = gemensamt();
+    var kap = {};
+    UTFORARE.forEach(function (u) {
+      var svar = gem.kapacitet && gem.kapacitet[u.id];
+      kap[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
+    });
+    return {
+      antalVeckor: ANTAL_VECKOR,
+      utforare: UTFORARE.map(function (u) { return { id: u.id, namn: u.namn, farg: u.farg }; }),
+      kapacitet: kap,
+      veckorUtan: (gem.veckorUtan || []).slice(),
+      akerTill: (gem.akerTill || DP.omraden.filter(function (o) { return o.akerTill; }).map(function (o) { return o.id; })).slice(),
+      byggnader: klaraByggnader().map(function (bid) {
+        var s = stateFor(bid), b = DP.byggnader[bid];
+        return {
+          id: bid, namn: b.namn, farg: b.farg, omrade: b.omrade,
+          ronder: s.ronder.filter(function (r) { return freqKomplett(r.freq); }).map(function (r) {
+            var veckor = veckorForRond(r, s);
+            var namnPerVecka = {};
+            veckor.forEach(function (v) { namnPerVecka[v] = rutintillfalleNamn(r.id, v, bid); });
+            var sparad = s.tider[r.id];
+            return {
+              id: r.id, namn: rondNamn(r.id), utforare: r.utforare,
+              timmar: tidTimmar(r.id, s, bid),
+              dagsdel: sparad && sparad.godkand ? sparad.dagsdel : tidForslag(r.id, s, bid).dagsdel,
+              veckor: veckor, namnPerVecka: namnPerVecka
+            };
+          })
+        };
+      })
+    };
+  }
+
   // Besök i byggnaden = alla veckor där minst ett rutintillfälle infaller
   function besoksveckor(s, bid) {
     s = s || stateFor(bid);
@@ -754,6 +808,7 @@
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
     signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
+    byggnadKlar: byggnadKlar, klaraByggnader: klaraByggnader, balanseringsUnderlag: balanseringsUnderlag,
     gemensamt: gemensamt, andraFlera: andraFlera,
     tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid,
     behallTid: behallTid, arvTid: arvTid, timText: timText,
