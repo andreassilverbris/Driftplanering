@@ -54,12 +54,52 @@
   var ANTAL_VECKOR = isoVecka(new Date(AR, 11, 28));
 
   function frekvens(id) { return FREKVENSER.filter(function (f) { return f.id === id; })[0]; }
-  function veckorFor(freq) {
+
+  // Veckorna för en frekvens, förskjutna ett antal veckor.
+  //
+  // Förskjutningen flyttar *när i året* rytmen ligger, aldrig hur ofta (beslut 26). Därför
+  // räknas den modulo intervallet: en månadsrond förskjuten 5 veckor ligger likadant som
+  // förskjuten 1 vecka. Mellanrummet mellan tillfällena är alltid intervallet, så frekvensen
+  // står still – det är hela poängen med att balanseringen bara får förskjuta.
+  //
+  // Rytmen rullar löpande över årsskiftet (förslag A), och året visar de tillfällen som faller
+  // inom det. För intervall som delar året jämnt (vecka, månad, kvartal, år) är antalet
+  // tillfällen därför detsamma vid varje förskjutning. Varannan månad (var 8:e vecka) delar
+  // inte 52 jämnt och ger 6 eller 7 tillfällen beroende på fas – det är vad frekvensen
+  // själv säger ("6–7 ggr/år"), inte en ändrad frekvens.
+  //
+  // Halvårsronder med vald startmånad får bara flyttas inom månaden (beslut 41). Varje
+  // tillfälle klampas då i *sin egen* månad: en halvårsrond som börjar i april har tillfällen
+  // i april och oktober, och oktobertillfället hör hemma i oktober.
+  function veckorFor(freq, forskjutning) {
     if (!freq || !freq.typ) { return []; }
     var f = frekvens(freq.typ);
-    var start = (f.startManad && freq.startManad) ? forstaVeckan(freq.startManad) : 1;
+    var fsk = normaliseraForskjutning(forskjutning, f.iv);
     var ut = [];
-    for (var v = start; v <= ANTAL_VECKOR; v += f.iv) { ut.push(v); }
+    // Startmånad: rytmen utgår från månadens första vecka, och varje tillfälle flyttas inom sin månad
+    if (f.startManad && freq.startManad) {
+      for (var m = forstaVeckan(freq.startManad); m <= ANTAL_VECKOR; m += f.iv) { ut.push(inomSinManad(m, fsk)); }
+      return ut;
+    }
+    // Annars är startveckan själv förskjuten, och rytmen rullar vidare därifrån
+    for (var v = fsk + 1; v <= ANTAL_VECKOR; v += f.iv) { ut.push(v); }
+    return ut;
+  }
+  // Förskjutningen är en rytm, inte ett tillägg: den räknas modulo intervallet och är aldrig negativ
+  function normaliseraForskjutning(forskjutning, iv) {
+    var n = Math.round(Number(forskjutning) || 0);
+    if (iv <= 1) { return 0; }
+    return ((n % iv) + iv) % iv;
+  }
+  // Veckan förskjuten, men hållen kvar i den månad den låg i: hamnar den utanför månaden
+  // stannar den på månadens sista vecka (beslut 41 – den får flyttas inom månaden, inte ut ur den).
+  function inomSinManad(v, fsk) {
+    var m = manadForVecka(v);
+    var ut = v;
+    for (var i = 0; i < fsk; i++) {
+      if (ut + 1 > ANTAL_VECKOR || manadForVecka(ut + 1) !== m) { break; }
+      ut++;
+    }
     return ut;
   }
   function freqText(freq, kort) {
@@ -84,7 +124,11 @@
   function tomtTillstand() {
     return {
       bas: null,          // { typ, startManad } – hur ofta byggnaden besöks
-      ronder: [],         // { id, freq, foljerBas, besvarad, utforare }
+      // Förskjutning av byggnadens besöksrytm i veckor (nivå 1, beslut 26). Alla ronder följer
+      // med, så byggnaden fortsätter att besökas samlat. Frekvensen rörs inte.
+      forskjutning: 0,
+      ronder: [],         // { id, freq, foljerBas, besvarad, utforare, forskjutning }
+                          // forskjutning = rondseriens egen förskjutning (nivå 2), ovanpå byggnadens
       kopplingar: [],     // { atgard, inst, rond }  (inst = installations-id eller 'BYGGNAD')
       // Åtgärdstexter i tre nivåer. Den mest specifika vinner: rutintillfälle > installation > standard.
       standardTexter: {}, // atgardId -> [kontrollpunkter]   (ändrad standard i bruttolistan, gäller sessionen)
@@ -212,6 +256,17 @@
     return DP.byggnader[bid || aktiv].namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
   }
 
+  // Hela förskjutningen för en rond: byggnadens besöksrytm (nivå 1) plus rondens egen (nivå 2).
+  // De två läggs ihop innan veckorna räknas, så att en rondserie kan ligga ur fas med resten av
+  // byggnaden utan att byggnadens förskjutning tappas (beslut 26).
+  function rondForskjutning(rond, s) {
+    return (s.forskjutning || 0) + ((rond && rond.forskjutning) || 0);
+  }
+  // Veckorna för en rond, med båda förskjutningarna inräknade
+  function veckorForRond(rond, s) {
+    return (rond && freqKomplett(rond.freq)) ? veckorFor(rond.freq, rondForskjutning(rond, s)) : [];
+  }
+
   // Alla rutintillfällen som planeringen genererar
   function rutintillfallen(s, bid) {
     s = s || stateFor(bid);
@@ -219,7 +274,7 @@
     s.ronder.forEach(function (r) {
       if (!freqKomplett(r.freq)) { return; }
       var atg = s.kopplingar.filter(function (k) { return k.rond === r.id; });
-      veckorFor(r.freq).forEach(function (v) {
+      veckorForRond(r, s).forEach(function (v) {
         ut.push({ nyckel: r.id + ':' + v, rond: r.id, vecka: v, namn: rutintillfalleNamn(r.id, v, bid), utforare: r.utforare, atgarder: atg });
       });
     });
@@ -461,6 +516,56 @@
     sattTid(st, rondId, sparad.dagsdel, forslaget);
   }
 
+  // ------------------------------------------------------------------
+  // Förskjutningar (nivå 1 och 2)
+  // ------------------------------------------------------------------
+  // Används inuti andra()/andraFlera(). sattForskjutning förskjuter byggnadens besöksrytm, alltså
+  // alla dess ronder på en gång (nivå 1). sattRondForskjutning förskjuter en enskild rondserie
+  // ovanpå byggnadens förskjutning (nivå 2).
+  //
+  // Båda går genom samma väg, och den vägen gör två saker: sätter talet och flyttar de avvikande
+  // texterna på rutintillfällesnivå lika många veckor som tillfällena (berättelse 70). Texterna
+  // är nycklade på veckan, så utan flytten hade de hängt kvar på en vecka som inte längre har
+  // något tillfälle – och städningen hade kastat dem. Flytten måste därför göras av den som
+  // ändrar förskjutningen: efteråt finns inte längre uppgiften om var tillfället låg.
+  function sattForskjutning(st, veckor) {
+    return andraForskjutning(st, function (s) { s.forskjutning = Math.round(Number(veckor) || 0); });
+  }
+  function sattRondForskjutning(st, rondId, veckor) {
+    return andraForskjutning(st, function (s) {
+      var r = s.ronder.filter(function (x) { return x.id === rondId; })[0];
+      if (r) { r.forskjutning = Math.round(Number(veckor) || 0); }
+    });
+  }
+
+  // Vecka per rond före ändringen, ändringen, och sedan texterna flyttade till de nya veckorna
+  function andraForskjutning(st, gor) {
+    var fore = {};
+    st.ronder.forEach(function (r) { fore[r.id] = veckorForRond(r, st); });
+    gor(st);
+    var flytt = {}; // rondId -> { gammalVecka: nyVecka }
+    st.ronder.forEach(function (r) {
+      var karta = {};
+      // Samma parning som veckoSkillnad: tillfälle nummer n före svarar mot nummer n efter.
+      // Tappas ett tillfälle ur året finns ingen vecka att flytta texten till, och städningen
+      // tar hand om den.
+      parihop(fore[r.id] || [], veckorForRond(r, st)).forEach(function (par) { karta[par.fran] = par.till; });
+      flytt[r.id] = karta;
+    });
+    flyttaTillfalleTexter(st, flytt);
+  }
+
+  // Flyttar texterna på rutintillfällesnivå till tillfällenas nya veckor
+  function flyttaTillfalleTexter(st, flytt) {
+    var nya = {};
+    Object.keys(st.tillfalleTexter).forEach(function (n) {
+      var d = n.split('|');
+      var ny = flytt[d[2]] && flytt[d[2]][Number(d[3])];
+      nya[ny === undefined ? n : tillfNyckel(d[0], d[1], d[2], ny)] = st.tillfalleTexter[n];
+    });
+    st.tillfalleTexter = nya;
+  }
+
   // Tider för ronder som inte längre finns hänger inte kvar
   function rensaTider(st) {
     var finns = {};
@@ -516,14 +621,13 @@
     if (it) { return { punkter: it, niva: 'installation' }; }
     return { punkter: standardText(k.atgard, s), niva: 'standard' };
   }
-  function rondVeckor(rondId, s) {
-    var r = s.ronder.filter(function (x) { return x.id === rondId; })[0];
-    return r && freqKomplett(r.freq) ? veckorFor(r.freq) : [];
+  function veckorForRondId(rondId, s) {
+    return veckorForRond(s.ronder.filter(function (x) { return x.id === rondId; })[0], s);
   }
   // Rutintillfällen där en koppling har en egen text
   function tillfalleAvvikelser(k, s) {
     s = s || state();
-    return rondVeckor(k.rond, s).filter(function (v) { return !!s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)]; })
+    return veckorForRondId(k.rond, s).filter(function (v) { return !!s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)]; })
       .map(function (v) { return { vecka: v, namn: rutintillfalleNamn(k.rond, v), punkter: s.tillfalleTexter[tillfNyckel(k.atgard, k.inst, k.rond, v)] }; });
   }
   function kopplingAvviker(k, s) {
@@ -568,7 +672,7 @@
     Object.keys(st.instTexter).forEach(function (n) { if (!finns[n]) { delete st.instTexter[n]; } });
     Object.keys(st.tillfalleTexter).forEach(function (n) {
       var d = n.split('|');
-      if (!finnsRond[d[0] + '|' + d[1] + '|' + d[2]] || rondVeckor(d[2], st).indexOf(Number(d[3])) < 0) { delete st.tillfalleTexter[n]; }
+      if (!finnsRond[d[0] + '|' + d[1] + '|' + d[2]] || veckorForRondId(d[2], st).indexOf(Number(d[3])) < 0) { delete st.tillfalleTexter[n]; }
     });
   }
 
@@ -580,6 +684,38 @@
     rensaTider(st);
   }
 
+  // Vilka rutintillfällen flyttade till en annan vecka mellan två tillstånd? Används för att
+  // animera förskjutningar i tidsaxeln och för att låta en öppen telefonvy följa med. En rond
+  // som bytt frekvens eller försvunnit har inte flyttats utan planerats om, och räknas därför
+  // inte som en flytt.
+  function veckoSkillnad(fore, efter) {
+    var ut = [];
+    efter.ronder.forEach(function (r) {
+      var f = fore.ronder.filter(function (x) { return x.id === r.id; })[0];
+      if (!f || !sammaFreq(f.freq, r.freq)) { return; }
+      parihop(veckorForRond(f, fore), veckorForRond(r, efter)).forEach(function (par) {
+        if (par.fran !== par.till) { ut.push({ rond: r.id, fran: par.fran, till: par.till, nyckel: r.id + ':' + par.till }); }
+      });
+    });
+    return ut;
+  }
+
+  // Parar ihop en rondseries tillfällen före och efter en förskjutning. Rytmen är densamma,
+  // bara förskjuten, så det n:te tillfället före svarar mot det n:te efter: båda listorna börjar
+  // på årets första tillfälle och räknar framåt med samma intervall.
+  //
+  // Listorna kan vara olika långa, och det är inte ett skäl att ge upp parningen. Ett intervall
+  // som inte delar året jämnt – varannan månad, var 8:e vecka – ger 6 eller 7 tillfällen beroende
+  // på fas (beslut 56). Då saknar det sista tillfället motsvarighet, men de övriga har flyttat
+  // precis som vanligt och ska animeras och bära sina texter med sig.
+  function parihop(fore, efter) {
+    var ut = [];
+    for (var i = 0; i < Math.min(fore.length, efter.length); i++) {
+      ut.push({ fran: fore[i], till: efter[i] });
+    }
+    return ut;
+  }
+
   // Vilka rutintillfällen och installationer fick ändrad gällande text mellan två tillstånd
   function textSkillnad(fore, efter) {
     var nycklar = {}, inst = {};
@@ -587,8 +723,8 @@
     fore.kopplingar.forEach(function (k) { foreK[k.atgard + '|' + k.inst + '|' + k.rond] = true; });
     efter.kopplingar.forEach(function (k) {
       if (!foreK[k.atgard + '|' + k.inst + '|' + k.rond]) { return; }
-      rondVeckor(k.rond, efter).forEach(function (v) {
-        if (rondVeckor(k.rond, fore).indexOf(v) < 0) { return; }
+      veckorForRondId(k.rond, efter).forEach(function (v) {
+        if (veckorForRondId(k.rond, fore).indexOf(v) < 0) { return; }
         if (!lika(textFor(k, v, fore).punkter, textFor(k, v, efter).punkter)) {
           nycklar[k.rond + ':' + v] = true;
           inst[k.inst] = true;
@@ -602,7 +738,7 @@
     standardText: standardText, instText: instText, textFor: textFor, tillfalleAvvikelser: tillfalleAvvikelser,
     kopplingAvviker: kopplingAvviker, rutintillfalleAvviker: rutintillfalleAvviker, avvikandeInst: avvikandeInst,
     sattStandard: sattStandard, sattInst: sattInst, sattTillfalle: sattTillfalle, rensaTillfallen: rensaTillfallen, rensaInst: rensaInst,
-    textSkillnad: textSkillnad, lika: lika,
+    textSkillnad: textSkillnad, veckoSkillnad: veckoSkillnad, lika: lika,
     AR: AR, ANTAL_VECKOR: ANTAL_VECKOR, FREKVENSER: FREKVENSER, MANADER: MANADER, UTFORARE: UTFORARE,
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
@@ -620,6 +756,8 @@
     signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
     gemensamt: gemensamt, andraFlera: andraFlera,
     tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid,
-    behallTid: behallTid, arvTid: arvTid, timText: timText
+    behallTid: behallTid, arvTid: arvTid, timText: timText,
+    rondForskjutning: rondForskjutning, veckorForRond: veckorForRond,
+    sattForskjutning: sattForskjutning, sattRondForskjutning: sattRondForskjutning
   };
 })();

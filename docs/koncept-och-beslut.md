@@ -174,6 +174,33 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     kvar, så planeraren kommer tillbaka till byggnaden precis där hen lämnade den. Telefonvyerna ligger inuti
     `#vy` och försvinner därför med den – de hör till en enskild byggnad och har inget att säga i Balansering.
 
+56. **Förskjutningen räknas modulo intervallet** (biljett #13, berättelse 35, 40 och 69–71). En förskjutning
+    flyttar *när i året* en rytm ligger, aldrig hur ofta (beslut 26). Hade den bara lagts på startveckan
+    hade en stor förskjutning tryckt ut det sista tillfället ur året, och balanseringen hade ändrat
+    frekvensen i smyg – just det den aldrig får göra. Därför räknas den modulo intervallet: en månadsrond
+    förskjuten 5 veckor ligger likadant som förskjuten 1, och mellanrummet mellan tillfällena är alltid
+    intervallet. Rytmen rullar löpande över årsskiftet (förslag A), och året visar de tillfällen som
+    faller inom det. För intervall som delar året jämnt (vecka, månad, kvartal, år) är antalet tillfällen
+    därför detsamma vid varje förskjutning; varannan månad ger 6 eller 7 beroende på fas, vilket är vad
+    frekvensen själv säger ("6–7 ggr/år").
+
+    De två nivåerna läggs ihop innan veckorna räknas: byggnadens besöksrytm (nivå 1) plus rondseriens egen
+    (nivå 2). En rondserie kan därför ligga ur fas med resten av byggnaden utan att byggnadens förskjutning
+    tappas. **Halvårsronder med vald startmånad** klampas i *sin egen* månad, inte i startmånaden: en rond
+    som börjar i april har tillfällen i april och oktober, och oktobertillfället hör hemma i oktober (beslut 41).
+
+    **Avvikande texter på rutintillfällesnivå flyttas av den som ändrar förskjutningen**, inte av städningen.
+    Texterna är nycklade på veckan, och efter ändringen finns ingen uppgift kvar om var tillfället låg –
+    städningen hade bara sett en text på en vecka utan tillfälle och kastat den. Tillfällena paras ihop på
+    ordningsnummer: rytmen är densamma, bara förskjuten, så det n:te tillfället före svarar mot det n:te efter.
+    Av samma skäl **följer en öppen telefonvy med** till tillfällets nya vecka i stället för att stängas –
+    det är samma rutintillfälle teknikern tittar på, med ett nytt namn (berättelse 71).
+
+    Att listorna är olika långa är inget skäl att ge upp parningen. Varannan månad ger 6 eller 7
+    tillfällen beroende på fas, och då saknar det sista motsvarighet – men de övriga har flyttat precis
+    som vanligt och ska bära sina texter med sig och animeras. Just den frekvensen hade annars varit den
+    enda som tyst tappade både texter och animering.
+
 ## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)

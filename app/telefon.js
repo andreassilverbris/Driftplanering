@@ -20,6 +20,19 @@
   // Byte av byggnad: stäng telefonerna
   P.prenumereraByte(function () { indexera(); oppna = []; rita(); });
 
+  // Förskjuts en rondserie eller byggnadens besöksrytm flyttar tillfället till en annan vecka,
+  // och nyckeln (rond:vecka) pekar på en vecka som inte längre har något tillfälle. En öppen
+  // telefon ska följa med dit tillfället tog vägen, inte stängas: det är samma rutintillfälle
+  // teknikern tittar på, med ett nytt namn (berättelse 71).
+  //
+  // Prenumerationen ligger här och inte i flode.js därför att telefon.js laddas först, så
+  // nycklarna är flyttade innan flödets lyssnare ritar om telefonerna.
+  P.prenumerera(function (fore, efter) {
+    var flytt = {};
+    P.veckoSkillnad(fore, efter).forEach(function (f) { flytt[f.rond + ':' + f.fran] = f.nyckel; });
+    oppna.forEach(function (o) { if (flytt[o.nyckel]) { o.nyckel = flytt[o.nyckel]; } });
+  });
+
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) { e.className = cls; }

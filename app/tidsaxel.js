@@ -71,7 +71,9 @@
     }
 
     // Besök i byggnaden
-    var besok = s.ronder.length ? P.besoksveckor(s) : P.veckorFor(s.bas);
+    // Utan ronder finns bara fråga 1:s svar att visa. Byggnadens förskjutning gäller även då,
+    // så raden flyttar sig med besöksrytmen.
+    var besok = s.ronder.length ? P.besoksveckor(s) : P.veckorFor(s.bas, s.forskjutning);
     var be = el('div', 'ta-etikett ta-besok-etikett');
     be.innerHTML = '<span class="ta-namn">Besök i byggnaden</span><span class="ta-antal">' + besok.length + ' / år</span>';
     be.title = s.ronder.length ? 'Alla veckor där minst ett rutintillfälle infaller' : 'Planerade besök enligt fråga 1';
@@ -87,12 +89,16 @@
     s.ronder.forEach(function (r) {
       var u = P.utforare(r.utforare);
       var lab = el('div', 'ta-etikett');
-      var veck = P.freqKomplett(r.freq) ? P.veckorFor(r.freq).length : 0;
+      var veck = P.veckorForRond(r, s).length;
       lab.innerHTML = '<span class="avatar" style="background:' + u.farg + '" title="Utförare: ' + u.namn + '">' + u.namn[0] + '</span>' +
         '<span class="ta-namn">' + P.rondNamn(r.id) + '</span><span class="ta-antal">' + (veck ? veck + ' / år' : 'frekvens?') + '</span>';
       grid.appendChild(lab);
       for (var w = 1; w <= n; w++) {
         var cell = el('div', 'ta-cell');
+        // Rond och vecka på själva cellen, inte bara på markören: en förskjutning behöver veta
+        // var ett tillfälle *låg* för att kunna animera flytten, och den cellen är nu tom.
+        cell.dataset.rond = r.id;
+        cell.dataset.vecka = String(w);
         var t = rt.filter(function (x) { return x.rond === r.id && x.vecka === w; })[0];
         if (t) { cell.appendChild(markor(t, u)); }
         grid.appendChild(cell);
@@ -139,6 +145,10 @@
   }
 
   function markorEl(nyckel) { return rot.querySelector('.rt-mark[data-nyckel="' + nyckel + '"]'); }
+  // Cellen för en rond och en vecka, med eller utan tillfälle i sig
+  function cellEl(rond, vecka) {
+    return rot.querySelector('.ta-cell[data-rond="' + rond + '"][data-vecka="' + vecka + '"]');
+  }
 
   window.addEventListener('keydown', function (e) {
     if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { return; }
@@ -146,5 +156,5 @@
     if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); P.gorOm({ historik: true }); }
   });
 
-  DP.Tidsaxel = { rita: rita, markorEl: markorEl };
+  DP.Tidsaxel = { rita: rita, markorEl: markorEl, cellEl: cellEl };
 })();

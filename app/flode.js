@@ -607,7 +607,7 @@
     var giltig = antal > 0 && g.rond && (!behoverSamma || g.samma === true);
     if (giltig) {
       var rond = s.ronder.filter(function (r) { return r.id === g.rond; })[0];
-      var n = P.veckorFor(rond.freq).length;
+      var n = P.veckorForRond(rond, s).length;
       w.appendChild(el('div', 'forhands', '→ ' + antal + ' åtgärd' + (antal > 1 ? 'er' : '') + ' hamnar i vart och ett av ' + n + ' rutintillfällen <b>' + P.rondNamn(g.rond) + '</b> under ' + P.AR + '.'));
     }
     var kr = el('div', 'knapprad');
@@ -814,6 +814,19 @@
 
     var kalla = info.kalla || DP.mitt(document.querySelector('.sidopanel'));
     DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+
+    // Förskjutna rutintillfällen: en bricka flyger från den vecka tillfället låg i till den
+    // nya. Skillnaden räknas ur tillstånden, så ångra animerar flytten tillbaka av sig själv
+    // (berättelse 69). Tidsaxeln är redan omritad, men veckokolumnerna står still, så den
+    // gamla cellen finns kvar på sin plats – tom.
+    var vs = P.veckoSkillnad(fore, efter);
+    vs.slice(0, 40).forEach(function (f) {
+      var fran = DP.Tidsaxel.cellEl(f.rond, f.fran), till = DP.Tidsaxel.markorEl(f.nyckel);
+      if (!fran || !till) { return; }
+      var m = DP.mitt(till);
+      m.klar = function () { DP.puls(till); };
+      DP.flyg(DP.mitt(fran), [m], { text: '→', farg: '#4f6fd0' });
+    });
 
     // Ändrade åtgärdstexter: samma visualisering som när åtgärder läggs till
     var ts = P.textSkillnad(fore, efter);

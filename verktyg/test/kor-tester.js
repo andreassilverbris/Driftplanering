@@ -909,6 +909,226 @@ async function testTidFoljerMed(browser) {
 }
 
 // Etapp 5: processlinjen (Byggnad → Planering → Balansering) och ordlistan (berättelse 1–3, 5–8)
+// Etapp 5: förskjuten besöksrytm (nivå 1) och rondserie (nivå 2). Förskjutningen flyttar när i
+// året tillfällena ligger, aldrig hur ofta (beslut 26). Det finns inget gränssnitt för att sätta
+// den än, så testet sätter den med ett historiksteg direkt i planeringen – samma väg som
+// balanseringen och flytt för hand kommer att gå.
+async function testForskjutning(browser) {
+  console.log('Etapp 5 – förskjuten besöksrytm och rondserie');
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  const f = page.locator('#flode');
+
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[6] === true, 'standardplaneringen klar i Kasern 1');
+
+  // Utgångsläget: Kasern 1 besöks varje månad, alltså var fjärde vecka från v. 1
+  const fore = await page.evaluate(() => ({
+    bi: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => t.vecka),
+    bs: DP.Plan.rutintillfallen().filter(t => t.rond === 'BS').map(t => t.vecka),
+    besok: DP.Plan.besoksveckor()
+  }));
+  kontroll(fore.bi.slice(0, 3).join(',') === '1,5,9' && fore.bi.length === 13,
+    'utan förskjutning ligger månadsronden i v. 1, 5, 9 … (' + fore.bi.length + ' tillfällen)');
+
+  // ---- Nivå 1: byggnadens besöksrytm förskjuts två veckor ----
+  const foreHist = await historiklangd(page);
+  await page.evaluate(() => {
+    DP.Plan.andra('Prov: förskjut besöksrytmen 2 veckor', function (st) { DP.Plan.sattForskjutning(st, 2); });
+    return 1;
+  });
+  await stegKlart(page, foreHist, 'förskjöt besöksrytmen');
+  const n1 = await page.evaluate(() => ({
+    bi: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => t.vecka),
+    bs: DP.Plan.rutintillfallen().filter(t => t.rond === 'BS').map(t => t.vecka),
+    bu: DP.Plan.rutintillfallen().filter(t => t.rond === 'BU').map(t => t.vecka),
+    besok: DP.Plan.besoksveckor(),
+    steg: DP.Plan.stegStatus(),
+    freq: DP.Plan.state().ronder.filter(r => r.id === 'BI')[0].freq
+  }));
+  kontroll(n1.bi.slice(0, 3).join(',') === '3,7,11' && n1.bi.length === fore.bi.length,
+    'med förskjutning 2 ligger månadsronden i v. 3, 7, 11 … och antalet tillfällen står still ('
+    + n1.bi.length + ')');
+  kontroll(JSON.stringify(n1.freq) === JSON.stringify({ typ: 'manad', startManad: null }),
+    'frekvensen är oförändrad – förskjutningen flyttar bara när i året tillfällena ligger');
+  kontroll(n1.bs.slice(0, 3).join(',') === '3,7,11' && n1.bu.slice(0, 2).join(',') === '3,16',
+    'alla byggnadens ronder följer med besöksrytmen (BS v. ' + n1.bs.slice(0, 3).join(',')
+    + ', kvartalsronden BU v. ' + n1.bu.slice(0, 2).join(',') + ')');
+  kontroll(n1.besok.indexOf(1) < 0 && n1.besok.indexOf(3) >= 0 && n1.besok.length === fore.besok.length,
+    'besöksveckorna har flyttat med (' + n1.besok.length + ' veckor, inte längre v. 1)');
+  kontroll([1, 2, 3, 4, 5, 6].every(n => n1.steg[n] === true),
+    'planeringen är fortfarande klar i alla sex stegen efter förskjutningen');
+
+  // Tidsaxeln visar de förskjutna veckorna, och namnet bygger på den nya veckan
+  kontroll(await page.locator('#tidsaxel .ta-cell[data-rond="BI"][data-vecka="3"] .rt-mark').count() === 1
+    && await page.locator('#tidsaxel .ta-cell[data-rond="BI"][data-vecka="1"] .rt-mark').count() === 0,
+    'tidsaxeln visar månadsronden i v. 3 och inte längre i v. 1');
+  const namn = await page.evaluate(() =>
+    DP.Plan.rutintillfallen().filter(t => t.rond === 'BI')[0].namn);
+  kontroll(namn === 'Kasern1-Byggnad invändigt-2027v03',
+    'rutintillfällets namn bygger på den förskjutna veckan: ' + namn);
+  await rorelsePaus(page);
+  await bild(page, 'etapp5-forskjuten-besoksrytm');
+
+  // ---- Nivå 2: en rondserie förskjuts ovanpå byggnadens förskjutning ----
+  const foreN2 = await historiklangd(page);
+  await page.evaluate(() => {
+    DP.Plan.andra('Prov: förskjut brandskyddsronden 1 vecka', function (st) {
+      DP.Plan.sattRondForskjutning(st, 'BS', 1);
+    });
+    return 1;
+  });
+  await stegKlart(page, foreN2, 'förskjöt rondserien');
+  const n2 = await page.evaluate(() => ({
+    bs: DP.Plan.rutintillfallen().filter(t => t.rond === 'BS').map(t => t.vecka),
+    bi: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => t.vecka),
+    samlad: DP.Plan.rondForskjutning(DP.Plan.state().ronder.filter(r => r.id === 'BS')[0], DP.Plan.state())
+  }));
+  kontroll(n2.bs.slice(0, 3).join(',') === '4,8,12' && n2.bs.length === fore.bs.length,
+    'rondförskjutningen läggs ovanpå byggnadens: 2 + 1 ger v. 4, 8, 12 … (' + n2.bs.slice(0, 3).join(',') + ')');
+  kontroll(n2.samlad === 3, 'den samlade förskjutningen för rondserien är 3 veckor (' + n2.samlad + ')');
+  kontroll(n2.bi.slice(0, 3).join(',') === '3,7,11',
+    'de andra ronderna ligger kvar på byggnadens förskjutning (BI v. ' + n2.bi.slice(0, 3).join(',') + ')');
+
+  // ---- Telefonvyn följer med tillfället till den nya veckan ----
+  await page.locator('#tidsaxel .ta-cell[data-rond="BI"][data-vecka="3"] .rt-mark').click();
+  await vanta(page, () => document.querySelectorAll('.telefon').length > 0, 'telefonvyn öppen');
+  const foreTel = await historiklangd(page);
+  await page.evaluate(() => {
+    DP.Plan.andra('Prov: förskjut besöksrytmen till 1 vecka', function (st) { DP.Plan.sattForskjutning(st, 1); });
+    return 1;
+  });
+  await stegKlart(page, foreTel, 'ändrade byggnadens förskjutning');
+  const tel = await page.evaluate(() => [].map.call(document.querySelectorAll('.telefon'), t => ({
+    nyckel: t.dataset.nyckel, titel: t.querySelector('.tf-titel').textContent
+  })));
+  kontroll(tel.length === 1 && tel[0].nyckel === 'BI:2',
+    'telefonvyn följer med tillfället från v. 3 till v. 2 i stället för att stängas ('
+    + JSON.stringify(tel.map(t => t.nyckel)) + ')');
+  kontroll(tel[0].titel === 'Kasern1-Byggnad invändigt-2027v02',
+    'telefonvyn visar det nya namnet: ' + tel[0].titel);
+
+  // ---- En avvikande text på ett rutintillfälle följer med till den nya veckan ----
+  const foreText = await historiklangd(page);
+  const kopplingBI = await page.evaluate(() => {
+    const k = DP.Plan.state().kopplingar.filter(x => x.rond === 'BI' && x.inst !== 'BYGGNAD')[0];
+    DP.Plan.andra('Prov: avvikande text i ett rutintillfälle', function (st) {
+      DP.Plan.sattTillfalle(st, k, 2, ['Prov: egen punkt i just detta tillfälle']);
+    });
+    return k;
+  });
+  await stegKlart(page, foreText, 'satte en avvikande text på rutintillfället');
+  kontroll(await page.evaluate(k => DP.Plan.textFor(k, 2).niva === 'tillfalle', kopplingBI),
+    'den avvikande texten gäller rutintillfället i v. 2');
+
+  const foreFlytt = await historiklangd(page);
+  await page.evaluate(() => {
+    DP.Plan.andra('Prov: förskjut besöksrytmen till 3 veckor', function (st) { DP.Plan.sattForskjutning(st, 3); });
+    return 1;
+  });
+  await stegKlart(page, foreFlytt, 'förskjöt besöksrytmen med texten på plats');
+  const flyttad = await page.evaluate(k => ({
+    nyV4: DP.Plan.textFor(k, 4).niva,
+    gamlaV2: DP.Plan.textFor(k, 2).niva,
+    avvikelser: DP.Plan.tillfalleAvvikelser(k).map(a => a.vecka + ':' + a.namn)
+  }), kopplingBI);
+  kontroll(flyttad.nyV4 === 'tillfalle' && flyttad.gamlaV2 === 'standard',
+    'den avvikande texten flyttade med tillfället från v. 2 till v. 4 (v. 4: ' + flyttad.nyV4
+    + ', v. 2: ' + flyttad.gamlaV2 + ')');
+  kontroll(flyttad.avvikelser.length === 1 && flyttad.avvikelser[0].includes('2027v04'),
+    'avvikelsen listas på den nya veckan med det nya namnet: ' + flyttad.avvikelser.join(', '));
+
+  // ---- Ångra: veckor, namn och texter kommer tillbaka ----
+  await angra(page);
+  await vanta(page, () => DP.Plan.state().forskjutning === 1, 'förskjutningen ångrad');
+  const angrat = await page.evaluate(k => ({
+    bi: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => t.vecka),
+    v2: DP.Plan.textFor(k, 2).niva,
+    v4: DP.Plan.textFor(k, 4).niva,
+    namn: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI')[0].namn
+  }), kopplingBI);
+  kontroll(angrat.bi.slice(0, 3).join(',') === '2,6,10' && angrat.namn.includes('2027v02'),
+    'ångra ger veckorna och namnen tillbaka (v. ' + angrat.bi.slice(0, 3).join(',') + ')');
+  kontroll(angrat.v2 === 'tillfalle' && angrat.v4 === 'standard',
+    'ångra ger den avvikande texten tillbaka till v. 2');
+
+  // ---- Ett intervall som inte delar året jämnt: tillfällena flyttar ändå med ----
+  // Varannan månad (var 8:e vecka) ger 6 eller 7 tillfällen på ett år beroende på fas
+  // (beslut 56). Det sista tillfället saknar då motsvarighet efter förskjutningen, men de
+  // övriga har flyttat som vanligt och ska bära sina texter med sig. Hade parningen gett upp
+  // när listorna är olika långa hade just den frekvensen tappat både texter och animering.
+  // Ångra ovanför lämnade historiken en position bakåt, och nästa steg trunkerar den i
+  // stället för att förlänga den. Väntan går därför på planeringens innehåll, inte på längden.
+  const kopplingVE = await page.evaluate(() => {
+    DP.Plan.andra('Prov: varannan månad och text på ett senare tillfälle', function (st) {
+      DP.Plan.sattForskjutning(st, 0);
+      st.ronder.filter(r => r.id === 'VE')[0].freq = { typ: 'varannan', startManad: null };
+      const k = st.kopplingar.filter(x => x.rond === 'VE')[0];
+      DP.Plan.sattTillfalle(st, k, 17, ['Prov: egen punkt i det tredje tillfället']);
+    });
+    return DP.Plan.state().kopplingar.filter(x => x.rond === 'VE')[0];
+  });
+  await vanta(page, () => DP.Plan.state().ronder.filter(r => r.id === 'VE')[0].freq.typ === 'varannan'
+    && DP.Plan.state().forskjutning === 0, 'varannan månad satt utan förskjutning');
+  const varFore = await page.evaluate(() => DP.Plan.rutintillfallen().filter(t => t.rond === 'VE').map(t => t.vecka));
+  kontroll(varFore.join(',') === '1,9,17,25,33,41,49',
+    'varannan månad utan förskjutning ger 7 tillfällen: v. ' + varFore.join(','));
+
+  const foreVar2 = await historiklangd(page);
+  await page.evaluate(() => {
+    DP.Plan.andra('Prov: förskjut byggnaden 4 veckor', function (st) { DP.Plan.sattForskjutning(st, 4); });
+    return 1;
+  });
+  await stegKlart(page, foreVar2, 'förskjöt med varannan månad i planeringen');
+  const varEfter = await page.evaluate(k => ({
+    ve: DP.Plan.rutintillfallen().filter(t => t.rond === 'VE').map(t => t.vecka),
+    v21: DP.Plan.textFor(k, 21).niva,
+    v17: DP.Plan.textFor(k, 17).niva
+  }), kopplingVE);
+  kontroll(varEfter.ve.join(',') === '5,13,21,29,37,45',
+    'förskjuten 4 veckor blir det 6 tillfällen – det sjunde ryms inte i året: v. ' + varEfter.ve.join(','));
+  kontroll(varEfter.v21 === 'tillfalle' && varEfter.v17 === 'standard',
+    'texten följer med från v. 17 till v. 21 fast rondserien tappade ett tillfälle (v. 21: '
+    + varEfter.v21 + ', v. 17: ' + varEfter.v17 + ')');
+  await angra(page);
+  await vanta(page, () => DP.Plan.state().forskjutning === 0, 'förskjutningen av varannan månad ångrad');
+  kontroll(await page.evaluate(k => DP.Plan.textFor(k, 17).niva === 'tillfalle', kopplingVE),
+    'ångra ger texten tillbaka till v. 17');
+
+  // ---- Halvårsrond med vald startmånad stannar i sin månad (beslut 41) ----
+  await byggnadsval(page, 'garage');
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[6] === true, 'standardplaneringen klar i Garage');
+  const g0 = await page.evaluate(() => ({
+    bi: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => t.vecka),
+    man: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => DP.Plan.manadForVecka(t.vecka)),
+    bas: DP.Plan.state().bas
+  }));
+  kontroll(g0.bas.typ === 'halvar' && g0.bas.startManad === 4 && g0.bi.join(',') === '14,40',
+    'Garaget besöks varje halvår med start i april: v. ' + g0.bi.join(','));
+
+  // En stor förskjutning: varje tillfälle flyttas så långt det går inom sin egen månad
+  for (const [fsk, vantat, text] of [[2, '16,42', 'liten'], [9, '17,43', 'stor']]) {
+    const h = await historiklangd(page);
+    await page.evaluate(n => {
+      DP.Plan.andra('Prov: förskjut garaget ' + n + ' veckor', function (st) { DP.Plan.sattForskjutning(st, n); });
+      return 1;
+    }, fsk);
+    await stegKlart(page, h, 'förskjöt garaget ' + fsk + ' veckor');
+    const g = await page.evaluate(() => ({
+      bi: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => t.vecka),
+      man: DP.Plan.rutintillfallen().filter(t => t.rond === 'BI').map(t => DP.Plan.manadForVecka(t.vecka))
+    }));
+    kontroll(g.bi.join(',') === vantat && g.man.join(',') === '3,9',
+      'halvårsronden med startmånad april stannar i april och oktober vid en ' + text
+      + ' förskjutning (' + fsk + ' v. → v. ' + g.bi.join(',') + ')');
+  }
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testProcesslinjen(browser) {
   console.log('Etapp 5 – processlinjen och ordlistan');
   // Användarens skärm är 1920×1200, och huvudvyn ska rymmas där utan att sidan scrollar.
@@ -1059,6 +1279,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testSteg5Klart(browser);
     await testSteg6Tid(browser);
     await testTidFoljerMed(browser);
+    await testForskjutning(browser);
     await testProcesslinjen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {

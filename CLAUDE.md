@@ -122,10 +122,25 @@ Skriptens ordning i `index.html` spelar roll:
   är nytt). Båda skriver över `arvd`: en ärvd tid planeraren tagit ställning till är hens egen.
   Standardplaneringen fyller i steg 6 med godkända förslag, och kopieringen tar med tiderna inklusive
   källans förslag.
+- **Förskjutningar (beslut 26 och 56):** `s.forskjutning` flyttar byggnadens hela besöksrytm i veckor
+  (nivå 1), och `rond.forskjutning` en enskild rondserie ovanpå den (nivå 2). `rondForskjutning(rond, s)`
+  lägger ihop dem och `veckorForRond(rond, s)` ger rondens veckor – all veckoberäkning går den vägen.
+  `veckorFor(freq, forskjutning)` räknar förskjutningen **modulo intervallet**, så frekvensen och
+  mellanrummet står still: bara *när i året* rytmen ligger ändras. Halvårsronder med vald startmånad
+  flyttas bara inom sin egen månad (beslut 41). Förskjutningen sätts inuti `andra()`/`andraFlera()` med
+  `sattForskjutning(st, veckor)` och `sattRondForskjutning(st, rondId, veckor)`; de flyttar samtidigt
+  de avvikande texterna på rutintillfällesnivå lika många veckor som tillfällena, eftersom texterna är
+  nycklade på veckan och efteråt inte går att para ihop med sitt tillfälle.
+  `veckoSkillnad(fore, efter)` ger de tillfällen som bytt vecka – flödet animerar dem i tidsaxeln (även
+  vid ångra) och telefonen låter en öppen vy följa med till den nya veckan. Båda parar ihop före och
+  efter med `parihop`: tillfälle nummer *n* före svarar mot nummer *n* efter. Listorna kan vara olika
+  långa (varannan månad ger 6 eller 7 tillfällen beroende på fas), och det sista tillfället saknar då
+  motsvarighet – men de övriga har flyttat som vanligt.
 - `DP.Plan.prenumereraByte(fn(id))` – byte av byggnad: 3D-vyn byggs om, träd, flöde, tidsaxel och telefoner ritas om.
 
-**Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens), `ronder`
-(`id, freq, foljerBas, besvarad, utforare`), `kopplingar` (`atgard, inst, rond`; `inst` kan vara `'BYGGNAD'`
+**Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens),
+`forskjutning` (besöksrytmens förskjutning i veckor), `ronder`
+(`id, freq, foljerBas, besvarad, utforare, forskjutning`), `kopplingar` (`atgard, inst, rond`; `inst` kan vara `'BYGGNAD'`
 för generella åtgärder), `standardTexter`, `instTexter`, `tillfalleTexter`, `tider`
 (rond → `{ dagsdel, godkand, forslagVidGodkandet, minuterVidGodkandet, arvd }` – de två mittersta är
 förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med en kopiering).
@@ -137,14 +152,16 @@ valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej si
 ## Status
 
 Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23),
-steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53), samt
-processlinjen och ordlistan (beslut 54–55) byggda.
+steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53),
+processlinjen och ordlistan (beslut 54–55) samt förskjutningarna i planeringen (beslut 26, 41 och 56) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
 **Nästa: etapp 5 – Balansering** av flera byggnader med riktig planering från de fyra byggnaderna.
 Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
 - Huvudsteget Balansering är ännu bara ett skal som förklarar vad som kommer; uträkningen byggs i senare biljetter.
+- Förskjutningarna finns i planeringen men har inget gränssnitt: de sätts av `DP.Balansering` och av flytt
+  för hand, som byggs i senare biljetter. Provisoriska flyttar och strykningar (nivå 3) finns inte än.
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
 - Den fristående filen saknar länken till skissen.
 
