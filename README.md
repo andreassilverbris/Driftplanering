@@ -33,6 +33,30 @@ byggnad → installationer → åtgärder → ronder → rutintillfällen.
 | `docs/ideer-och-resonemang.md` | Idéer: kopiera planering, standardplanering, import från Excel/IFC och genererad 3D-modell |
 | `verktyg/bygg-enfil.js` | Bygger den fristående filen `dist/driftplanering.html` |
 | `verktyg/test/kor-tester.js` | Webbläsartester: `node verktyg/test/kor-tester.js` |
+| `verktyg/test/ralph/` | Tester för Ralph-loopens skript (pytest) |
+| `ralph/` | Ralph-loopen: tar biljetter obevakat, en per varv (se `ralph/DESIGN.md`) |
+| `.claude/commands/biljett.md` | Arbetsordningen per biljett, som loopen och `/biljett <nr>` följer |
 | `CLAUDE.md` | Instruktioner för Claude: arbetssätt, arkitektur och status – läses automatiskt i nya sessioner |
+
+## Tester
+
+- `npm test` kör webbläsartesterna (Playwright/Chromium). Engångsinstallation: `npm install` och
+  `npx playwright install chromium`.
+- `npm run test:ralph` kör Ralph-loopens egna tester, som prövar skripten i `ralph/`. De kräver pytest
+  (`python3 -m pytest`) och ingår inte i `npm test`.
+- `npm run bygg` bygger om den fristående filen `dist/driftplanering.html`.
+
+## Ralph-loopen
+
+Ralph-loopen tar `ready-for-agent`-biljetter inom ett spår obevakat, en biljett per varv. Ett pass startas i en
+egen terminal, stående på en arbetsgren och aldrig på `main`:
+
+```bash
+caffeinate -is ./ralph/afk.sh 1 etapp-5
+```
+
+Första argumentet är antalet varv och det andra spåret, alltså etiketten som avgör vilka biljetter passet
+får ta. Arbetsordningen per biljett står i `.claude/commands/biljett.md`, och resten – utfallen, notiserna
+och körningsfilerna – i `ralph/DESIGN.md`.
 
 All data är påhittad.
