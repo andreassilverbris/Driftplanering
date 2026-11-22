@@ -78,6 +78,25 @@
 .dov { color: var(--svag); }
 .forhands { margin-top: 8px; font-size: 13px; background: #eefaf2; border: 1px solid #bfe5cd; border-radius: 6px; padding: 6px 9px; }
 
+/* ---------- Balansering ----------
+ * I Balansering döljs 3D-vyn och planeringens tidsaxel, och balanseringsytan tar deras plats.
+ * Döljningen sker med CSS på behållaren: vyn byggs aldrig om, så kamera, valt plan och
+ * vald installation finns kvar när man går tillbaka till Byggnad eller Planering.
+ */
+.balansering-yta { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #fff; }
+body.i-balansering #vy { display: none; }
+body.i-balansering .tidsaxel { display: none; }
+body.i-balansering .balansering-yta { display: block; }
+
+.bal-skal { padding: 28px 32px; max-width: 760px; }
+.bal-skal h2 { margin: 0 0 6px; font-size: 20px; }
+.bal-skal .bal-ingress { color: var(--dov); line-height: 1.6; margin: 0 0 18px; }
+.bal-kommer { border: 1px solid var(--linje); border-radius: var(--radie); padding: 14px 18px; background: #fafbfc; }
+.bal-kommer h3 { margin: 0 0 8px; font-size: 14px; }
+.bal-kommer ol { margin: 0; padding-left: 20px; color: var(--dov); line-height: 1.7; }
+.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; }
+.bal-status b { color: var(--text); }
+
 /* ---------- Tidsaxel ---------- */
 .tidsaxel { flex: none; height: 290px; background: #fff; border-top: 1px solid var(--linje); display: flex; flex-direction: column; min-height: 0; }
 .ta-huvud { display: flex; align-items: center; gap: 14px; padding: 7px 14px; border-bottom: 1px solid var(--linje); }

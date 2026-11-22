@@ -908,6 +908,135 @@ async function testTidFoljerMed(browser) {
   await page.close();
 }
 
+// Etapp 5: processlinjen (Byggnad → Planering → Balansering) och ordlistan (berättelse 1–3, 5–8)
+async function testProcesslinjen(browser) {
+  console.log('Etapp 5 – processlinjen och ordlistan');
+  // Användarens skärm är 1920×1200, och huvudvyn ska rymmas där utan att sidan scrollar.
+  // Resten av sviten kör 1090 px höjd; här är hela höjden själva saken som prövas.
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
+  page.fel = [];
+  page.on('pageerror', e => page.fel.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') { page.fel.push(m.text()); } });
+  page.on('dialog', d => d.accept());
+  await page.goto(URL_INDEX);
+  await vanta(page, () => !!(window.DP && DP.Vyer && DP.Flode && DP.viewer)
+    && !!document.querySelector('.pl-steg'), 'appen ritad med processlinje');
+
+  const steg = page.locator('.pl-steg');
+  kontroll(await steg.count() === 3
+    && (await steg.nth(0).getAttribute('data-steg')) === 'byggnad'
+    && (await steg.nth(1).getAttribute('data-steg')) === 'planering'
+    && (await steg.nth(2).getAttribute('data-steg')) === 'balansering',
+    'processlinjen visar Byggnad, Planering och Balansering i den ordningen');
+  kontroll(await page.locator('.flik').count() === 0 && await page.locator('#flik-begrepp').count() === 0,
+    'de gamla flikarna finns inte kvar');
+
+  // Berättelse 2: hur långt Planering har kommit. Ingen byggnad har en planering vid start.
+  const planeringSteg = page.locator('.pl-steg[data-steg="planering"]');
+  kontroll((await planeringSteg.innerText()).includes('0 av 4 byggnader klara'),
+    'Planering visar hur många byggnader som är klara: "' + (await planeringSteg.innerText()).replace(/\n/g, ' ') + '"');
+
+  // Berättelse 5–6: ordlistan öppnas utan att man lämnar steget man står i
+  await page.locator('#ordlista-knapp').click();
+  await page.waitForSelector('.ordlista');
+  const ordlistaText = await page.locator('.ordlista').innerText();
+  const nya = ['Balansering', 'Planerad tid', 'Dagsdel', 'Område', 'Kapacitet', 'Besöksrytm',
+    'Rondserie', 'Provisorisk flytt', 'Stryka'];
+  const saknas = nya.filter(o => !ordlistaText.includes(o));
+  kontroll(saknas.length === 0, 'ordlistan innehåller de nya begreppen' + (saknas.length ? ' (saknas: ' + saknas.join(', ') + ')' : ''));
+  kontroll(await page.locator('#hs-planering').isVisible() && !await page.locator('#hs-planering').getAttribute('hidden'),
+    'ordlistan öppnas utan att man lämnar Planering');
+  await bild(page, 'etapp5-ordlista');
+  await page.keyboard.press('Escape');
+  await vanta(page, () => !document.querySelector('.ordlista'), 'ordlistan stängd');
+
+  // Ordlistan går att öppna från alla tre huvudstegen
+  for (const id of ['byggnad', 'planering', 'balansering']) {
+    await page.locator('.pl-steg[data-steg="' + id + '"]').click();
+    await page.locator('#ordlista-knapp').click();
+    await page.waitForSelector('.ordlista');
+    kontroll(await page.locator('.ordlista').isVisible(), 'ordlistan öppnas från huvudsteget ' + id);
+    await page.keyboard.press('Escape');
+    await vanta(page, () => !document.querySelector('.ordlista'), 'ordlistan stängd i ' + id);
+  }
+
+  // Berättelse 3: Byggnad går alltid att öppna och har ingen bock
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  kontroll(await page.locator('#trad').isVisible() && !(await page.locator('.pl-steg[data-steg="byggnad"]').innerText()).includes('✓'),
+    'Byggnad går att öppna direkt och har ingen bock');
+  await bild(page, 'etapp5-huvudsteg-byggnad');
+
+  // Berättelse 7–8: 3D-vyn ger plats åt Balansering, men byggs inte om. Kamera och val
+  // ska finnas kvar, så de läses före och efter – inte bara synligheten.
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  const f = page.locator('#flode');
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus()[6] === true, 'garaget klart i alla sex stegen');
+  kontroll((await planeringSteg.innerText()).includes('1 av 4 byggnader klara'),
+    'Planering räknas upp när en byggnad får alla sex stegen klara');
+
+  // Välj en installation, så att valet går att känna igen efter besöket i Balansering
+  await page.evaluate(() => DP.viewer.valjInstallation(DP.Plan.signifikanta()[0], true));
+  await rorelsePaus(page);
+  const fore = await page.evaluate(() => ({
+    vald: DP.viewer.valdInst && DP.viewer.valdInst.id,
+    kamera: [DP.viewer.camera.position.x, DP.viewer.camera.position.y, DP.viewer.camera.position.z],
+    scen: DP.viewer.scene.uuid
+  }));
+  await bild(page, 'etapp5-huvudsteg-planering');
+
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  kontroll(!await page.locator('#vy').isVisible() && await page.locator('#balansering-yta').isVisible(),
+    '3D-vyn är dold i Balansering och ytan går till balanseringsvyn');
+  kontroll(!await page.locator('#tidsaxel').isVisible() && !await page.locator('#telefoner').isVisible(),
+    'planeringens tidsaxel och telefonvyerna visas inte i Balansering');
+  await bild(page, 'etapp5-huvudsteg-balansering');
+
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  const efter = await page.evaluate(() => ({
+    vald: DP.viewer.valdInst && DP.viewer.valdInst.id,
+    kamera: [DP.viewer.camera.position.x, DP.viewer.camera.position.y, DP.viewer.camera.position.z],
+    scen: DP.viewer.scene.uuid
+  }));
+  kontroll(await page.locator('#vy').isVisible(), '3D-vyn syns igen i Planering');
+  kontroll(efter.vald === fore.vald && efter.vald,
+    'samma installation är vald efter besöket i Balansering (' + efter.vald + ')');
+  kontroll(efter.scen === fore.scen && JSON.stringify(efter.kamera) === JSON.stringify(fore.kamera),
+    'vyn byggdes inte om: samma scen och samma kameraläge');
+
+  // Huvudvyn ska rymmas på 1920×1200 utan att sidan scrollar.
+  //
+  // `document.scrollHeight > innerHeight` duger inte som villkor: style.css sätter
+  // `html, body { overflow: hidden }`, så dokumentet kan aldrig växa förbi fönstret och
+  // kontrollen hade varit sann vad som än ritades. Två saker mäts i stället. Att layouten
+  // slutar vid fönsterkanten är det ena. Det andra är att processlinjen och ordlisteraden
+  // inte äter upp sidopanelen: de är nya och ligger ovanför steginnehållet, så växer de
+  // blir steget obrukbart smalt långt innan något sticker ut ur sidan.
+  for (const id of ['byggnad', 'planering', 'balansering']) {
+    await page.locator('.pl-steg[data-steg="' + id + '"]').click();
+    const matt = await page.evaluate(stegId => {
+      const h = e => Math.round(document.querySelector(e).getBoundingClientRect().height);
+      const layout = document.querySelector('.layout').getBoundingClientRect();
+      return {
+        fonster: window.innerHeight,
+        layoutBotten: Math.round(layout.bottom),
+        huvud: h('.processlinje') + h('.pl-rad'),
+        innehall: h('#hs-' + stegId)
+      };
+    }, id);
+    kontroll(matt.layoutBotten <= matt.fonster,
+      'layouten slutar vid fönsterkanten i huvudsteget ' + id +
+      ' (' + matt.layoutBotten + ' av ' + matt.fonster + ' px)');
+    kontroll(matt.huvud <= 140 && matt.innehall >= 800,
+      'processlinjen och ordlisteraden lämnar plats åt huvudsteget ' + id +
+      ' (' + matt.huvud + ' px huvud, ' + matt.innehall + ' px innehåll)');
+  }
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFlerbyggnadSkiss(browser) {
   console.log('Skiss – flera byggnader');
   const page = await nySida(browser, URL_FLER);
@@ -930,6 +1059,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testSteg5Klart(browser);
     await testSteg6Tid(browser);
     await testTidFoljerMed(browser);
+    await testProcesslinjen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

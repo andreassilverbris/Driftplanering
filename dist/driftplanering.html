@@ -40,10 +40,27 @@ button { font: inherit; cursor: pointer; }
   width: 400px; flex: none; background: var(--panel); border-right: 1px solid var(--linje);
   display: flex; flex-direction: column; min-height: 0;
 }
-.flikar { display: flex; border-bottom: 1px solid var(--linje); }
-.flik { flex: 1; padding: 11px 0; border: 0; background: none; color: var(--dov); border-bottom: 2px solid transparent; font-weight: 600; }
-.flik.aktiv { color: var(--accent); border-bottom-color: var(--accent); }
-.flikinnehall { flex: 1; overflow-y: auto; padding: 12px 14px 24px; min-height: 0; }
+/* Processlinjen: Byggnad → Planering → Balansering */
+.processlinje { display: flex; align-items: stretch; gap: 2px; padding: 8px 10px 0; }
+.pl-steg {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  padding: 7px 9px; border: 1px solid var(--linje); border-radius: var(--radie);
+  background: #fff; color: var(--dov); text-align: left;
+}
+.pl-steg:hover { border-color: #b8cff8; }
+.pl-steg.aktiv { background: var(--accent-svag); border-color: var(--accent); color: var(--accent); }
+.pl-namn { font-weight: 700; font-size: 13px; white-space: nowrap; }
+.pl-under { font-size: 11px; color: var(--svag); line-height: 1.25; }
+.pl-steg.aktiv .pl-under { color: var(--accent); }
+.pl-pil { align-self: center; color: var(--svag); font-size: 12px; flex: none; }
+.pl-rad { display: flex; justify-content: flex-end; padding: 6px 10px 8px; border-bottom: 1px solid var(--linje); }
+.hs-innehall { flex: 1; overflow-y: auto; padding: 12px 14px 24px; min-height: 0; }
+
+/* Ordlistan i dialogrutan */
+.ordlista { max-height: 62vh; overflow-y: auto; }
+.ol-grupp { margin: 18px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--svag); }
+.ol-grupp:first-child { margin-top: 0; }
+.ordlista .begrepp { margin: 0; }
 
 .sammanfattning { font-size: 13px; color: var(--dov); line-height: 1.7; padding: 4px 2px 10px; border-bottom: 1px solid var(--linje); margin-bottom: 8px; }
 .sammanfattning b { color: var(--text); }
@@ -222,6 +239,25 @@ details.rum > summary:hover button.liten { visibility: visible; }
 .dov { color: var(--svag); }
 .forhands { margin-top: 8px; font-size: 13px; background: #eefaf2; border: 1px solid #bfe5cd; border-radius: 6px; padding: 6px 9px; }
 
+/* ---------- Balansering ----------
+ * I Balansering döljs 3D-vyn och planeringens tidsaxel, och balanseringsytan tar deras plats.
+ * Döljningen sker med CSS på behållaren: vyn byggs aldrig om, så kamera, valt plan och
+ * vald installation finns kvar när man går tillbaka till Byggnad eller Planering.
+ */
+.balansering-yta { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #fff; }
+body.i-balansering #vy { display: none; }
+body.i-balansering .tidsaxel { display: none; }
+body.i-balansering .balansering-yta { display: block; }
+
+.bal-skal { padding: 28px 32px; max-width: 760px; }
+.bal-skal h2 { margin: 0 0 6px; font-size: 20px; }
+.bal-skal .bal-ingress { color: var(--dov); line-height: 1.6; margin: 0 0 18px; }
+.bal-kommer { border: 1px solid var(--linje); border-radius: var(--radie); padding: 14px 18px; background: #fafbfc; }
+.bal-kommer h3 { margin: 0 0 8px; font-size: 14px; }
+.bal-kommer ol { margin: 0; padding-left: 20px; color: var(--dov); line-height: 1.7; }
+.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; }
+.bal-status b { color: var(--text); }
+
 /* ---------- Tidsaxel ---------- */
 .tidsaxel { flex: none; height: 290px; background: #fff; border-top: 1px solid var(--linje); display: flex; flex-direction: column; min-height: 0; }
 .ta-huvud { display: flex; align-items: center; gap: 14px; padding: 7px 14px; border-bottom: 1px solid var(--linje); }
@@ -389,32 +425,14 @@ details.rum > summary:hover button.liten { visibility: visible; }
 
   <div class="layout">
     <aside class="sidopanel">
-      <nav class="flikar">
-        <button class="flik aktiv" data-mal="flik-planering">Planering</button>
-        <button class="flik" data-mal="flik-byggnad">Byggnad</button>
-        <button class="flik" data-mal="flik-begrepp">Begrepp</button>
-      </nav>
-      <section id="flik-planering" class="flikinnehall"><div id="flode"></div></section>
-      <section id="flik-byggnad" class="flikinnehall" hidden><div id="trad"></div></section>
-      <section id="flik-begrepp" class="flikinnehall" hidden>
-        <dl class="begrepp">
-          <dt>Byggnad → Plan → Rum</dt>
-          <dd>Den fysiska strukturen. Plan och rum har var sitt id och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>2010 – Konferensrum</b>.</dd>
-          <dt>Signifikant installation</dt>
-          <dd>Registreras som individ med ett id på 8 siffror, t.ex. <b>00000089</b>. Ska alltid ha minst en kopplad åtgärd. Klickbar i modellen.</dd>
-          <dt>Övrig installation</dt>
-          <dd>Registreras inte som individ, t.ex. lysrörsarmaturer, väggbrytare och toalettstolar. Kontrolleras översiktligt i <i>Kontroll byggnad invändigt</i>. Syns i modellen men går inte att klicka på.</dd>
-          <dt>Åtgärd</dt>
-          <dd>Något som ska göras, t.ex. <i>Kontroll handbrandsläckare</i>. Alla åtgärder finns i en bruttolista.</dd>
-          <dt>Åtgärdstext och kontrollpunkter</dt>
-          <dd>Åtgärdstexten beskriver vad som ska göras som en lista med kontrollpunkter.</dd>
-          <dt>Rond</dt>
-          <dd>Det man planerar mot: en gruppering av åtgärder, t.ex. <i>Brandskydd</i> eller <i>Byggnad invändigt</i>. Varje rond har en frekvens och en utförare.</dd>
-          <dt>Rutintillfälle</dt>
-          <dd>Skapas automatiskt av planeringen: ett per byggnad, utförare, rond och vecka, t.ex. <b>Hangar-Brandskydd-2027v05</b>. Det är det som drifteknikern ser i telefonen.</dd>
-          <dt>Frekvens</dt>
-          <dd>Planeras alltid i veckor. "Varje månad" betyder var 4:e vecka (13 gånger per år).</dd>
-        </dl>
+      <nav class="processlinje" id="processlinje"></nav>
+      <div class="pl-rad">
+        <button id="ordlista-knapp" class="knapp sekundar liten-knapp" title="Slå upp ett begrepp utan att lämna steget du står i">Ordlista</button>
+      </div>
+      <section id="hs-byggnad" class="hs-innehall" hidden><div id="trad"></div></section>
+      <section id="hs-planering" class="hs-innehall"><div id="flode"></div></section>
+      <section id="hs-balansering" class="hs-innehall" hidden>
+        <div id="balansering"></div>
       </section>
     </aside>
 
@@ -457,6 +475,7 @@ details.rum > summary:hover button.liten { visibility: visible; }
         </div>
       </main>
       <section id="tidsaxel" class="tidsaxel"></section>
+      <section id="balansering-yta" class="balansering-yta"></section>
     </div>
   </div>
 
@@ -2214,6 +2233,101 @@ details.rum > summary:hover button.liten { visibility: visible; }
       return DAGSDELAR.filter(function (d) { return d.id === id; })[0] || null;
     }
   };
+})();
+
+</script>
+  <script>
+/*
+ * Ordlistan: begreppen som driftplaneraren möter i verktyget.
+ *
+ * Formuleringarna följer `GLOSSARY.md`, men är skrivna för den som står mitt i arbetet:
+ * kort förklaring först, och exempel ur de fyra byggnaderna där det gör begreppet konkret.
+ * Ordlistan är data och inte markup, så att den kan öppnas från alla huvudsteg utan att
+ * något steg behöver äga texten.
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP;
+
+  DP.ordlista = [
+    {
+      grupp: 'Byggnaden',
+      poster: [
+        { ord: 'Byggnad → Plan → Rum',
+          text: 'Den fysiska strukturen. Plan och rum har var sitt id och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>2010 – Konferensrum</b>.' },
+        { ord: 'Byggnadstyp',
+          text: 'Den sortens byggnad det är (Garage, Kasern, Hangar …). Byggnadstypen ger standardplaneringen och avgör vilka byggnader planeringen kan kopieras mellan.' },
+        { ord: 'Område',
+          text: 'En grupp byggnader som ligger så nära varandra att avståndet inte spelar någon roll för veckoplaneringen. Garaget och de två kasernerna ligger på <b>Kasernområdet</b>, hangaren på <b>Flygfältet</b>.' },
+        { ord: 'Område man åker till',
+          text: 'Ett område som ligger så långt bort att man vill samla besöken där till samma vecka i stället för att åka dit flera gånger.' }
+      ]
+    },
+    {
+      grupp: 'Installationer och åtgärder',
+      poster: [
+        { ord: 'Signifikant installation',
+          text: 'Registreras som individ med ett id på 8 siffror, t.ex. <b>00000089</b>. Ska alltid ha minst en kopplad åtgärd. Klickbar i modellen.' },
+        { ord: 'Övrig installation',
+          text: 'Registreras inte som individ, t.ex. lysrörsarmaturer, väggbrytare och toalettstolar. Kontrolleras översiktligt i <i>Kontroll byggnad invändigt</i>. Syns i modellen men går inte att klicka på.' },
+        { ord: 'Åtgärd',
+          text: 'Något som ska göras, t.ex. <i>Kontroll handbrandsläckare</i>. Alla åtgärder finns i en bruttolista.' },
+        { ord: 'Generell åtgärd',
+          text: 'En åtgärd som gäller byggnaden som helhet i stället för en installation: <i>Kontroll byggnad invändigt</i> och <i>Kontroll byggnad utvändigt</i>.' },
+        { ord: 'Åtgärdstext och kontrollpunkter',
+          text: 'Åtgärdstexten beskriver vad som ska göras som en lista med kontrollpunkter. Den finns i tre nivåer: standard, avvikande för en installation och avvikande i ett enskilt rutintillfälle.' },
+        { ord: 'Tyngd',
+          text: 'En grov bedömning av hur mycket arbete en åtgärd är per installation: lätt, normal eller tung. Används bara för att föreslå planerad tid.' }
+      ]
+    },
+    {
+      grupp: 'Planering',
+      poster: [
+        { ord: 'Planering',
+          text: 'Det man bestämmer för en byggnad i taget: besöksfrekvens, ronder, frekvens per rond, utförare, kopplade åtgärder och planerad tid.' },
+        { ord: 'Besöksfrekvens',
+          text: 'Hur ofta någon behöver vara i byggnaden.' },
+        { ord: 'Rond',
+          text: 'Det man planerar mot: en grupp åtgärder som görs vid samma tillfälle och har samma frekvens och utförare, t.ex. <i>Brandskydd</i> eller <i>Byggnad invändigt</i>.' },
+        { ord: 'Frekvens',
+          text: 'Planeras alltid i veckor: ett rullande intervall och en startvecka. "Varje månad" betyder var 4:e vecka (13 gånger per år).' },
+        { ord: 'Utförare',
+          text: 'Den person som går en rond. Sätts på ronden och ärvs av alla dess åtgärder.' },
+        { ord: 'Rutintillfälle',
+          text: 'Ett konkret tillfälle då en rond ska utföras: en byggnad × en rond × en utförare × en vecka, t.ex. <b>Hangar-Brandskydd-2027v05</b>. Det är det som drifteknikern ser i telefonen.' },
+        { ord: 'Planerad tid',
+          text: 'Hur lång tid ett rutintillfälle förväntas ta, angivet i dagsdelar. Sätts per rond och byggnad, inte per åtgärd. Verktyget föreslår en tid ur antalet kopplade installationer och åtgärdernas tyngd, och visar uträkningen.' },
+        { ord: 'Dagsdel',
+          text: 'Den grova skalan för planerad tid: <b>kort</b> (≈ 1 h), <b>kvartsdag</b> (2 h), <b>halvdag</b> (4 h) och <b>heldag</b> (8 h). Ett rutintillfälle ska rymmas på en dag.' },
+        { ord: 'Ändrad förutsättning',
+          text: 'Att en rond tar en annan tid än när dess planerade tid godkändes, för att åtgärderna i ronden ändrats eller för att tiden är kopierad från en annan byggnad. Ronden markeras med det nya förslaget, men den godkända tiden ändras aldrig av sig själv: den gäller tills du använder förslaget eller behåller din tid.' },
+        { ord: 'Standardplanering',
+          text: 'En färdig planering per byggnadstyp som man utgår från och justerar. Den fyller i alla sex stegen, planerad tid inräknad.' }
+      ]
+    },
+    {
+      grupp: 'Balansering',
+      poster: [
+        { ord: 'Balansering',
+          text: 'Att fördela alla byggnaders rutintillfällen över årets veckor så att varje utförare får en jämn belastning. Balanseringen ändrar aldrig frekvenser, bara när i året tillfällena ligger.' },
+        { ord: 'Kapacitet',
+          text: 'Hur många dagar per vecka en utförare har för tillsyn och skötsel. Resten av veckan går till felavhjälpning och beställningar.' },
+        { ord: 'Vecka utan tillsyn och skötsel',
+          text: 'En vecka då inga rutintillfällen ska ligga, t.ex. under semestern.' },
+        { ord: 'Besöksrytm',
+          text: 'De veckor då en byggnad besöks. Förskjuts besöksrytmen följer byggnadens alla ronder med, så byggnaden fortsätter att besökas samlat.' },
+        { ord: 'Rondserie',
+          text: 'Alla rutintillfällen för en rond i en byggnad under året.' },
+        { ord: 'Permanent ändring',
+          text: 'En ändring av planeringen som gäller alla kommande tillfällen, t.ex. att förskjuta en besöksrytm eller en rondserie.' },
+        { ord: 'Provisorisk flytt',
+          text: 'Ett enskilt rutintillfälle flyttas till en annan vecka utan att planeringen ändras, t.ex. när det annars hade hamnat i semestern.' },
+        { ord: 'Stryka',
+          text: 'Att ta bort ett enskilt rutintillfälle som annars skulle hamna nära nästa ordinarie tillfälle, så att ingen behöver gå samma rond två gånger i följd.' }
+      ]
+    }
+  ];
 })();
 
 </script>
@@ -4381,16 +4495,6 @@ details.rum > summary:hover button.liten { visibility: visible; }
   $('#lamna-rum').addEventListener('click', function () { viewer.lamnaRum(); });
 
   // ------------------------------------------------------------------
-  // Flikar
-  // ------------------------------------------------------------------
-  [].forEach.call(document.querySelectorAll('.flik'), function (f) {
-    f.addEventListener('click', function () {
-      [].forEach.call(document.querySelectorAll('.flik'), function (x) { x.classList.toggle('aktiv', x === f); });
-      [].forEach.call(document.querySelectorAll('.flikinnehall'), function (x) { x.hidden = x.id !== f.dataset.mal; });
-    });
-  });
-
-  // ------------------------------------------------------------------
   // Byggnadsträd
   // ------------------------------------------------------------------
   function byggTrad() {
@@ -4463,7 +4567,7 @@ details.rum > summary:hover button.liten { visibility: visible; }
     var rd = li.closest('details.rum'), pd = li.closest('details.plan');
     if (pd) { pd.open = true; }
     if (rd) { rd.open = true; }
-    if (!$('#flik-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    if (!$('#hs-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
 
   function atgardstext(punkter) {
@@ -6137,6 +6241,168 @@ details.rum > summary:hover button.liten { visibility: visible; }
   DP.Flode = { rita: rita };
   rita();
   DP.Tidsaxel.rita();
+})();
+
+</script>
+  <script>
+/*
+ * Processlinjen: huvudstegen Byggnad → Planering → Balansering, och ordlistan.
+ *
+ * Processlinjen ersätter de gamla flikarna. Den säger i vilken ordning arbetet görs, och
+ * visar hur långt planeringen har kommit ("3 av 4 byggnader klara"). Byggnad går alltid att
+ * öppna och har ingen bock: det är orienteringen i byggnaden, inte ett steg som blir klart.
+ *
+ * Balansering tar 3D-vyns yta. Vyn döljs med CSS och byggs inte om, så kamera, valda
+ * installationer och plan finns kvar när man går tillbaka. Telefonvyerna hör till en enskild
+ * byggnad och visas därför inte heller i Balansering.
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP, P = DP.Plan;
+
+  var HUVUDSTEG = [
+    { id: 'byggnad', namn: 'Byggnad', under: 'förstå byggnaden' },
+    { id: 'planering', namn: 'Planering', under: 'en byggnad i taget' },
+    { id: 'balansering', namn: 'Balansering', under: 'alla byggnader för utförarnas skull' }
+  ];
+
+  var aktivt = 'planering';
+
+  function $(sel) { return document.querySelector(sel); }
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (html !== undefined && html !== null) { e.innerHTML = html; }
+    return e;
+  }
+
+  // ------------------------------------------------------------------
+  // Hur långt Planering har kommit: en byggnad är klar när alla sex stegen är klara
+  // ------------------------------------------------------------------
+  function klaraByggnader() {
+    return P.byggnadsordning.filter(function (id) {
+      var k = P.stegStatus(null, id);
+      return Object.keys(k).every(function (n) { return k[n]; });
+    });
+  }
+  function planeringSammanfattning() {
+    return klaraByggnader().length + ' av ' + P.byggnadsordning.length + ' byggnader klara';
+  }
+
+  // ------------------------------------------------------------------
+  // Processlinjen
+  // ------------------------------------------------------------------
+  var linje = $('#processlinje');
+
+  function rita() {
+    linje.innerHTML = '';
+    HUVUDSTEG.forEach(function (h, i) {
+      if (i) { linje.appendChild(el('span', 'pl-pil', '→')); }
+      var k = el('button', 'pl-steg' + (h.id === aktivt ? ' aktiv' : ''));
+      k.dataset.steg = h.id;
+      k.appendChild(el('span', 'pl-namn', h.namn));
+      var under = h.id === 'planering' ? planeringSammanfattning() : h.under;
+      k.appendChild(el('span', 'pl-under', under));
+      k.addEventListener('click', function () { visa(h.id); });
+      linje.appendChild(k);
+    });
+  }
+
+  function visa(id) {
+    aktivt = id;
+    HUVUDSTEG.forEach(function (h) {
+      var sek = document.getElementById('hs-' + h.id);
+      if (sek) { sek.hidden = h.id !== id; }
+    });
+    // 3D-vyn och telefonvyerna hör till en enskild byggnad. I Balansering döljs de, men
+    // vyn byggs inte om: `hidden` på behållaren lämnar scenen, kameran och valet orörda.
+    var iBalansering = id === 'balansering';
+    document.body.classList.toggle('i-balansering', iBalansering);
+    if (iBalansering) { ritaBalansering(); }
+    rita();
+  }
+
+  // ------------------------------------------------------------------
+  // Balanseringens skal
+  //
+  // Vyn är ännu bara en förklaring av vad som kommer. Den är med redan nu för att
+  // processlinjen ska svara på frågan "vad gör jag sist?" innan uträkningen finns.
+  // ------------------------------------------------------------------
+  function ritaBalansering() {
+    var sido = $('#balansering'), yta = $('#balansering-yta');
+    if (!sido || !yta) { return; }
+
+    sido.innerHTML = '';
+    sido.appendChild(el('div', 'sammanfattning',
+      '<b>Balansering</b> fördelar alla byggnaders rutintillfällen över årets veckor, så att ' +
+      'varje utförare får en jämn belastning. Frekvenserna ändras aldrig – bara när i året ' +
+      'tillfällena ligger.'));
+    sido.appendChild(el('div', 'bal-status',
+      'Frågorna och knappen Balansera hamnar här. Så länge vyn är ett skal står förklaringen av ' +
+      'vad som kommer bredvid.'));
+
+    yta.innerHTML = '';
+    var skal = el('div', 'bal-skal');
+    skal.appendChild(el('h2', null, 'Balansering'));
+    skal.appendChild(el('p', 'bal-ingress',
+      'Hittills har du planerat en byggnad i taget. Varje rond börjar då i vecka 1, så alla ' +
+      'byggnaders månadsronder hamnar i samma veckor. Här ser du planeringen ur utförarnas ' +
+      'perspektiv i stället, och fördelar tillfällena så att ingen får allt en vecka och inget ' +
+      'veckorna efter.'));
+    var kommer = el('div', 'bal-kommer');
+    kommer.appendChild(el('h3', null, 'Så kommer det att gå till'));
+    var ol = el('ol');
+    [
+      'Du svarar på tre frågor: vilka områden måste man åka till, hur många dagar i veckan varje utförare har för tillsyn och skötsel, och vilka veckor ingen tillsyn och skötsel görs.',
+      'Du trycker på Balansera. Byggnadernas besöksrytmer förskjuts, och vid behov enskilda rondserier, tills belastningen är jämn.',
+      'Tidsaxeln visar hela året med en rad per utförare, och hur full varje vecka är jämfört med utförarens kapacitet.',
+      'Du justerar för hand genom att dra en bricka till en annan vecka, och svarar på om flytten gäller bara denna gång, hela rondserien eller hela byggnadens besöksrytm.'
+    ].forEach(function (t) { ol.appendChild(el('li', null, t)); });
+    kommer.appendChild(ol);
+    skal.appendChild(kommer);
+    skal.appendChild(el('div', 'bal-status',
+      'Begreppen som dyker upp här – besöksrytm, rondserie, kapacitet, provisorisk flytt och ' +
+      'stryka – finns förklarade i <b>Ordlistan</b>, som går att öppna utan att du lämnar det ' +
+      'steg du står i.'));
+    yta.appendChild(skal);
+  }
+
+  // ------------------------------------------------------------------
+  // Ordlistan: öppnas i dialogrutan, så att man inte lämnar steget man står i
+  // ------------------------------------------------------------------
+  function oppnaOrdlista() {
+    var nod = el('div', 'ordlista');
+    DP.ordlista.forEach(function (g) {
+      nod.appendChild(el('h4', 'ol-grupp', g.grupp));
+      var dl = el('dl', 'begrepp');
+      g.poster.forEach(function (p) {
+        dl.appendChild(el('dt', null, p.ord));
+        dl.appendChild(el('dd', null, p.text));
+      });
+      nod.appendChild(dl);
+    });
+    return DP.Dialog.visa({
+      titel: 'Ordlista',
+      nod: nod,
+      bredd: 720,
+      knappar: [{ text: 'Stäng', prim: true }]
+    });
+  }
+
+  $('#ordlista-knapp').addEventListener('click', function () { oppnaOrdlista(); });
+
+  // Processlinjens sammanfattning ändras när en byggnad blir klar, och när man byter byggnad
+  function uppdatera() {
+    rita();
+    if (aktivt === 'balansering') { ritaBalansering(); }
+  }
+  P.prenumerera(uppdatera);
+  P.prenumereraByte(uppdatera);
+
+  DP.Vyer = { visa: visa, aktivt: function () { return aktivt; } };
+
+  visa(aktivt);
 })();
 
 </script>

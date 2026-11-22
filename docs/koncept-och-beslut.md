@@ -160,6 +160,19 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     märkta som ärvda, så att målbyggnadens egna förutsättningar ger markeringen enligt beslut 51 i stället för
     en tyst ärvd tid. Markeringen säger då varifrån tiden kommer ("där tog ronden 5,2 h, här tar den 5,7 h"),
     eftersom en oförändrad dagsdel annars inte förklarar varför ett ställningstagande behövs.
+54. **Processlinjen ersätter flikarna** (biljett #12, berättelse 1–3 och 5–8). Flikarna Planering, Byggnad och
+    Begrepp sa inte i vilken ordning arbetet görs. I stället står huvudstegen **Byggnad → Planering →
+    Balansering** överst i sidopanelen: förstå byggnaden, planera en byggnad i taget, balansera alla byggnader
+    för utförarnas skull. **Byggnad** går alltid att öppna och har ingen bock – orienteringen i en byggnad är
+    inget steg som blir klart. **Planering** visar hur långt arbetet kommit ("3 av 4 byggnader klara"), och en
+    byggnad räknas som klar när alla sex stegen är klara. **Begrepp** blir en **ordlista** (`data/ordlista.js`)
+    som öppnas i dialogrutan från vilket huvudsteg som helst, så att man kan slå upp ett ord mitt i arbetet
+    utan att tappa platsen.
+55. **3D-vyn döljs i Balansering, men byggs inte om** (biljett #12, berättelse 7–8). Balanseringen behöver hela
+    ytan till den årsbreda tidsaxeln, så `#vy` och planeringens tidsaxel döljs med CSS (`body.i-balansering`).
+    Döljningen är avsiktligt bara visuell: scenen, kameran, det valda planet och den valda installationen lever
+    kvar, så planeraren kommer tillbaka till byggnaden precis där hen lämnade den. Telefonvyerna ligger inuti
+    `#vy` och försvinner därför med den – de hör till en enskild byggnad och har inget att säga i Balansering.
 
 ## Förslag (bekräftade)
 

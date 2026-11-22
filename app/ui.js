@@ -117,16 +117,6 @@
   $('#lamna-rum').addEventListener('click', function () { viewer.lamnaRum(); });
 
   // ------------------------------------------------------------------
-  // Flikar
-  // ------------------------------------------------------------------
-  [].forEach.call(document.querySelectorAll('.flik'), function (f) {
-    f.addEventListener('click', function () {
-      [].forEach.call(document.querySelectorAll('.flik'), function (x) { x.classList.toggle('aktiv', x === f); });
-      [].forEach.call(document.querySelectorAll('.flikinnehall'), function (x) { x.hidden = x.id !== f.dataset.mal; });
-    });
-  });
-
-  // ------------------------------------------------------------------
   // Byggnadsträd
   // ------------------------------------------------------------------
   function byggTrad() {
@@ -199,7 +189,7 @@
     var rd = li.closest('details.rum'), pd = li.closest('details.plan');
     if (pd) { pd.open = true; }
     if (rd) { rd.open = true; }
-    if (!$('#flik-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    if (!$('#hs-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
 
   function atgardstext(punkter) {

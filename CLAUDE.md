@@ -72,6 +72,7 @@ Skriptens ordning i `index.html` spelar roll:
 | `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan) |
 | `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering), `DP.genereraOvriga()` |
 | `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
+| `data/ordlista.js` | `DP.ordlista`: begreppen i fyra grupper, det som ordlistedialogen visar |
 | `data/garage.js`, `data/kasern.js` | Garage, Kasern 1 och 2 i `DP.byggnader` |
 | `app/planering.js` | `DP.Plan`: tillstånd per byggnad, frekvenser i veckor, rutintillfällen, åtgärdstexter i tre nivåer, planerad tid per rond, historik |
 | `app/flyg.js` | Animering: brickor som flyger till tidsaxel/modell |
@@ -82,6 +83,7 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/tidsaxel.js` | `DP.Tidsaxel`: tidsaxel för året + mediaspelaren (ångra/gör om) |
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
+| `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens skal och ordlistan |
 | `flerbyggnad.html` | Fristående skiss för flera byggnader med påhittade data (ska ersättas i etapp 5) |
 
 **Dataflödet:**
@@ -134,13 +136,15 @@ valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej si
 
 ## Status
 
-Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23) och
-steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53), byggda.
+Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23),
+steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53), samt
+processlinjen och ordlistan (beslut 54–55) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
 **Nästa: etapp 5 – Balansering** av flera byggnader med riktig planering från de fyra byggnaderna.
 Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
+- Huvudsteget Balansering är ännu bara ett skal som förklarar vad som kommer; uträkningen byggs i senare biljetter.
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
 - Den fristående filen saknar länken till skissen.
 
