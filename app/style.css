@@ -66,15 +66,6 @@ details.rum > summary:hover button.liten { visibility: visible; }
 .instlista li.sub { padding-left: 22px; }
 .bet { font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 6px; min-width: 44px; }
 
-.intro { color: var(--dov); line-height: 1.5; margin: 2px 0 10px; font-size: 13px; }
-.grupprubrik { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--dov); margin: 16px 0 6px; }
-details.atgard { border: 1px solid var(--linje); border-radius: var(--radie); margin-bottom: 6px; background: #fff; }
-details.atgard > summary { display: flex; padding: 9px 12px; cursor: pointer; list-style: none; gap: 8px; }
-details.atgard > summary:hover { background: #f8f9fb; }
-details.atgard.irrelevant { opacity: .55; }
-.a-namn { flex: 1; font-weight: 600; }
-.a-meta { color: var(--dov); font-size: 12px; }
-.a-kropp { padding: 0 12px 12px; }
 .a-rad { font-size: 13px; color: var(--dov); margin: 2px 0 8px; }
 
 .etikett { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--svag); font-weight: 600; }

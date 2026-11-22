@@ -109,7 +109,6 @@ beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 Kända begränsningar:
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
 - Den fristående filen saknar länken till skissen.
-- `byggAtgarder()` i `app/ui.js` är oanvänd kod från etapp 1.
 
 ## Agent skills
 

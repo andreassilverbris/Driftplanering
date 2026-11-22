@@ -73,15 +73,6 @@ details.rum > summary:hover button.liten { visibility: visible; }
 .instlista li.sub { padding-left: 22px; }
 .bet { font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 6px; min-width: 44px; }
 
-.intro { color: var(--dov); line-height: 1.5; margin: 2px 0 10px; font-size: 13px; }
-.grupprubrik { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--dov); margin: 16px 0 6px; }
-details.atgard { border: 1px solid var(--linje); border-radius: var(--radie); margin-bottom: 6px; background: #fff; }
-details.atgard > summary { display: flex; padding: 9px 12px; cursor: pointer; list-style: none; gap: 8px; }
-details.atgard > summary:hover { background: #f8f9fb; }
-details.atgard.irrelevant { opacity: .55; }
-.a-namn { flex: 1; font-weight: 600; }
-.a-meta { color: var(--dov); font-size: 12px; }
-.a-kropp { padding: 0 12px 12px; }
 .a-rad { font-size: 13px; color: var(--dov); margin: 2px 0 8px; }
 
 .etikett { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--svag); font-weight: 600; }
@@ -3891,9 +3882,6 @@ details.atgard.irrelevant { opacity: .55; }
   function rumNamn(nr) { var r = rumIndex[nr]; return r.nr + ' – ' + r.namn; }
   function antalText(n, typ) { return n + ' ' + (n === 1 ? typer[typ].namn.toLowerCase() : (PLURAL[typ] || typer[typ].namn.toLowerCase())); }
 
-  function matchandeInst(a) {
-    return signifikanta.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; });
-  }
   function atgardForTyp(typ) {
     return DP.atgarder.filter(function (a) { return a.galler.indexOf(typ) >= 0; })[0];
   }
@@ -4060,48 +4048,6 @@ details.atgard.irrelevant { opacity: .55; }
     if (pd) { pd.open = true; }
     if (rd) { rd.open = true; }
     if (!$('#flik-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
-  }
-
-  // ------------------------------------------------------------------
-  // Åtgärdskatalog (bruttolista)
-  // ------------------------------------------------------------------
-  function byggAtgarder() {
-    var rot = $('#atgardslista');
-    var intro = el('p', 'intro');
-    intro.innerHTML = 'Bruttolistan innehåller <b>alla</b> åtgärder som finns. De som matchar installationer i <b>' + b.namn +
-      '</b> visas överst. I planeringssteget (nästa etapp) får de en <i>Lägg till</i>-knapp.';
-    rot.appendChild(intro);
-
-    var relevanta = [], ovriga = [];
-    DP.atgarder.forEach(function (a) {
-      if (a.generell || matchandeInst(a).length) { relevanta.push(a); } else { ovriga.push(a); }
-    });
-    rot.appendChild(el('h3', 'grupprubrik', 'Relevanta för ' + b.namn + ' (' + relevanta.length + ')'));
-    relevanta.forEach(function (a) { rot.appendChild(atgardKort(a, true)); });
-    rot.appendChild(el('h3', 'grupprubrik', 'Övriga åtgärder – ingen matchande installation (' + ovriga.length + ')'));
-    ovriga.forEach(function (a) { rot.appendChild(atgardKort(a, false)); });
-  }
-
-  function atgardKort(a, relevant) {
-    var d = el('details', 'atgard' + (relevant ? '' : ' irrelevant'));
-    var s = el('summary');
-    var antal = a.generell ? 'Hela byggnaden' : (matchandeInst(a).length + ' st');
-    s.innerHTML = '<span class="a-namn">' + a.namn + '</span><span class="a-meta">' + antal + '</span>';
-    d.appendChild(s);
-    var kropp = el('div', 'a-kropp');
-    var meta = el('div', 'a-rad');
-    meta.innerHTML = '<span class="etikett">Föreslagen rond</span> ' + rondNamn(a.foreslagenRond) +
-      (a.generell ? '' : ' · <span class="etikett">Gäller</span> ' + a.galler.map(function (t) { return typer[t] ? typer[t].namn : t; }).join(', '));
-    kropp.appendChild(meta);
-    kropp.appendChild(atgardstext(a.kontrollpunkter));
-    if (relevant && !a.generell) {
-      var knapp = el('button', 'knapp sekundar', 'Visa i modellen');
-      knapp.title = 'Installationerna blinkar till i grönt genom väggar och tak';
-      knapp.addEventListener('click', function () { viewer.blinka(matchandeInst(a)); });
-      kropp.appendChild(knapp);
-    }
-    d.appendChild(kropp);
-    return d;
   }
 
   function atgardstext(punkter) {
