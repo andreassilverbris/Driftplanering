@@ -111,12 +111,22 @@ Skriptens ordning i `index.html` spelar roll:
   (förutsättningarna har ändrats sedan tiden godkändes). Steg 6 är klart när varje rond har en godkänd tid;
   en ändrad förutsättning gör det inte ogrönt, eftersom den godkända tiden gäller tills planeraren tar
   ställning (beslut 27 och 35). `tidTimmar(rond, s, bid)` ger timmarna Balanseringen räknar belastning med.
+  `andrad` jämför både dagsdel och minuter (`tidAndrad`): kasernernas Byggnad invändigt är heldag i båda men
+  skiljer en halvtimme, så en jämförelse bara på dagsdel hade gått tyst förbi. Tröskeln är 30 min för tider
+  planeraren själv satt, men **varje** avvikelse för en ärvd tid (`arvd`, satt av `arvTid` vid kopiering) –
+  ingen har räknat på målbyggnaden, så skillnaden är osedd oavsett storlek (beslut 51).
+  Planeraren kommer ur markeringen på två vägar, båda steg i historiken: `sattTid` (använd det nya förslaget
+  eller välj en annan dagsdel) och `behallTid` (behåll min tid – dagsdelen rörs inte, men ställningstagandet
+  är nytt). Båda skriver över `arvd`: en ärvd tid planeraren tagit ställning till är hens egen.
+  Standardplaneringen fyller i steg 6 med godkända förslag, och kopieringen tar med tiderna inklusive
+  källans förslag.
 - `DP.Plan.prenumereraByte(fn(id))` – byte av byggnad: 3D-vyn byggs om, träd, flöde, tidsaxel och telefoner ritas om.
 
 **Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens), `ronder`
 (`id, freq, foljerBas, besvarad, utforare`), `kopplingar` (`atgard, inst, rond`; `inst` kan vara `'BYGGNAD'`
 för generella åtgärder), `standardTexter`, `instTexter`, `tillfalleTexter`, `tider`
-(rond → `{ dagsdel, godkand, forslagVidGodkandet }`).
+(rond → `{ dagsdel, godkand, forslagVidGodkandet, minuterVidGodkandet, arvd }` – de två mittersta är
+förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med en kopiering).
 
 **Byggnadsdata:** `plan` (nedifrån och upp, `elev`), `rum` (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`,
 valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej signifikanta), `stil`
@@ -125,9 +135,10 @@ valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej si
 ## Status
 
 Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23) och
-steg 6, planerad tid med förslag och uträkning (beslut 27, 35 och 43), byggda. **Nästa: etapp 5 – Balansering**
-av flera byggnader med riktig planering från de fyra byggnaderna. Utformningen är bestämd i beslut 23–49 i
-beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
+steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53), byggda.
+Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
+**Nästa: etapp 5 – Balansering** av flera byggnader med riktig planering från de fyra byggnaderna.
+Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.

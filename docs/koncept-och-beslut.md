@@ -137,6 +137,29 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     ordningen. Loopen **stänger biljetten** när granskningen är gjord, hela sviten är grön, den fristående filen är
     byggd och committen är pushad. Fynd utanför biljetten blir egna `needs-triage`-biljetter, aldrig
     `ready-for-agent`. Arbetsordningen står i `.claude/commands/biljett.md` och hur loopen körs i `ralph/DESIGN.md`.
+51. **Ändrade förutsättningar mäts i minuter, inte bara i dagsdel** (biljett #11). Dagsdelen är det planeraren
+    beslutat, men den är grov: Kasern 1 och Kasern 2 har båda heldag för Byggnad invändigt trots 310 mot 340
+    minuter. Gick jämförelsen bara på dagsdelen skulle en kopiering mellan kasernerna aldrig märkas, och
+    Kasern 2 ärva en tid som inte stämmer. Markeringen sätts därför när dagsdelen ändras **eller** minuterna
+    flyttat sig tillräckligt. Hur mycket som krävs beror på var tiden kommer ifrån:
+    - **Planeraren har själv tagit ställning till byggnaden:** tröskeln är **30 minuter**, fast och lika för
+      alla ronder, eftersom det är den absoluta tiden planeraren känner igen. En enstaka lätt installation
+      (3 min) är ingen ändrad förutsättning, och en markering som kommer för ofta lär planeraren att
+      strunta i den.
+    - **Tiden är ärvd genom kopiering:** **varje** avvikelse märks. Ingen har räknat på den här byggnaden,
+      så skillnaden är osedd oavsett storlek. Kasern 2:s Byggnad invändigt blir 295 min mot Kasern 1:s
+      ärvda 310 direkt efter kopieringen, och det ska synas. Tar planeraren ställning blir tiden hens egen
+      och mäts därefter med 30-minuterströskeln.
+52. **Planeraren kommer ur markeringen på två vägar** (biljett #11): *använd det nya förslaget* eller
+    *behåll min tid*. Den senare rör inte dagsdelen men räknas som ett nytt ställningstagande, så markeringen
+    försvinner. Båda är steg i historiken och går att ångra. Står dagsdelen still och bara minuterna har
+    ändrats erbjuds bara *behåll*, eftersom det inte finns någon annan dagsdel att byta till.
+53. **Standardplaneringen och kopieringen fyller i steg 6** (biljett #11, berättelse 22 och 23). Standard-
+    planeringen godkänner sina egna förslag, så alla sex stegen är besvarade direkt för var och en av de fyra
+    byggnaderna, och ingen standardrond blir mer än en heldag. Kopieringen tar med tiderna och källans förslag,
+    märkta som ärvda, så att målbyggnadens egna förutsättningar ger markeringen enligt beslut 51 i stället för
+    en tyst ärvd tid. Markeringen säger då varifrån tiden kommer ("där tog ronden 5,2 h, här tar den 5,7 h"),
+    eftersom en oförändrad dagsdel annars inte förklarar varför ett ställningstagande behövs.
 
 ## Förslag (bekräftade)
 

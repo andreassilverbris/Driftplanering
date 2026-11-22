@@ -74,6 +74,12 @@ Hur lång tid ett rutintillfälle förväntas ta, angivet i dagsdelar. Sätts pe
 **Dagsdel**:
 Den grova skalan för planerad tid: kort (≈1 h), kvartsdag, halvdag, heldag. Ett rutintillfälle ska rymmas på en dag.
 
+**Ändrad förutsättning**:
+Att en rond tar en annan tid än när dess planerade tid godkändes, för att åtgärderna i ronden ändrats eller
+för att tiden är kopierad från en annan byggnad. Ronden markeras med det nya förslaget, men den godkända
+tiden ändras aldrig av sig själv: den gäller tills planeraren använder förslaget eller behåller sin tid.
+_Undvik_: Föråldrad tid, inaktuell tid
+
 **Standardplanering**:
 En färdig planering per byggnadstyp som man utgår från och justerar.
 

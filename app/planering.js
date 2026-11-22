@@ -90,10 +90,13 @@
       standardTexter: {}, // atgardId -> [kontrollpunkter]   (ändrad standard i bruttolistan, gäller sessionen)
       instTexter: {},     // 'atgard|inst' -> [kontrollpunkter]
       tillfalleTexter: {}, // 'atgard|inst|rond|vecka' -> [kontrollpunkter]
-      // Planerad tid per rond (steg 6): rondId -> { dagsdel, godkand, forslagVidGodkandet }.
-      // forslagVidGodkandet är den dagsdel förslaget gav när planeraren tog ställning. Avviker det
-      // aktuella förslaget från den har förutsättningarna ändrats, och det visas – men den
-      // godkända tiden ändras aldrig av sig själv (beslut 27).
+      // Planerad tid per rond (steg 6):
+      //   rondId -> { dagsdel, godkand, forslagVidGodkandet, minuterVidGodkandet, arvd }
+      // forslagVidGodkandet och minuterVidGodkandet är förslaget som gällde när planeraren tog
+      // ställning, i dagsdel och i minuter. Avviker det aktuella förslaget från dem har
+      // förutsättningarna ändrats, och det visas – men den godkända tiden ändras aldrig av sig
+      // själv (beslut 27). `arvd` sätts av kopiering: ställningstagandet gällde en annan byggnad,
+      // så varje avvikelse märks (beslut 51).
       tider: {}
     };
   }
@@ -373,8 +376,10 @@
         dagsdel: godkand ? sparad.dagsdel : forslag.dagsdel,
         godkand: godkand,
         forslagVidGodkandet: sparad ? sparad.forslagVidGodkandet : null,
-        // Förslaget har ändrats sedan tiden godkändes
-        andrad: godkand && sparad.forslagVidGodkandet !== forslag.dagsdel
+        minuterVidGodkandet: sparad ? sparad.minuterVidGodkandet : null,
+        arvd: !!(sparad && sparad.arvd),
+        // Förslaget har ändrats sedan tiden godkändes (dagsdel eller minuter över tröskeln)
+        andrad: tidAndrad(sparad, forslag)
       };
     });
     var utan = rader.filter(function (x) { return !x.godkand; });
@@ -398,10 +403,62 @@
     return d ? d.timmar : 0;
   }
 
-  // Används inuti andra(): godkänn eller ändra den planerade tiden för en rond. Förslaget
-  // som gällde vid godkännandet sparas, så att en senare ändring av kopplingarna kan upptäckas.
-  function sattTid(st, rondId, dagsdel, forslagetNu) {
-    st.tider[rondId] = { dagsdel: dagsdel, godkand: true, forslagVidGodkandet: forslagetNu };
+  // Används inuti andra(): godkänn eller ändra den planerade tiden för en rond. Förslaget som
+  // gällde vid godkännandet sparas i både dagsdel och minuter, så att en senare ändring av
+  // kopplingarna kan upptäckas. `forslaget` är hela förslaget från tidForslag().
+  function sattTid(st, rondId, dagsdel, forslaget) {
+    st.tider[rondId] = {
+      dagsdel: dagsdel,
+      godkand: true,
+      forslagVidGodkandet: forslaget.dagsdel,
+      minuterVidGodkandet: forslaget.minuter
+    };
+  }
+
+  // Används inuti andra(): tiden kommer från en annan byggnad (kopiering). Den är godkänd, så
+  // steg 6 har inga luckor, men ställningstagandet gällde källan och inte den här byggnaden.
+  // `arvd` gör att varje avvikelse märks, hur liten den än är – se tidAndrad.
+  function arvTid(st, rondId, sparad) {
+    st.tider[rondId] = {
+      dagsdel: sparad.dagsdel,
+      godkand: true,
+      forslagVidGodkandet: sparad.forslagVidGodkandet,
+      minuterVidGodkandet: sparad.minuterVidGodkandet,
+      arvd: true
+    };
+  }
+
+  // Har förutsättningarna ändrats sedan tiden godkändes? Dagsdelen är det planeraren faktiskt
+  // beslutat, men den är grov: Kasern 1 och 2 har båda heldag för Byggnad invändigt trots en halv
+  // timmes skillnad (310 mot 340 min). Gick jämförelsen bara på dagsdelen skulle en kopiering
+  // mellan kasernerna aldrig märkas, och Kasern 2 ärva en tid som inte stämmer.
+  //
+  // Därför vägs minuterna in. Hur stor en avvikelse måste vara beror på var tiden kommer ifrån:
+  //
+  //  - Planeraren har själv tagit ställning till *den här* byggnaden. Då ska en liten justering
+  //    inte störa: en enstaka lätt installation (3 min) i en heldagsrond är ingen ändrad
+  //    förutsättning, och en markering som kommer för ofta lär planeraren att strunta i den.
+  //    Tröskeln är en halvtimme, absolut och lika för alla ronder, eftersom det är den tid
+  //    planeraren känner igen – en halvtimme är en halvtimme oavsett om ronden är kort eller lång.
+  //  - Tiden är ärvd från en annan byggnad. Då har ingen räknat på den här byggnaden, så varje
+  //    avvikelse är osedd och ska synas. Kasern 2 ska inte tyst ärva Kasern 1:s tid.
+  var TID_TROSKEL_MIN = 30;
+  function tidAndrad(sparad, forslag) {
+    if (!sparad || !sparad.godkand) { return false; }
+    if (sparad.forslagVidGodkandet !== forslag.dagsdel) { return true; }
+    var skillnad = Math.abs(forslag.minuter - sparad.minuterVidGodkandet);
+    return skillnad >= (sparad.arvd ? 1 : TID_TROSKEL_MIN);
+  }
+
+  // Används inuti andra(): behåll den godkända tiden men ta ställning till det nya förslaget, så
+  // att markeringen om ändrade förutsättningar försvinner. Dagsdelen rörs inte – det är skillnaden
+  // mot att godkänna förslaget, och den väg planeraren behöver när den egna bedömningen står sig.
+  // sattTid skriver över posten utan `arvd`: en ärvd tid som planeraren tagit ställning till är
+  // hens egen, och mäts därefter med den vanliga tröskeln.
+  function behallTid(st, rondId, forslaget) {
+    var sparad = st.tider[rondId];
+    if (!sparad || !sparad.godkand) { return; }
+    sattTid(st, rondId, sparad.dagsdel, forslaget);
   }
 
   // Tider för ronder som inte längre finns hänger inte kvar
@@ -562,6 +619,7 @@
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
     signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
     gemensamt: gemensamt, andraFlera: andraFlera,
-    tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid, timText: timText
+    tidForslag: tidForslag, tidStatus: tidStatus, tidTimmar: tidTimmar, sattTid: sattTid,
+    behallTid: behallTid, arvTid: arvTid, timText: timText
   };
 })();

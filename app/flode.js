@@ -448,12 +448,35 @@
       rad.appendChild(delning);
     }
 
-    // Förutsättningarna har ändrats sedan tiden godkändes. Den godkända tiden står kvar.
+    // Förutsättningarna har ändrats sedan tiden godkändes. Den godkända tiden står kvar, och
+    // planeraren har två vägar ut: använda det nya förslaget eller behålla sin egen tid. Båda
+    // räknas som ett ställningstagande och tar bort markeringen (berättelse 19).
     if (x.andrad) {
       var nyNamn = dagsdelNamn(x.forslag.dagsdel);
-      var notis = el('div', 'notis konflikt', '<b>Förutsättningarna har ändrats</b>, nytt förslag: ' + nyNamn +
-        '. Din tid (' + valdNamn + ') gäller tills du tar ställning.');
-      notis.appendChild(knapp('Använd ' + nyNamn, 'lank', function () { godkann(x.rond, x.forslag.dagsdel); }));
+      var notisText;
+      if (x.forslag.dagsdel !== x.dagsdel) {
+        notisText = '<b>Förutsättningarna har ändrats</b>, nytt förslag: ' + nyNamn +
+          '. Din tid (' + valdNamn + ') gäller tills du tar ställning.';
+      } else if (x.arvd) {
+        // Tiden kom med en kopiering. Säg varifrån, så att planeraren förstår varför en
+        // oförändrad dagsdel ändå är värd ett ställningstagande.
+        notisText = '<b>Tiden är kopierad från en annan byggnad</b>: där tog ronden ' +
+          P.timText(x.minuterVidGodkandet) + ', här tar den ' + P.timText(x.forslag.minuter) +
+          '. Båda ryms i ' + nyNamn + ', men siffran är räknad på en annan byggnad.';
+      } else {
+        // Dagsdelen är oförändrad och det är minuterna bakom den som flyttat sig. Då räcker
+        // det inte att nämna dagsdelen – planeraren skulle läsa "nytt förslag: heldag" om
+        // sin egen heldag.
+        notisText = '<b>Förutsättningarna har ändrats</b>: ronden tar nu ' + P.timText(x.forslag.minuter) +
+          ' i stället för ' + P.timText(x.minuterVidGodkandet) + ', fortfarande ' + nyNamn + '.';
+      }
+      var notis = el('div', 'notis konflikt', notisText);
+      var vagar = el('div', 'chiprad');
+      if (x.forslag.dagsdel !== x.dagsdel) {
+        vagar.appendChild(knapp('Använd ' + nyNamn, 'lank', function () { godkann(x.rond, x.forslag.dagsdel); }));
+      }
+      vagar.appendChild(knapp('Behåll ' + valdNamn, 'lank', function () { behall(x.rond); }));
+      notis.appendChild(vagar);
       rad.appendChild(notis);
     }
 
@@ -481,7 +504,19 @@
       ? 'Godkände ' + d.namn + ' för ' + P.rondNamn(rondId)
       : 'Planerad tid för ' + P.rondNamn(rondId) + ': ' + d.namn;
     P.andra(text, function (st) {
-      P.sattTid(st, rondId, dagsdel, forslag.dagsdel);
+      P.sattTid(st, rondId, dagsdel, forslag);
+    });
+  }
+
+  // Den andra vägen ut ur en ändrad förutsättning: planeraren står fast vid sin tid. Dagsdelen
+  // rörs inte, men ställningstagandet är nytt, så markeringen försvinner (berättelse 19).
+  function behall(rondId) {
+    var s = P.state();
+    var forslag = P.tidForslag(rondId, s);
+    var sparad = s.tider[rondId];
+    var d = DP.tidsschablon.dagsdel(sparad ? sparad.dagsdel : forslag.dagsdel);
+    P.andra('Behöll ' + d.namn + ' för ' + P.rondNamn(rondId), function (st) {
+      P.behallTid(st, rondId, forslag);
     });
   }
 
@@ -490,7 +525,7 @@
     var utan = P.tidStatus(s).utan;
     if (!utan.length) { return; }
     P.andra('Godkände de ' + utan.length + ' föreslagna tiderna', function (st) {
-      utan.forEach(function (x) { P.sattTid(st, x.rond, x.forslag.dagsdel, x.forslag.dagsdel); });
+      utan.forEach(function (x) { P.sattTid(st, x.rond, x.forslag.dagsdel, x.forslag); });
     });
   }
 
@@ -646,6 +681,13 @@
           if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
           matchande(a).forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
         });
+        // Steg 6 fylls i med godkända förslag, så att alla sex stegen är besvarade direkt
+        // (beslut 35, berättelse 22). Förslagen räknas på de kopplingar som just lagts.
+        st.tider = {};
+        st.ronder.forEach(function (r) {
+          var f = P.tidForslag(r.id, st);
+          P.sattTid(st, r.id, f.dagsdel, f);
+        });
       }, { kalla: kalla, standard: true });
       ui.oppet = 5; ui.guide = null;
       rita();
@@ -679,7 +721,7 @@
 
     var nod = document.createElement('div');
     var html = '<p>All planering i <b>' + kb.namn + '</b> kopieras till <b>' + b.namn + '</b>: besöksfrekvens, ' + ks.ronder.length +
-      ' ronder med frekvens och utförare, kopplade åtgärder' + (nAvv ? ' och ' + nAvv + ' avvikande åtgärdstexter' : '') + '.</p>' +
+      ' ronder med frekvens och utförare, kopplade åtgärder, planerade tider' + (nAvv ? ' och ' + nAvv + ' avvikande åtgärdstexter' : '') + '.</p>' +
       '<p>Installationerna matchas på typ och beteckning (t.ex. HB01 ↔ HB01).</p>' +
       '<div class="kopiera-sammanf">' +
       '<div class="ks-rad ok"><b>' + traffar.length + '</b> ' + (traffar.length === 1 ? 'koppling får' : 'kopplingar får') + ' en motsvarighet</div>' +
@@ -706,6 +748,14 @@
             st.ronder = P.klona(ks.ronder).map(function (r) { if (nyUtf) { r.utforare = nyUtf; } return r; });
             st.kopplingar = traffar.map(function (k) { return { atgard: k.atgard, inst: k.inst, rond: k.rond }; });
             st.standardTexter = P.klona(ks.standardTexter);
+            // De planerade tiderna följer med, inklusive det förslag som gällde i källan. Tiden
+            // är godkänd, så steg 6 har inga luckor – men den är märkt som ärvd, så att varje
+            // avvikelse i målbyggnadens egna förutsättningar syns, hur liten den än är.
+            // Kasern 2 ska inte tyst ärva en tid som räknats på Kasern 1 (berättelse 23).
+            st.tider = {};
+            Object.keys(ks.tider).forEach(function (rondId) {
+              P.arvTid(st, rondId, ks.tider[rondId]);
+            });
             st.instTexter = {}; st.tillfalleTexter = {};
             Object.keys(ks.instTexter).forEach(function (n) {
               var d = n.split('|'); if (idMap[d[1]]) { st.instTexter[d[0] + '|' + idMap[d[1]]] = P.klona(ks.instTexter[n]); }
