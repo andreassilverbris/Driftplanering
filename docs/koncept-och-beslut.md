@@ -60,7 +60,9 @@ Begreppen står i [`GLOSSARY.md`](../GLOSSARY.md) i roten av repot.
 Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
 
 23. **Steg 5 är klart** när alla signifikanta installationer har minst en kopplad åtgärd och båda de generella
-    åtgärderna (Kontroll byggnad invändigt och utvändigt) är kopplade. Tidigare kunde steget aldrig bli klart.
+    åtgärderna (Kontroll byggnad invändigt och utvändigt) är kopplade – byggt. Tidigare kunde steget aldrig bli
+    klart. Statusen räknar upp luckorna i klartext ("2 installationer och Kontroll byggnad utvändigt saknas"),
+    och bocken följer planeringen även vid ångra och gör om.
 24. **Tre huvudsteg i en processlinje, inga flikar:** 1 Byggnad (förstå byggnaden, senare läsa in den) →
     2 Planering (en byggnad i taget, stegen i frågeflödet) → 3 Balansering (alla byggnader för utförarnas skull).
     Begrepp är inget steg utan en ordlista som alltid går att öppna. I Balansering tar tidsaxeln över ytan där

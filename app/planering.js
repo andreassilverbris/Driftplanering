@@ -235,26 +235,55 @@
     return DP.byggnader[bid || aktiv].installationer.filter(function (i) { return i.signifikant; });
   }
 
-  // Hur många signifikanta installationer som har en kopplad åtgärd, och vilka som saknar
+  // De generella åtgärderna gäller byggnaden som helhet och kopplas till 'BYGGNAD'
+  function generellaAtgarder() {
+    return DP.atgarder.filter(function (a) { return a.generell; });
+  }
+
+  // Luckorna i steg 5: signifikanta installationer utan kopplad åtgärd och generella
+  // åtgärder som inte är kopplade. Byggnaden är klar när ingen av listorna har något i sig
+  // (beslut 23). Texten räknar upp vad som fattas i klartext, så att planeraren ser varför
+  // bocken inte kommer.
   function kopplingsStatus(s, bid) {
     s = s || stateFor(bid);
-    var kopplade = {};
-    s.kopplingar.forEach(function (x) { kopplade[x.inst] = true; });
+    var kopplade = {}, koppladeGenerella = {};
+    s.kopplingar.forEach(function (x) {
+      kopplade[x.inst] = true;
+      // En generell åtgärd är kopplad till byggnaden som helhet, aldrig till en installation
+      if (x.inst === 'BYGGNAD') { koppladeGenerella[x.atgard] = true; }
+    });
     var sig = signifikanta(bid);
     var saknas = sig.filter(function (i) { return !kopplade[i.id]; });
+    var saknarGenerella = generellaAtgarder().filter(function (a) { return !koppladeGenerella[a.id]; });
+    var delar = [];
+    if (saknas.length) {
+      delar.push(saknas.length + (saknas.length === 1 ? ' installation' : ' installationer'));
+    }
+    saknarGenerella.forEach(function (a) { delar.push(a.namn); });
+    var saknasText = delar.length ? raknaUpp(delar) + ' saknas' : '';
     return { n: sig.length - saknas.length, tot: sig.length, saknas: saknas,
-      text: (sig.length - saknas.length) + ' av ' + sig.length + ' signifikanta installationer har kopplad åtgärd' };
+      saknarGenerella: saknarGenerella, klar: !saknas.length && !saknarGenerella.length,
+      saknasText: saknasText,
+      text: (sig.length - saknas.length) + ' av ' + sig.length + ' signifikanta installationer har kopplad åtgärd' +
+        (saknasText ? ' · ' + saknasText : '') };
+  }
+
+  // "a", "a och b", "a, b och c"
+  function raknaUpp(delar) {
+    if (delar.length < 2) { return delar.join(''); }
+    return delar.slice(0, -1).join(', ') + ' och ' + delar[delar.length - 1];
   }
 
   // Status per steg i Planering, för en valfri byggnad. Samma regler som frågeflödet visar:
-  // steg 4 är klart när steg 3 är klart (utföraren har alltid ett förval), och steg 5 är
-  // ännu inte klart i något läge (beslut 23 byggs i en egen biljett).
+  // steg 4 är klart när steg 3 är klart (utföraren har alltid ett förval), och steg 5 när
+  // byggnaden inte har några luckor kvar i kopplingarna (beslut 23).
   function stegStatus(s, bid) {
     s = s || stateFor(bid);
     var k1 = freqKomplett(s.bas);
     var k2 = k1 && s.ronder.length > 0;
     var k3 = k2 && s.ronder.every(function (r) { return r.besvarad && freqKomplett(r.freq); });
-    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: false };
+    var k5 = k3 && kopplingsStatus(s, bid).klar;
+    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: k5 };
   }
 
   // Besök i byggnaden = alla veckor där minst ett rutintillfälle infaller

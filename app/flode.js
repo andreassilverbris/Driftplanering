@@ -303,9 +303,13 @@
 
   function steg5(k, s) {
     var st = kopplingsStatus(s);
-    var prog = el('div', 'progress');
+    var prog = el('div', 'progress' + (st.klar ? ' klar' : ''));
     prog.innerHTML = '<div class="prog-text"><b>' + st.n + '</b> av ' + st.tot + ' signifikanta installationer har kopplad åtgärd</div>' +
       '<div class="prog-bar"><div style="width:' + Math.round(st.n / st.tot * 100) + '%"></div></div>';
+    // Steget är klart först när ingen lucka finns kvar (beslut 23), så luckorna står i klartext.
+    prog.appendChild(el('div', 'prog-saknas', st.klar
+      ? 'Allt är kopplat: varje signifikant installation har en åtgärd, och båda de generella åtgärderna ligger i en rond.'
+      : st.saknasText + ' innan steget är klart.'));
     if (st.saknas.length && st.n > 0) {
       prog.appendChild(knapp('Visa de ' + st.saknas.length + ' som saknar åtgärd', 'lank', function () { DP.viewer.blinka(st.saknas, 1800, 0xe07b26); }));
     }

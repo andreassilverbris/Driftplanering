@@ -101,6 +101,9 @@ Skriptens ordning i `index.html` spelar roll:
   valfri byggnad när det gör det: `rutintillfallen(s, bid)`, `rutintillfalleNamn(rond, vecka, bid)`,
   `besoksveckor(s, bid)`, `signifikanta(bid)`, `kopplingsStatus(s, bid)` och `stegStatus(s, bid)`
   (stegstatusen är flödets, så Balansering kan se vilka byggnader som är klara).
+  `kopplingsStatus` svarar på vad som fattas i steg 5: `saknas` (signifikanta installationer utan åtgärd),
+  `saknarGenerella` (Kontroll byggnad invändigt/utvändigt som inte är kopplade), `klar` och `saknasText`
+  i klartext. Steg 5 är klart när `klar` är sant (beslut 23).
 - `DP.Plan.prenumereraByte(fn(id))` – byte av byggnad: 3D-vyn byggs om, träd, flöde, tidsaxel och telefoner ritas om.
 
 **Tillstånd per byggnad** (`planering.js`, `tomtTillstand`): `bas` (besöksfrekvens), `ronder`

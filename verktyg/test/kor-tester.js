@@ -61,6 +61,14 @@ async function angra(page) {
   await vanta(page, n => DP.Plan.historik().pos < n, 'ångra från position ' + fore, fore);
 }
 
+// Klickar Gör om och väntar på att historiken gått framåt ett steg. Som ångra: positionen,
+// inte längden, är det som säger att klicket gått igenom.
+async function gorOm(page) {
+  const fore = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('.spelare button[title^="Gör om"]').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'gör om från position ' + fore, fore);
+}
+
 async function nySida(browser, url, valjByggnad) {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1090 } });
   page.fel = [];
@@ -239,7 +247,7 @@ async function testPlaneringFlerByggnader(browser) {
   // Väntan ligger före ögonblicksbilden: kontrollen nedan jämför stegstatusen med flödets bockar,
   // och de två måste läsas ur samma läge för att jämförelsen ska betyda något.
   await vanta(page, () => DP.Plan.stateFor('kasern2').kopplingar.length > 0
-    && document.querySelectorAll('#flode .steg-kort.klar').length === 4, 'standardplaneringen och fyra bockar i Kasern 2');
+    && document.querySelectorAll('#flode .steg-kort.klar').length === 5, 'standardplaneringen och fem bockar i Kasern 2');
 
   // Hur Kasern 2 ser ut medan den är aktiv – jämförelsen görs sedan från Garage
   const nar = await page.evaluate(() => ({
@@ -248,10 +256,11 @@ async function testPlaneringFlerByggnader(browser) {
     steg: DP.Plan.stegStatus(DP.Plan.stateFor('kasern2'), 'kasern2'),
     namn: DP.Plan.rutintillfalleNamn('BI', 5, 'kasern2')
   }));
-  // Stegstatusen ska vara densamma som frågeflödet visar: stegen 1–4 gröna, 5 inte
+  // Stegstatusen ska vara densamma som frågeflödet visar. Standardplaneringen kopplar allt,
+  // så alla fem stegen är gröna (beslut 23).
   const bockar = await f.locator('.steg-kort.klar').count();
-  kontroll(bockar === 4 && nar.steg[1] && nar.steg[2] && nar.steg[3] && nar.steg[4] && !nar.steg[5],
-    'stegstatus för Kasern 2 stämmer med flödets fyra bockar (' + bockar + ')');
+  kontroll(bockar === 5 && nar.steg[1] && nar.steg[2] && nar.steg[3] && nar.steg[4] && nar.steg[5],
+    'stegstatus för Kasern 2 stämmer med flödets fem bockar (' + bockar + ')');
 
   await byggnadsval(page, 'garage');
   const fran = await page.evaluate(() => ({
@@ -331,6 +340,106 @@ async function testPlaneringFlerByggnader(browser) {
   await page.close();
 }
 
+// Etapp 5: steg 5 blir grönt när allt är kopplat, och statusen säger vad som fattas (beslut 23)
+async function testSteg5Klart(browser) {
+  console.log('Etapp 5 – steg 5 blir grönt när allt är kopplat');
+  const page = await nySida(browser, URL_INDEX);
+  const f = page.locator('#flode');
+
+  // Garaget har tre signifikanta installationer (HB01, PORT01, PORT02) och är den enklaste
+  // byggnaden att läsa statusen på. Standardplaneringen kopplar allt, inklusive de generella.
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => document.querySelectorAll('#flode .steg-kort.klar').length === 5, 'fem bockar i garaget');
+  const full = await page.evaluate(() => ({
+    steg: DP.Plan.stegStatus(),
+    st: DP.Plan.kopplingsStatus(DP.Plan.state())
+  }));
+  const bockar = await f.locator('.steg-kort.klar').count();
+  kontroll(bockar === 5 && full.steg[5] === true && full.st.klar === true && full.st.saknasText === '',
+    'garaget med standardplanering får grön bock i steg 5 (' + bockar + ' bockar)');
+  await rorelsePaus(page);
+  await bild(page, 'etapp5-steg5-klart');
+
+  // Ta bort åtgärden som täcker HB01: en signifikant installation blir utan, bocken ska falla
+  const foreBort = await historiklangd(page);
+  await f.locator('.atgrad', { hasText: 'Kontroll handbrandsläckare' }).locator('button', { hasText: 'Ta bort' }).click();
+  await stegKlart(page, foreBort, 'tog bort Kontroll handbrandsläckare');
+  const utan = await page.evaluate(() => ({
+    steg: DP.Plan.stegStatus(),
+    st: DP.Plan.kopplingsStatus(DP.Plan.state())
+  }));
+  kontroll(utan.steg[5] === false && utan.st.klar === false && utan.st.saknas.length === 1,
+    'bocken faller när en signifikant installation saknar åtgärd');
+  kontroll(utan.st.saknasText === '1 installation saknas',
+    'statusen nämner den installation som saknas: "' + utan.st.saknasText + '"');
+  // Steg 5 är öppet, så texten läses ur kortets kropp – det är där planeraren ser luckan
+  // medan hen arbetar i steget.
+  const kropp = await f.locator('.steg-kort').nth(4).innerText();
+  kontroll(kropp.includes('1 installation saknas'),
+    'steg 5 visar vad som fattas i klartext');
+
+  await angra(page);
+  await vanta(page, () => DP.Plan.stegStatus()[5] === true, 'bocken tillbaka efter ångra');
+  kontroll(await page.evaluate(() => DP.Plan.stegStatus()[5] === true)
+    && await f.locator('.steg-kort.klar').count() === 5,
+    'ångra ger bocken i steg 5 tillbaka');
+
+  // Bocken är härledd ur planeringen, så gör om tar bort den igen utan eget arbete
+  await gorOm(page);
+  await vanta(page, () => DP.Plan.stegStatus()[5] === false, 'bocken borta igen efter gör om');
+  kontroll(await page.evaluate(() => DP.Plan.stegStatus()[5] === false)
+    && await f.locator('.steg-kort.klar').count() === 4,
+    'gör om tar bort bocken igen');
+  await angra(page);
+  await vanta(page, () => DP.Plan.stegStatus()[5] === true, 'bocken tillbaka inför nästa kontroll');
+
+  // Alla signifikanta installationer har åtgärd, men en generell åtgärd saknas: ändå inte grönt
+  // Efter ett ångra trunkeras historiken av nästa steg, så längden är inte längre ett villkor
+  // som kan växa. Luckan i statusen är det kontrollen nedan bygger på, och den väntar på den.
+  await f.locator('.atgrad', { hasText: 'Kontroll byggnad utvändigt' }).locator('button', { hasText: 'Ta bort' }).click();
+  await vanta(page, () => DP.Plan.kopplingsStatus(DP.Plan.state()).saknarGenerella.length === 1,
+    'tog bort Kontroll byggnad utvändigt');
+  const genUtan = await page.evaluate(() => ({
+    steg: DP.Plan.stegStatus(),
+    st: DP.Plan.kopplingsStatus(DP.Plan.state())
+  }));
+  kontroll(genUtan.steg[5] === false && genUtan.st.saknas.length === 0 && genUtan.st.n === genUtan.st.tot,
+    'steg 5 blir inte grönt bara för att alla installationer har åtgärd');
+  kontroll(genUtan.st.saknasText === 'Kontroll byggnad utvändigt saknas',
+    'statusen nämner den generella åtgärden vid namn: "' + genUtan.st.saknasText + '"');
+
+  // Båda slagen av lucka samtidigt räknas upp i klartext
+  const foreBada = await historiklangd(page);
+  await f.locator('.atgrad', { hasText: 'Kontroll garageport' }).locator('button', { hasText: 'Ta bort' }).click();
+  await stegKlart(page, foreBada, 'tog bort Kontroll garageport');
+  const bada = await page.evaluate(() => DP.Plan.kopplingsStatus(DP.Plan.state()));
+  kontroll(bada.saknasText === '2 installationer och Kontroll byggnad utvändigt saknas',
+    'statusen räknar upp båda slagen av lucka: "' + bada.saknasText + '"');
+  await bild(page, 'etapp5-steg5-luckor');
+
+  // Stegstatusen går att läsa för en byggnad som inte är aktiv, så att Balansering kan använda den
+  await byggnadsval(page, 'kasern1');
+  const annan = await page.evaluate(() => ({
+    garage: DP.Plan.stegStatus(DP.Plan.stateFor('garage'), 'garage'),
+    gStatus: DP.Plan.kopplingsStatus(DP.Plan.stateFor('garage'), 'garage'),
+    kasern: DP.Plan.stegStatus(DP.Plan.stateFor('kasern1'), 'kasern1')
+  }));
+  kontroll(annan.garage[5] === false && annan.gStatus.saknas.length === 2 && annan.kasern[5] === false,
+    'stegstatus och luckor går att läsa för valfri byggnad från en annan byggnad');
+
+  // Kasern 1 med standardplanering blir också klar – reglerna är inte garagespecifika
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.stegStatus(DP.Plan.stateFor('kasern1'), 'kasern1')[5] === true,
+    'steg 5 klart i Kasern 1');
+  kontroll(await page.evaluate(() => DP.Plan.stegStatus(DP.Plan.stateFor('kasern1'), 'kasern1')[5] === true),
+    'Kasern 1 med standardplanering får också grön bock i steg 5');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFlerbyggnadSkiss(browser) {
   console.log('Skiss – flera byggnader');
   const page = await nySida(browser, URL_FLER);
@@ -350,6 +459,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testAtgardstexter(browser);
     await testByggnaderOchKopiering(browser);
     await testPlaneringFlerByggnader(browser);
+    await testSteg5Klart(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);
