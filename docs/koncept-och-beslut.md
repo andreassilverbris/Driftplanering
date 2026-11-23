@@ -130,6 +130,9 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     (raderna är redan utförare).
 48. **Telefonen ändras inte i etapp 5.** Gruppering av veckans rutintillfällen hör till idé 8 och etapp 6.
 49. **`flerbyggnad.html` tas bort** när Balansering är byggd. Det i skissen som inte byggs skrivs ner först.
+    *(Gjort 2026-11-23, biljett #19: skissen och dess test är borta, och de fem delar som inte byggdes –
+    motivering vid strykning, ändringsloggen, växeln "Visa ordinarie plan", spöket på den ordinarie
+    platsen och det rullande veckofönstret – står som idé 10 i `ideer-och-resonemang.md`.)*
 50. **Ralph-loopen (`ralph/`) tar `ready-for-agent`-biljetter obevakat**, en per varv med en färsk agent, portad
     från photo_manager (2026-11-22). Den arbetar **på en arbetsgren och vägrar starta på `main`**. Den pushar bara
     till grenen, och Andreas för in grenen i `main` via pull request när han har tittat. Varje pass kräver ett
@@ -402,7 +405,13 @@ och byggs så att man senare kan välja version.
    Varje byggnad har sin egen planering, och historiken är gemensam (ångra byter till rätt byggnad).
    Nytt: **standardplanering per byggnadstyp** och **kopiera planering** mellan byggnader av samma typ.
    Se `ideer-och-resonemang.md`.
-5. **Flera byggnader:** belastning per utförare, provisoriska flyttar, stryka tillfällen *(skiss finns i `flerbyggnad.html`)*.
+5. **Flera byggnader** *(första utkast klart)*: huvudsteget **Balansering** med en årsbred tidsaxel, en rad
+   per utförare som fälls ut till en rad per byggnad, belastning i timmar och dagar per vecka, de tre
+   frågorna (områden man åker till, kapacitet, veckor utan tillsyn och skötsel), knappen **Balansera** med
+   förklaringen i klartext, provisoriska flyttar och strykningar, flytt för hand med dra och släpp på tre
+   nivåer och markeringen när planeringen ändrats sedan balanseringen. Planering fick ett **steg 6**,
+   planerad tid ur en tidsschablon. Skissen `flerbyggnad.html` är borttagen (beslut 49); det i den som
+   inte byggdes står som idé 10 i `ideer-och-resonemang.md`.
    Krav från användaren:
    - I fastighetssystemet väljer man en eller flera byggnader och ser en tidsaxel med en rad per rond och byggnad.
      Det blir svåröverskådligt när man vill se hur många byggnader ska besökas i förhållande till varandra.

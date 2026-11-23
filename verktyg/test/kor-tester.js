@@ -3,9 +3,9 @@
  *
  *   node verktyg/test/kor-tester.js [mapp-för-skärmdumpar]
  *
- * Öppnar index.html och flerbyggnad.html direkt från disk, klickar igenom flödena och tar
- * skärmdumpar (standard: <tmp>/driftplanering-test). Avslutas med felkod om något test misslyckas
- * eller om sidan loggar JavaScript-fel.
+ * Öppnar index.html och den fristående filen dist/driftplanering.html direkt från disk, klickar
+ * igenom flödena och tar skärmdumpar (standard: <tmp>/driftplanering-test). Avslutas med felkod om
+ * något test misslyckas eller om sidan loggar JavaScript-fel.
  */
 const path = require('path');
 const os = require('os');
@@ -14,7 +14,10 @@ const { chromium } = require('playwright');
 
 const ROT = path.resolve(__dirname, '..', '..');
 const URL_INDEX = 'file://' + path.join(ROT, 'index.html');
-const URL_FLER = 'file://' + path.join(ROT, 'flerbyggnad.html');
+// Den fristående filen är samma app med allt inbäddat. Den prövas för sig, eftersom den är det
+// enda sättet användarens jobbdator kan öppna verktyget på när raw.githack.com inte går fram.
+const FIL_DIST = path.join(ROT, 'dist', 'driftplanering.html');
+const URL_DIST = 'file://' + FIL_DIST;
 const UT = process.argv[2] || path.join(os.tmpdir(), 'driftplanering-test');
 fs.mkdirSync(UT, { recursive: true });
 
@@ -85,20 +88,22 @@ async function klickaEllerTangent(page, valjare, tangent) {
   if (await knapp.isVisible()) { await knapp.click(); } else { await page.keyboard.press(tangent); }
 }
 
-async function nySida(browser, url, valjByggnad) {
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1090 } });
+// Standardhöjden är 1090 och inte användarens 1200: de flesta testerna bryr sig inte om
+// höjden, och en lägre ruta fångar att något ändå ryms. De tester som prövar *utrymmet* säger
+// 1200 i stället, genom `hojd`.
+async function nySida(browser, url, valjByggnad, hojd) {
+  const page = await browser.newPage({ viewport: { width: 1920, height: hojd || 1090 } });
   page.fel = [];
   page.on('pageerror', e => page.fel.push(e.message));
   page.on('console', m => { if (m.type() === 'error') { page.fel.push(m.text()); } });
   page.on('dialog', d => d.accept());
   await page.goto(url);
-  if (url === URL_INDEX) {
-    // Skripten körs synkront vid laddning, så appen är uppe när namnrymden och den första
-    // ritningen finns. Tidsaxelns veckorad ritas sist i flode.js, och alltid.
-    await vanta(page, () => !!(window.DP && DP.Flode && DP.Plan && DP.viewer)
-      && !!document.querySelector('#flode .steg-kort') && !!document.querySelector('#tidsaxel .ta-vecka'),
-      'appen ritad');
-  }
+  // Skripten körs synkront vid laddning, så appen är uppe när namnrymden och den första
+  // ritningen finns. Tidsaxelns veckorad ritas sist i flode.js, och alltid. Villkoret gäller
+  // både index.html och den fristående filen – det är samma app.
+  await vanta(page, () => !!(window.DP && DP.Flode && DP.Plan && DP.viewer)
+    && !!document.querySelector('#flode .steg-kort') && !!document.querySelector('#tidsaxel .ta-vecka'),
+    'appen ritad');
   if (valjByggnad) { await byggnadsval(page, valjByggnad); }
   return page;
 }
@@ -1512,6 +1517,20 @@ async function testBalanseringensTidsaxel(browser) {
 // egen scrollhöjd som säger om något inte får plats.
 // Öppnar en av Balanseringens frågor om den inte redan är öppen. Ett klick på en öppen fråga
 // stänger den, så ett villkorslöst klick hade gett motsatt läge beroende på vad som hänt före.
+// Öppnar ett stegkort i flödet på dess titel och svarar med kortets text. Bara ett kort kan
+// vara öppet åt gången, så den som vill läsa två kort måste öppna dem i tur och ordning.
+async function oppnaSteg(page, titel) {
+  const kort = page.locator('.steg-kort', { hasText: titel }).first();
+  if (!(await kort.getAttribute('class')).includes('oppen')) {
+    await kort.locator('.steg-huvud').first().click();
+  }
+  await vanta(page, t => {
+    const k = document.querySelector('.steg-kort.oppen .steg-titel');
+    return !!k && k.textContent.indexOf(t) >= 0;
+  }, 'stegkortet "' + titel + '" öppet', titel);
+  return kort.innerText();
+}
+
 async function oppnaFraga(page, n) {
   if (!await page.locator('.bal-fraga[data-fraga="' + n + '"].oppen').count()) {
     await page.locator('.bal-fraga[data-fraga="' + n + '"] .steg-huvud').click();
@@ -3025,18 +3044,229 @@ async function testBalanseringRymsPaSkarmen(browser) {
   // Det som inte får hända är att den inte går att nå alls.
   kontroll(matt.sidoKlient > 600, 'sidopanelen har plats åt byggnaderna och veckolistan (' + matt.sidoKlient + ' px)');
 
+  // ------------------------------------------------------------------
+  // Alla tre huvudstegen, med planeringen *fylld* (biljett #19)
+  // ------------------------------------------------------------------
+  // Processlinjetestet mäter samma tre steg, men på en tom planering. Det är det snällaste
+  // läget: steg 5 har inga kopplingar att lista, steg 6 ingen rond att ge en tid, och
+  // Balansering ingen förklaring att skriva ut. Här är allt ifyllt och balanserat, alltså det
+  // läge planeraren faktiskt arbetar i, och då är innehållet som störst.
+  const forePos = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('#balansera-knapp').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'balanseringssteget', forePos);
+  await vanta(page, () => !!document.querySelector('.bal-frad'), 'förklaringen ritad');
+  // Hangaren är den trängsta byggnaden: sex ronder, alltså den längsta listan i steg 6 och
+  // det största trädet i Byggnad. Mäts garaget med sina två ronder går testet igenom även om
+  // en lista har växt ur sidopanelen.
+  await byggnadsval(page, 'hangar');
+
+  for (const steg of ['byggnad', 'planering', 'balansering']) {
+    await page.locator('.pl-steg[data-steg="' + steg + '"]').click();
+    // Bara ett stegkort kan vara öppet åt gången i flödet. I Planering öppnas steg 6, det
+    // längsta: en rad per rond med dagsdel, minuter och uträkningen i klartext. Är det stängt
+    // mäts tomrummet i stället, och det är inte vad planeraren ser när hen arbetar.
+    if (steg === 'planering') { await oppnaSteg(page, 'Hur lång tid tar ronderna'); }
+    await rorelsePaus(page);
+    await bild(page, 'etapp5-fylld-' + steg);
+    const m = await page.evaluate(stegId => {
+      const layout = document.querySelector('.layout').getBoundingClientRect();
+      const sido = document.querySelector('#hs-' + stegId);
+      return {
+        fonster: window.innerHeight,
+        // Dokumentet har `overflow: hidden`, så sidan kan inte växa förbi fönstret av sig
+        // själv. Det som avgör är om layouten slutar vid kanten eller sticker ut under den.
+        layoutBotten: Math.round(layout.bottom),
+        dokument: Math.round(document.documentElement.scrollHeight),
+        // Varje steg har sin egen panel, och den får scrolla inuti sig: listorna växer med
+        // planeringen. Vad som mäts är att den har en rimlig höjd att scrolla *inom*.
+        panelKlient: sido.clientHeight
+      };
+    }, steg);
+    kontroll(m.layoutBotten <= m.fonster && m.dokument <= m.fonster,
+      'sidan scrollar inte i huvudsteget ' + steg + ' med fylld planering (layouten slutar vid '
+      + m.layoutBotten + ', dokumentet är ' + m.dokument + ' av ' + m.fonster + ' px)');
+    kontroll(m.panelKlient >= 800,
+      'steget ' + steg + ' har plats åt sitt innehåll (' + m.panelKlient + ' px)');
+  }
+
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
 
-async function testFlerbyggnadSkiss(browser) {
-  console.log('Skiss – flera byggnader');
-  const page = await nySida(browser, URL_FLER);
-  await page.locator('#plan .rt[title*="Hangar-Brandskydd-2026v48"]').dragTo(page.locator('#plan .cell').nth(2 * 13 + 2));
-  // Förutsättningen är att planen ritats om efter flytten – spöket självt är kontrollens sak.
-  await vanta(page, () => document.querySelectorAll('#plan .spoke').length > 0, 'planen omritad efter flytten');
-  kontroll(await page.locator('#plan .spoke').count() === 1, 'provisorisk flytt lämnar ett spöke');
-  await bild(page, 'flerbyggnad');
+// Etapp 5: huvudflödet för Balansering i den **fristående filen** (biljett #19).
+//
+// Filen är inte en kopia av index.html: byggskriptet bäddar in all CSS och all JavaScript, och
+// gör det genom textersättning. Går en inbäddning fel – en `</script>` i en sträng, en fil som
+// inte kom med i skripttaggarnas ordning – fungerar index.html ändå, och felet syns först hos
+// användaren. Därför byggs filen om här och prövas som en egen sida.
+//
+// Testet går igenom huvudflödet och inte varje detalj: de enskilda reglerna är redan prövade mot
+// index.html. Vad som prövas här är att *allt är med och hänger ihop* när filen står för sig själv,
+// alltså att processlinjen, steg 5 och 6, de tre frågorna, Balansera, flytt för hand och
+// markeringen när planeringen ändrats fungerar utan nätverk och utan sidofiler.
+async function testFristaendeFil(browser) {
+  console.log('Etapp 5 – den fristående filen');
+  // Filen byggs om först, så att testet prövar den kod som ligger i repot och inte en gammal
+  // byggd fil. Samma skript som `npm run bygg`, anropat i samma process.
+  require('child_process').execFileSync(process.execPath,
+    [path.join(ROT, 'verktyg', 'bygg-enfil.js')], { stdio: 'pipe' });
+  // En enda fil utan sidoladdningar: har byggskriptet lämnat kvar en referens hade webbläsaren
+  // försökt hämta den från disk, och i en kopia på en annan dator inte hittat något.
+  const kalla = fs.readFileSync(FIL_DIST, 'utf8');
+  kontroll(!/<script src=|<link rel="stylesheet"/.test(kalla),
+    'den fristående filen laddar inga sidofiler');
+
+  // Användarens skärm, inte standardhöjden: den fristående filen är den enda vägen in när
+  // jobbdatorn spärrar raw.githack.com, så det är där utrymmet ska mätas.
+  const page = await nySida(browser, URL_DIST, null, 1200);
+
+  // ---- Planering: standardplanering åt alla fyra, alltså steg 1–6 ifyllda ----
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await vanta(page, () => DP.Plan.klaraByggnader().length === 4, 'fyra klara byggnader');
+  const klara = await page.evaluate(() => ({
+    antal: DP.Plan.klaraByggnader().length,
+    // Alla sex stegen, för varje byggnad: steg 5 är kopplingarna och steg 6 den planerade tiden.
+    steg: DP.Plan.byggnadsordning.map(id => {
+      const st = DP.Plan.stegStatus(DP.Plan.stateFor(id), id);
+      return [1, 2, 3, 4, 5, 6].every(n => st[n] === true);
+    }),
+    // Tiden kommer ur tidsschablonen, som ligger i en egen datafil – att den räknat betyder att
+    // data/tidsschablon.js kom med i inbäddningen.
+    timmar: DP.Plan.tidTimmar('BI', DP.Plan.stateFor('kasern1'), 'kasern1')
+  }));
+  kontroll(klara.antal === 4 && klara.steg.every(Boolean),
+    'alla fyra byggnaderna får alla sex stegen klara i den fristående filen');
+  kontroll(klara.timmar > 0,
+    'tidsschablonen räknar planerad tid i den fristående filen (' + klara.timmar + ' h)');
+
+  // ---- Processlinjen: de tre huvudstegen går att gå mellan ----
+  // Att läsa stegstatusen ur DP.Plan säger bara att *uträkningen* kom med. Processlinjen och
+  // stegkorten ritas i vyer.js och flode.js, och en inbäddning som tappat någon av dem hade
+  // gått tyst förbi en API-kontroll. Därför klickas stegen fram här.
+  const pl = await page.evaluate(() => Array.from(document.querySelectorAll('.pl-steg'))
+    .map(s => s.dataset.steg));
+  kontroll(JSON.stringify(pl) === JSON.stringify(['byggnad', 'planering', 'balansering']),
+    'processlinjen visar de tre huvudstegen i den fristående filen (' + pl.join(' → ') + ')');
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad' && !!document.querySelector('#trad'),
+    'Byggnad öppet');
+  kontroll(await page.locator('#hs-byggnad #trad').isVisible(),
+    'huvudsteget Byggnad öppnas och visar byggnadsträdet');
+
+  // ---- Steg 5 och 6 genom gränssnittet, i den byggnad som har flest ronder ----
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await byggnadsval(page, 'hangar');
+  const steg5 = await oppnaSteg(page, 'Koppla åtgärder till installationerna');
+  kontroll(steg5.includes('66 av 66'),
+    'steg 5 ritas i den fristående filen och säger att hangarens 66 signifikanta '
+    + 'installationer alla har en kopplad åtgärd');
+  const steg6 = await oppnaSteg(page, 'Hur lång tid tar ronderna');
+  kontroll(/6 av 6 ronder/.test(steg6) && /halvdag|heldag|kvartsdag|kort/.test(steg6),
+    'steg 6 ritas med sina sex ronder och deras dagsdelar i den fristående filen');
+  // Uträkningen i klartext är poängen med steg 6 (beslut 27): den ska stå under varje rond, så
+  // att planeraren kan bedöma om förslaget är rimligt i stället för att bara godkänna det.
+  kontroll(/installationer? och .* rum att gå igenom →|varv runt huset →/.test(steg6),
+    'uträkningen står i klartext under ronderna i den fristående filen');
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'balansering', 'tillbaka i Balansering');
+
+  // ---- Balanseringens tidsaxel: en rad per utförare, hela året ----
+  await vanta(page, () => document.querySelectorAll('.bt-utforare').length === 4, 'tidsaxeln med fyra utförare');
+  const axel = await page.evaluate(() => ({
+    utforare: document.querySelectorAll('.bt-utforare').length,
+    brickor: document.querySelectorAll('.bt-bricka').length,
+    sistaVeckan: !!document.querySelector('.bt-cell[data-vecka="' + DP.Plan.ANTAL_VECKOR + '"]')
+  }));
+  kontroll(axel.utforare === 4 && axel.brickor > 0 && axel.sistaVeckan,
+    'Balanseringens tidsaxel ritas med fyra utförare, brickor och hela året ('
+    + axel.brickor + ' brickor)');
+
+  // ---- De tre frågorna: bekräfta förvalen ----
+  for (const n of [1, 2, 3]) {
+    await oppnaFraga(page, n);
+    const foreHist = await historiklangd(page);
+    await page.locator('.bal-fraga[data-fraga="' + n + '"] button[data-godkann]').click();
+    await stegKlart(page, foreHist, 'bekräftade fråga ' + n);
+  }
+  const svarade = await page.evaluate(() => DP.Plan.balanseringStatus());
+  kontroll(svarade.omraden && svarade.kapacitet && svarade.veckorUtan,
+    'alla tre frågorna går att besvara i den fristående filen');
+
+  // ---- Balansera: ett steg i historiken, jämnare belastning, förklaring i klartext ----
+  const foreBal = await page.evaluate(() => ({
+    topp: DP.Balansering.belastning(DP.Plan.balanseringsUnderlag()).toppTimmar,
+    pos: DP.Plan.historik().pos
+  }));
+  await page.locator('#balansera-knapp').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'balanseringssteget', foreBal.pos);
+  await vanta(page, () => !!document.querySelector('.bal-frad'), 'förklaringen ritad');
+  const efterBal = await page.evaluate(() => ({
+    topp: DP.Balansering.belastning(DP.Plan.balanseringsUnderlag()).toppTimmar,
+    pos: DP.Plan.historik().pos,
+    klar: DP.Plan.balanseringStatus().klar,
+    rader: document.querySelectorAll('.bal-frad:not(.niva3)').length
+  }));
+  kontroll(efterBal.pos === foreBal.pos + 1 && efterBal.klar === true,
+    'Balansera blir ett steg i historiken och ger grön bock i den fristående filen');
+  kontroll(efterBal.topp < foreBal.topp,
+    'toppbelastningen sjunker (' + foreBal.topp + ' h → ' + efterBal.topp + ' h)');
+  kontroll(efterBal.rader === 4,
+    'förklaringen har en rad per byggnad (' + efterBal.rader + ' rader)');
+  await rorelsePaus(page);
+  await bild(page, 'etapp5-fristaende-balanserad');
+
+  // ---- Flytt för hand: dra en bricka och svara på vilken nivå flytten gäller ----
+  // En månadsrond som ligger minst två veckor in i året, så att målveckan finns både före och
+  // efter och frågan får alla tre valen att räkna på.
+  const bricka = await valjBricka(page, b => b.freq === 'manad' && b.ordinarie >= 3 && !b.provisorisk);
+  kontroll(!!bricka, 'det finns en dragbar månadsbricka i den fristående filen');
+  if (bricka) {
+    const malVecka = bricka.vecka - 2;
+    await dra(page, brickValjare(bricka), cellValjare(bricka, malVecka));
+    await vanta(page, () => !!document.querySelector('.ff-val'), 'frågan om de tre nivåerna');
+    const alternativ = await page.locator('.ff-val').count();
+    kontroll(alternativ === 3,
+      'dra och släpp ger frågan om de tre nivåerna i den fristående filen (' + alternativ + ' val)');
+    const forePosFlytt = await historikpos(page);
+    await page.locator('.ff-val[data-val="tillfalle"]').click();
+    await page.locator('.dlg-knappar button', { hasText: 'Flytta' }).click();
+    await stegKlartPos(page, forePosFlytt, 'provisorisk flytt för hand');
+    const flyttat = await page.evaluate(arg => {
+      const t = DP.Plan.rutintillfallen(DP.Plan.stateFor(arg.bid), arg.bid)
+        .filter(x => x.rond === arg.rond && x.ordinarieVecka === arg.ordinarie)[0];
+      return t && t.provisorisk && t.vecka === arg.mal;
+    }, { bid: bricka.byggnad, rond: bricka.rond, ordinarie: bricka.ordinarie, mal: malVecka });
+    kontroll(flyttat,
+      'den provisoriska flytten landar i planeringen (v. ' + bricka.ordinarie + ' → v. ' + malVecka + ')');
+  }
+
+  // ---- Planeringen har ändrats sedan balanseringen ----
+  // En ändrad frekvens är en förutsättning balanseringen räknade på, så beskedet ska komma.
+  const forePosAndring = await historikpos(page);
+  await page.evaluate(() => {
+    DP.Plan.vaxlaByggnad('kasern1');
+    DP.Plan.andra('Byggnad invändigt varje kvartal', st => {
+      const r = st.ronder.filter(x => x.id === 'BI')[0];
+      r.freq = { typ: 'kvartal', startManad: null };
+      r.foljerBas = false;
+    });
+  });
+  await stegKlartPos(page, forePosAndring, 'frekvensändringen');
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => DP.Plan.balanseringStatus().andrad, 'markeringen om ändrad planering');
+  const andrad = await page.evaluate(() => ({
+    andrad: DP.Plan.balanseringStatus().andrad,
+    antal: DP.Plan.balanseringStatus().andringar.length,
+    klar: DP.Plan.balanseringStatus().klar,
+    ruta: !!document.querySelector('.bal-andrad')
+  }));
+  kontroll(andrad.andrad && andrad.antal > 0 && andrad.klar === false && andrad.ruta,
+    'markeringen "planeringen har ändrats" visas och tar bort bocken i den fristående filen ('
+    + andrad.antal + ' ändring(ar))');
+  await bild(page, 'etapp5-fristaende-andrad');
+
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
@@ -3059,7 +3289,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testFlyttForHand(browser);
     await testPlaneringAndratsEfterBalansering(browser);
     await testBalanseringRymsPaSkarmen(browser);
-    await testFlerbyggnadSkiss(browser);
+    await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);
   }

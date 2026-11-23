@@ -24,9 +24,6 @@ button { font: inherit; cursor: pointer; }
 .logo span { font-weight: 400; color: var(--dov); margin-left: 4px; }
 .byggval { color: var(--dov); display: flex; gap: 8px; align-items: center; }
 .byggval select { font: inherit; padding: 4px 8px; border: 1px solid var(--linje); border-radius: 6px; background: #fff; }
-.steg { margin-left: auto; display: flex; gap: 6px; }
-.steg-post { padding: 5px 12px; border-radius: 999px; color: var(--svag); border: 1px solid var(--linje); font-size: 13px; }
-.steg-post.aktiv { color: var(--accent); border-color: var(--accent); background: var(--accent-svag); font-weight: 600; }
 
 .layout { display: flex; height: calc(100% - 52px); }
 .sidopanel {

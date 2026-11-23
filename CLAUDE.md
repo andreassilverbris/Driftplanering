@@ -85,7 +85,6 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
-| `flerbyggnad.html` | Fristående skiss för flera byggnader med påhittade data (ska ersättas i etapp 5) |
 
 **Dataflödet:**
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
@@ -248,7 +247,7 @@ byggnad kräver bara en datafil.
 
 ## Status
 
-Etapp 1–4 är klara som första utkast (se `docs/koncept-och-beslut.md`). Av etapp 5 är steg 5 (beslut 23),
+Etapp 1–5 är klara som första utkast (se `docs/koncept-och-beslut.md`). I etapp 5 är steg 5 (beslut 23),
 steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (beslut 27, 35, 43 och 51–53),
 processlinjen och ordlistan (beslut 54–55), förskjutningarna i planeringen (beslut 26, 41 och 56),
 Balanseringens tidsaxel med belastning per utförare (beslut 28, 31, 33, 39 och 47) samt **Balansera** med
@@ -260,15 +259,21 @@ permanent och provisoriskt (beslut 34, 67 och 68) samt **markeringen när planer
 balanseringen** med listan över ändringarna, redovisningen av bortstädat nivå 3-arbete och bocken som
 följer om balanseringen fortfarande stämmer (beslut 40) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
-**Nästa: etapp 5** – skissen `flerbyggnad.html` tas bort och etappen avslutas (beslut 49). Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
+Skissen `flerbyggnad.html` är borttagen och **etapp 5 är avslutad** (beslut 49, biljett #19); det i skissen
+som inte byggdes står som idé 10 i `docs/ideer-och-resonemang.md`. Utformningen är bestämd i beslut 23–49 i
+beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
+**Nästa: etapp 6** – Utförande: markera ett rutintillfälle som utfört, registrera tid och jämföra med den
+planerade tiden (beslut 30, idé 6 och 8).
 
 Kända begränsningar:
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
   resultatet – de förskjutna veckorna och de provisoriska flyttarna – men går inte att dra i.
 - Balanseringens sökning är greedy per byggnad i byggnadsordning, inte uttömmande: den hittar ett bra läge,
   inte bevisat det bästa. Valet är deterministiskt, så samma underlag ger alltid samma resultat.
-- `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.
-- Den fristående filen saknar länken till skissen.
+- Planeringen lever bara i minnet och nollställs vid omladdning. Det är ett medvetet beslut, men det betyder
+  att ett balanserat år inte går att spara eller skicka vidare.
+- Planeringsåret är fast (2027) och inte rullande från dagens vecka. Det är fortfarande en öppen fråga
+  i `docs/koncept-och-beslut.md`, och skissens svar står som idé 10 E.
 
 ## Agent skills
 
