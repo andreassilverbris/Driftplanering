@@ -57,8 +57,8 @@
         ? 'balanserad · överbelastning kvar'
         : 'balanserad · belastningen är jämn';
     }
-    var svarade = (bst.omraden ? 1 : 0) + (bst.kapacitet ? 1 : 0);
-    return svarade ? svarade + ' av 2 frågor besvarade' : h.under;
+    var svarade = (bst.omraden ? 1 : 0) + (bst.kapacitet ? 1 : 0) + (bst.veckorUtan ? 1 : 0);
+    return svarade ? svarade + ' av 3 frågor besvarade' : h.under;
   }
 
   // ------------------------------------------------------------------
@@ -201,6 +201,9 @@
       'En <b>röd</b> cell betyder att tiden inte räcker. En <b>ring</b> betyder fler än ' +
         DP.Balansering.MANGA_TILLFALLEN + ' rutintillfällen samma vecka – tiden kan räcka, men antalet är ändå en varning.',
       'Brickorna har <b>byggnadens färg</b>. Fäll ut en utförare för att se en rad per byggnad.',
+      'En <b>streckad</b> vecka har ingen tillsyn och skötsel, svaret på fråga 3 ovanför.',
+      'En bricka med <b>⤺</b> är <b>provisoriskt flyttad</b> dit, en med <b>✂</b> <b>föreslås ' +
+        'strykas</b>, och en <b>ihålig</b> är <b>struken</b>.',
       'Klicka på en vecka för att se utförarens rutintillfällen med planerad tid.'
     ].forEach(function (t) { ul.appendChild(el('li', null, t)); });
     f.appendChild(ul);
@@ -210,8 +213,8 @@
     sido.appendChild(veckolista(bel));
 
     sido.appendChild(el('div', 'bal-status',
-      'Frågan om <b>veckor utan tillsyn och skötsel</b> och flytt för hand byggs i nästa steg. ' +
-      'Begreppen – besöksrytm, rondserie, kapacitet, provisorisk flytt och stryka – finns i ' +
+      '<b>Flytt för hand</b> – att dra ett enskilt tillfälle till en annan vecka – byggs i nästa ' +
+      'steg. Begreppen – besöksrytm, rondserie, kapacitet, provisorisk flytt och stryka – finns i ' +
       '<b>Ordlistan</b>.'));
   }
 
@@ -243,9 +246,9 @@
   //
   // Frågorna ser ut som Planeringens steg och beter sig likadant: ett kort med nummer eller
   // grön bock, en sammanfattning när det är stängt, och en kropp som öppnas när man klickar.
-  // Båda har förval, så de går att klicka igenom med ett klick var när förvalen stämmer
-  // (beslut 37). Den tredje frågan – veckor utan tillsyn och skötsel – byggs i nästa biljett.
-  var oppenFraga = 0;   // 0 = ingen, 1 = områden, 2 = kapacitet
+  // Alla tre har förval, så de går att klicka igenom med ett klick var när förvalen stämmer
+  // (beslut 37).
+  var oppenFraga = 0;   // 0 = ingen, 1 = områden, 2 = kapacitet, 3 = veckor utan tillsyn
 
   function ritaFragor(sido, underlag) {
     var bst = P.balanseringStatus();
@@ -264,10 +267,16 @@
       sammanf: kapacitetSammanfattning(underlag),
       kropp: kapacitetKropp
     }, underlag);
+    fragekort(grupp, {
+      n: 3, klar: bst.veckorUtan,
+      titel: 'Vilka veckor görs ingen tillsyn och skötsel?',
+      sammanf: veckorUtanSammanfattning(underlag),
+      kropp: veckorUtanKropp
+    }, underlag);
 
     grupp.appendChild(balanseraKnapp(underlag, bst));
     sido.appendChild(grupp);
-    if (bst.resultat) { sido.appendChild(resultatpanel(bst.resultat)); }
+    if (bst.resultat) { sido.appendChild(resultatpanel(bst.resultat, bst)); }
   }
 
   function fragekort(grupp, f, underlag) {
@@ -375,6 +384,55 @@
     kropp.appendChild(godkannRad('kapacitet', 'Förvalet stämmer →'));
   }
 
+  // ---- Fråga 3: veckor utan tillsyn och skötsel ----
+  // Semesterveckorna och veckan mellan jul och nyår är förvalda (beslut 32). Svaret är en lista
+  // veckor, och den visas som året i en rad klickbara veckor – det är så planeraren tänker på
+  // semestern ("v. 28–31"), och ett intervall syns direkt medan en uppräkning måste läsas.
+  function veckoIntervall(veckor) {
+    if (!veckor.length) { return 'inga veckor'; }
+    var delar = [], start = veckor[0], fore = veckor[0];
+    veckor.slice(1).concat([null]).forEach(function (v) {
+      if (v === fore + 1) { fore = v; return; }
+      delar.push(start === fore ? String(start) : start + '–' + fore);
+      start = v; fore = v;
+    });
+    return 'v. ' + delar.join(', ');
+  }
+  function veckorUtanSammanfattning(underlag) {
+    var n = underlag.veckorUtan.length;
+    return n ? veckoIntervall(underlag.veckorUtan) + ' (' + n + ' veckor)'
+             : 'Tillsyn och skötsel alla veckor';
+  }
+  function veckorUtanKropp(kropp, underlag) {
+    kropp.appendChild(el('p', 'forklar', 'Under semestern och mellan jul och nyår görs ingen tillsyn ' +
+      'och skötsel. Ett rutintillfälle som hamnar i en sådan vecka flyttas <b>provisoriskt</b> till ' +
+      'närmaste vecka före – planeringen är orörd, flytten gäller bara i år. Hamnar flytten högst ' +
+      'en vecka från ett annat tillfälle i samma rondserie <b>föreslås</b> tillfället strykas i ' +
+      'stället, och du bestämmer.'));
+    var valda = {};
+    underlag.veckorUtan.forEach(function (v) { valda[v] = true; });
+    // Året som en rad veckor med månadsetiketter över: samma bild som tidsaxeln, så att
+    // svaret och dess följd läses på samma ställe.
+    var ar = el('div', 'bal-arrad');
+    for (var v = 1; v <= P.ANTAL_VECKOR; v++) {
+      (function (vecka) {
+        var k = el('button', 'bal-veckoknapp' + (valda[vecka] ? ' pa' : ''), String(vecka));
+        k.dataset.vecka = String(vecka);
+        // Månadsskiftet markeras, annars är 52 rutor en oläslig rad
+        if (vecka > 1 && P.manadForVecka(vecka) !== P.manadForVecka(vecka - 1)) { k.classList.add('manadsstart'); }
+        k.title = valda[vecka]
+          ? 'V. ' + vecka + ' har ingen tillsyn och skötsel – klicka för att ta tillbaka den'
+          : 'V. ' + vecka + ' har tillsyn och skötsel – klicka för att korsa ut den';
+        k.addEventListener('click', function () { P.vaxlaVeckaUtan(vecka); });
+        ar.appendChild(k);
+      })(v);
+    }
+    kropp.appendChild(ar);
+    kropp.appendChild(el('div', 'bal-notis', 'De utkorsade veckorna är markerade i tidsaxeln. ' +
+      'Varje klick är ett eget steg i historiken.'));
+    kropp.appendChild(godkannRad('veckorUtan', 'Förvalet stämmer →'));
+  }
+
   // Knappen som ger frågan grön bock utan att något tal ändras: förvalen är ett svar, och det
   // ska gå lika fort att bekräfta dem som att ändra dem (beslut 37).
   function godkannRad(fraga, text) {
@@ -382,9 +440,12 @@
     var k = el('button', 'knapp', text);
     k.dataset.godkann = fraga;
     k.title = 'Svaret stämmer – gå vidare';
+    // Nästa obesvarade fråga öppnas av sig själv, så att de tre går att klicka igenom i en
+    // följd. Är de alla besvarade stängs korten och Balansera står näst i tur.
+    var NASTA = { omraden: 2, kapacitet: 3, veckorUtan: 0 };
     k.addEventListener('click', function () {
       P.godkannFraga(fraga);
-      oppenFraga = fraga === 'omraden' ? 2 : 0;
+      oppenFraga = NASTA[fraga] || 0;
       ritaBalansering();
     });
     rad.appendChild(k);
@@ -435,7 +496,7 @@
   }
 
   // ---- Panelen med förklaringen i klartext (beslut 36 och 46) ----
-  function resultatpanel(res) {
+  function resultatpanel(res, bst) {
     var w = el('div', 'bal-grupp bal-resultat');
     w.appendChild(el('h3', null, 'Så balanserades planeringen'));
 
@@ -449,13 +510,20 @@
 
     var lista = el('div', 'bal-forklaring');
     res.forklaring.forEach(function (r) {
-      var rad = el('div', 'bal-frad' + (r.typ === 'orord' ? ' orord' : ''));
+      var rad = el('div', 'bal-frad' + (r.typ === 'orord' ? ' orord' : '') +
+        (r.typ === 'provisorisk' || r.typ === 'foreslagen-strykning' ? ' niva3' : ''));
       rad.dataset.typ = r.typ;
       if (r.byggnad && DP.byggnader[r.byggnad]) { rad.appendChild(fargprick(DP.byggnader[r.byggnad].farg)); }
       rad.appendChild(el('span', 'bal-ftext', r.text));
       lista.appendChild(rad);
     });
     w.appendChild(lista);
+
+    // Förslagen att stryka: en lista att handla på, inte bara en upplysning (beslut 45).
+    // Den räknas ur planeringen och inte ur det sparade resultatet, så att listan krymper när
+    // planeraren behåller eller stryker enskilda tillfällen.
+    var foreslagna = (bst && bst.foreslagna) || [];
+    if (foreslagna.length) { w.appendChild(strykpanel(foreslagna)); }
 
     // Räcker kapaciteten inte sägs det rakt ut, med länkar dit man kan göra något åt det
     // (beslut 46): kapacitetsfrågan, eller utföraren i Planering steg 4.
@@ -501,6 +569,53 @@
     return P.klaraByggnader().filter(function (bid) {
       return P.stateFor(bid).ronder.some(function (r) { return r.utforare === utforareId; });
     });
+  }
+
+  // ---- Förslagen att stryka: *Stryk alla*, och behåll enskilda (beslut 45) ----
+  //
+  // Förslaget är en fråga, inte ett beslut: tillfällena ligger kvar och räknas med i
+  // belastningen tills planeraren svarar. *Stryk alla* är ett steg i historiken och *behåll*
+  // ett eget, så att ett ja till alla går att ta tillbaka i ett svep medan ett enskilt
+  // ställningstagande står för sig.
+  function strykpanel(foreslagna) {
+    var w = el('div', 'bal-stryk');
+    w.appendChild(el('div', 'bal-strykrub',
+      '<b>' + foreslagna.length + (foreslagna.length === 1 ? ' tillfälle' : ' tillfällen') +
+      ' föreslås strykas.</b> Efter den provisoriska flytten ligger ' +
+      (foreslagna.length === 1 ? 'det' : 'de') + ' högst ' +
+      (DP.Balansering.NARA_VECKOR === 1 ? 'en vecka' : DP.Balansering.NARA_VECKOR + ' veckor') +
+      ' från ett annat tillfälle i samma rondserie – arbetet skulle göras två gånger i rad.'));
+
+    var rad = el('div', 'knapprad');
+    var alla = el('button', 'knapp primar liten-knapp', 'Stryk alla ' + foreslagna.length);
+    alla.id = 'stryk-alla';
+    alla.title = 'Stryker alla föreslagna rutintillfällen i ett enda steg – ett ångra tar tillbaka dem';
+    alla.addEventListener('click', function () { P.strykAllaForeslagna(); });
+    rad.appendChild(alla);
+    w.appendChild(rad);
+
+    var lista = el('div', 'bal-stryklista');
+    foreslagna.forEach(function (t) {
+      var r = el('div', 'bal-strykrad');
+      r.dataset.byggnad = t.byggnad;
+      r.dataset.rond = t.rond;
+      r.dataset.ordinarie = String(t.ordinarieVecka);
+      r.appendChild(fargprick(DP.byggnader[t.byggnad].farg));
+      var txt = el('div', 'bal-tnamn');
+      txt.appendChild(el('span', 'bal-namn', t.byggnadNamn + ' · ' + t.rondNamn));
+      txt.appendChild(el('span', 'bal-omrade', 'v. ' + t.ordinarieVecka + ' → v. ' + t.vecka +
+        ' · ' + P.utforare(t.utforare).namn));
+      r.appendChild(txt);
+      var behall = el('button', 'lank bal-behall', 'Behåll');
+      behall.title = 'Behåll ' + t.namn + ' där det ligger – förslaget tas bort, flytten står kvar';
+      behall.addEventListener('click', function () {
+        P.behallTillfalle(t.byggnad, t.rond, t.ordinarieVecka);
+      });
+      r.appendChild(behall);
+      lista.appendChild(r);
+    });
+    w.appendChild(lista);
+    return w;
   }
 
   // ------------------------------------------------------------------
@@ -568,19 +683,35 @@
     if (cell.utanTillsyn) {
       w.appendChild(el('div', 'bal-varning mjuk', 'Veckan är markerad som vecka utan tillsyn och skötsel.'));
     }
-    if (!cell.antal) {
+    // Listan säger för varje tillfälle ordinarie vecka, faktisk vecka och om det är
+    // provisoriskt flyttat, föreslaget eller struket (biljett #16). De strukna hör med: de
+    // belastar inte veckan, men de hör till vad planeraren bestämt om den.
+    var struknaHar = struknaPerCell()[valdVecka.utforare + ':' + valdVecka.vecka] || [];
+    if (!cell.antal && !struknaHar.length) {
       w.appendChild(el('div', 'bal-notis', 'Inga rutintillfällen den här veckan.'));
       return w;
     }
     var ul = el('div', 'bal-tillfallen');
-    cell.tillfallen.forEach(function (t) {
-      var r = el('div', 'bal-tillfalle');
+    cell.tillfallen.concat(struknaHar).forEach(function (t) {
+      var r = el('div', 'bal-tillfalle' + (t.provisorisk ? ' provisorisk' : '') +
+        (t.foreslagen ? ' foreslagen' : '') + (t.struken ? ' struken' : ''));
+      r.dataset.byggnad = t.byggnad;
+      r.dataset.rond = t.rond;
       r.appendChild(fargprick(t.farg));
       var txt = el('div', 'bal-tnamn');
       txt.appendChild(el('span', 'bal-namn', t.byggnadNamn + ' · ' + t.rondNamn));
       txt.appendChild(el('span', 'bal-omrade', t.namn || ''));
+      // Veckoraden: ordinarie och faktisk vecka, så att flytten går att läsa i en rad
+      var veckor = t.provisorisk
+        ? '⤺ v. ' + t.ordinarieVecka + ' → v. ' + t.vecka + ' (provisoriskt flyttat)'
+        : 'v. ' + t.vecka + ' (ordinarie)';
+      if (t.foreslagen) { veckor += ' · ✂ föreslås strykas'; }
+      if (t.struken) { veckor += ' · ✂ struket'; }
+      txt.appendChild(el('span', 'bal-veckorad', veckor));
       r.appendChild(txt);
-      r.appendChild(el('span', 'bal-tid', dagsdelText(t)));
+      // Ett struket tillfälle har ingen planerad tid att visa – det belastar ingen vecka.
+      // Vägen tillbaka är ångra, som för allt annat.
+      r.appendChild(el('span', 'bal-tid', t.struken ? 'struket' : dagsdelText(t)));
       ul.appendChild(r);
     });
     w.appendChild(ul);
@@ -647,7 +778,8 @@
       grid.appendChild(vc);
     }
 
-    bel.rader.forEach(function (rad) { ritaRad(grid, rad, n, underlag); });
+    var strukna = struknaPerCell();
+    bel.rader.forEach(function (rad) { ritaRad(grid, rad, n, underlag, strukna); });
     w.appendChild(grid);
     w.appendChild(fot(bel));
     yta.appendChild(w);
@@ -726,7 +858,7 @@
     return w;
   }
 
-  function ritaRad(grid, rad, n, underlag) {
+  function ritaRad(grid, rad, n, underlag, strukna) {
     var ut = !!utfalld[rad.utforare];
     var lab = el('div', 'bt-etikett bt-utforare' + (ut ? ' utfalld' : ''));
     var fall = el('button', 'bt-fall', ut ? '▾' : '▸');
@@ -754,7 +886,7 @@
     grid.appendChild(lab);
 
     for (var v = 1; v <= n; v++) {
-      grid.appendChild(cellFor(rad, rad.veckor[v]));
+      grid.appendChild(cellFor(rad, rad.veckor[v], strukna));
     }
 
     // Utfälld: en rad per byggnad som utföraren har tillfällen i
@@ -793,7 +925,7 @@
   }
 
   // Cellen: hur full veckan är mot kapaciteten, med brickorna i byggnadens färg
-  function cellFor(rad, cell) {
+  function cellFor(rad, cell, strukna) {
     var klasser = 'bt-cell';
     if (cell.utanTillsyn) { klasser += ' utan'; }
     if (cell.antal) { klasser += ' har'; }
@@ -817,6 +949,11 @@
     k.appendChild(fyll);
     var brickor = el('div', 'bt-brickor');
     cell.tillfallen.forEach(function (t) { brickor.appendChild(bricka(t)); });
+    // De strukna ligger sist, som spöken: de belastar ingenting men visar att planeraren
+    // har tagit bort ett tillfälle som annars hade legat här.
+    ((strukna && strukna[rad.utforare + ':' + cell.vecka]) || []).forEach(function (t) {
+      brickor.appendChild(bricka(t));
+    });
     k.appendChild(brickor);
     if (cell.manga) { k.appendChild(el('span', 'bt-ring', null)); }
     k.addEventListener('click', function () {
@@ -826,14 +963,48 @@
     return k;
   }
 
-  // En bricka = ett rutintillfälle, i byggnadens färg (beslut 47)
+  // En bricka = ett rutintillfälle, i byggnadens färg (beslut 47).
+  //
+  // De tre slagen av markering är avsiktligt olika till formen och inte bara till färgen
+  // (biljett #16): ett **provisoriskt flyttat** tillfälle har en pil, ett **föreslaget** en
+  // sax och ett **struket** är ett tomt spöke. Färgen är redan upptagen av byggnaden, och
+  // den som läser tidsaxeln ska kunna se skillnaden utan att hålla en färgskala i huvudet.
   function bricka(t) {
-    var d = el('span', 'bt-bricka');
-    d.style.background = t.farg;
+    var d = el('span', 'bt-bricka' + (t.provisorisk ? ' provisorisk' : '') +
+      (t.foreslagen ? ' foreslagen' : '') + (t.struken ? ' struken' : ''));
+    if (!t.struken) { d.style.background = t.farg; }
+    else { d.style.borderColor = t.farg; }
     d.dataset.byggnad = t.byggnad;
     d.dataset.rond = t.rond;
-    d.title = (t.namn || t.byggnadNamn + ' · ' + t.rondNamn) + '\n' + dagsdelText(t);
+    if (t.ordinarieVecka !== undefined) { d.dataset.ordinarie = String(t.ordinarieVecka); }
+    var extra = '';
+    if (t.provisorisk) { extra += '\n⤺ Provisoriskt flyttat från v. ' + t.ordinarieVecka; }
+    if (t.foreslagen) { extra += '\n✂ Föreslås strykas'; }
+    if (t.struken) { extra += '\n✂ Struket'; }
+    d.title = (t.namn || t.byggnadNamn + ' · ' + t.rondNamn) +
+      (t.struken ? '' : '\n' + dagsdelText(t)) + extra;
     return d;
+  }
+
+  // De strukna tillfällena per utförare och vecka. De finns inte i belastningen – ett struket
+  // tillfälle belastar ingen vecka – men de ska synas: en strykning är ett ställningstagande
+  // som går att ta tillbaka, och ett tomrum i tidsaxeln hade inte visat att det fanns något
+  // att ta tillbaka (beslut 45).
+  function struknaPerCell() {
+    var ut = {};
+    P.klaraByggnader().forEach(function (bid) {
+      var s = P.stateFor(bid), b = DP.byggnader[bid];
+      P.tillfallenMedStrukna(s, bid).forEach(function (t) {
+        if (!t.struken) { return; }
+        var n = t.utforare + ':' + t.vecka;
+        (ut[n] = ut[n] || []).push({
+          byggnad: bid, byggnadNamn: b.namn, farg: b.farg, rond: t.rond,
+          rondNamn: P.rondNamn(t.rond), vecka: t.vecka, ordinarieVecka: t.ordinarieVecka,
+          namn: t.namn, struken: true
+        });
+      });
+    });
+    return ut;
   }
 
   // ------------------------------------------------------------------

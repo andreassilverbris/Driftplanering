@@ -141,7 +141,17 @@
       // förutsättningarna ändrats, och det visas – men den godkända tiden ändras aldrig av sig
       // själv (beslut 27). `arvd` sätts av kopiering: ställningstagandet gällde en annan byggnad,
       // så varje avvikelse märks (beslut 51).
-      tider: {}
+      tider: {},
+      // Nivå 3 i beslut 26: enskilda rutintillfällen som flyttats provisoriskt eller strukits.
+      // Båda är nycklade på **ordinarie vecka** ('rondId:vecka'), alltså den vecka planeringens
+      // rytm ger tillfället. Den veckan står still när tillfället flyttas, så nyckeln pekar på
+      // samma tillfälle hela tiden; hade nyckeln följt den faktiska veckan hade en andra flytt
+      // inte kunnat hitta tillbaka till vad tillfället egentligen hette (beslut 32).
+      flyttade: {},       // 'rond:ordinarieVecka' -> faktisk vecka
+      // 'struken' = planeraren har strukit tillfället, 'foreslagen' = balanseringen föreslår det
+      // (beslut 45). Förslaget är inte en strykning: tillfället ligger kvar och räknas med tills
+      // planeraren säger ja.
+      strukna: {}
     };
   }
   // Gemensamt tillstånd: det som inte hör till någon enskild byggnad. Här ligger Balanseringens
@@ -170,6 +180,18 @@
       ut[u.id] = svar === undefined ? DP.Balansering.KAPACITET_FORVAL : svar;
     });
     return ut;
+  }
+  // Veckor utan tillsyn och skötsel: semesterveckorna och veckan mellan jul och nyår är förvalda
+  // (beslut 32 och 37). Listan är ett svar med förval som de andra två frågorna, men till skillnad
+  // från dem kan det riktiga svaret vara **tomt** – en planerare som gör tillsyn hela året har inga
+  // utkorsade veckor. Därför går förvalet inte att läsa av listan: `veckorUtanBesvarad` säger om
+  // planeraren tagit ställning, och en tom besvarad lista betyder noll veckor, inte "obesvarad".
+  var VECKOR_UTAN_FORVAL = [28, 29, 30, 31, 52];
+  function veckorUtanForval() { return VECKOR_UTAN_FORVAL.slice(); }
+  function svarVeckorUtan(gem) {
+    gem = gem || gemensamt();
+    return (gem.veckorUtanBesvarad ? (gem.veckorUtan || []) : veckorUtanForval()).slice()
+      .sort(function (a, b) { return a - b; });
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
 
@@ -308,15 +330,57 @@
     return (rond && freqKomplett(rond.freq)) ? veckorFor(rond.freq, rondForskjutning(rond, s)) : [];
   }
 
-  // Alla rutintillfällen som planeringen genererar
-  function rutintillfallen(s, bid) {
+  // ------------------------------------------------------------------
+  // Nivå 3: provisoriska flyttar och strykningar (beslut 26, 32 och 45)
+  // ------------------------------------------------------------------
+  // Ett tillfälle har två veckor: den **ordinarie**, som planeringens rytm ger, och den
+  // **faktiska**, dit det flyttats. Flytten är provisorisk – den ändrar ingen frekvens och ingen
+  // förskjutning, så ordinarie vecka står still och tillfället hittar alltid hem. Därför är både
+  // flyttar och strykningar nycklade på ordinarie vecka.
+  function tillfalleNyckel(rondId, ordinarieVecka) { return rondId + ':' + ordinarieVecka; }
+  function faktiskVecka(s, rondId, ordinarieVecka) {
+    var f = s.flyttade && s.flyttade[tillfalleNyckel(rondId, ordinarieVecka)];
+    return f === undefined || f === null ? ordinarieVecka : f;
+  }
+  function strykStatus(s, rondId, ordinarieVecka) {
+    return (s.strukna && s.strukna[tillfalleNyckel(rondId, ordinarieVecka)]) || null;
+  }
+
+  // Alla rutintillfällen som planeringen genererar.
+  //
+  // `vecka` är den **faktiska** veckan, alltså där tillfället ligger. Allt som visar tillfällen –
+  // tidsaxeln, telefonen, informationskortet – läser `vecka` och får därför den provisoriska
+  // flytten gratis, och namnet bygger på den faktiska veckan (biljett #16). Ordinarie vecka
+  // följer med i `ordinarieVecka`: där ligger avvikande åtgärdstexter nycklade, eftersom
+  // texten hör till planeringen och inte till den vecka tillfället råkar ligga i just nu.
+  //
+  // Ett struket tillfälle ligger inte i listan: det finns inte. Ett *föreslaget* gör det, med
+  // flaggan `foreslagen` – förslaget är en fråga till planeraren, inte ett beslut (beslut 45).
+  function rutintillfallen(s, bid) { return tillfallen(s, bid, false); }
+  // Alla tillfällen inklusive de strukna, för listor som ska redovisa vad som hänt. Ett struket
+  // tillfälle är inte borta ur planeringen – det är ett ställningstagande som går att ångra, och
+  // det ska gå att se.
+  function tillfallenMedStrukna(s, bid) { return tillfallen(s, bid, true); }
+
+  // Nyckeln bygger på den **ordinarie** veckan och inte på den faktiska (beslut 64). Flera
+  // tillfällen i samma rondserie kan flyttas till samma vecka – fyra semesterveckor av en
+  // veckorond hamnar alla i veckan före – och hade nyckeln följt den faktiska veckan hade de
+  // delat nyckel. Då hade tidsaxeln visat ett av dem och telefonen alltid öppnat samma.
+  function tillfallen(s, bid, medStrukna) {
     s = s || stateFor(bid);
     var ut = [];
     s.ronder.forEach(function (r) {
       if (!freqKomplett(r.freq)) { return; }
       var atg = s.kopplingar.filter(function (k) { return k.rond === r.id; });
-      veckorForRond(r, s).forEach(function (v) {
-        ut.push({ nyckel: r.id + ':' + v, rond: r.id, vecka: v, namn: rutintillfalleNamn(r.id, v, bid), utforare: r.utforare, atgarder: atg });
+      veckorForRond(r, s).forEach(function (ov) {
+        var status = strykStatus(s, r.id, ov);
+        if (status === 'struken' && !medStrukna) { return; }
+        var v = faktiskVecka(s, r.id, ov);
+        ut.push({
+          nyckel: tillfalleNyckel(r.id, ov), rond: r.id, vecka: v, ordinarieVecka: ov,
+          provisorisk: v !== ov, foreslagen: status === 'foreslagen', struken: status === 'struken',
+          namn: rutintillfalleNamn(r.id, v, bid), utforare: r.utforare, atgarder: atg
+        });
       });
     });
     return ut;
@@ -594,6 +658,33 @@
       flytt[r.id] = karta;
     });
     flyttaTillfalleTexter(st, flytt);
+    flyttaNiva3(st, flytt);
+  }
+
+  // Provisoriska flyttar och strykningar följer sina tillfällen när besöksrytmen förskjuts.
+  // De är nycklade på ordinarie vecka, precis som texterna, och av samma skäl: efter
+  // förskjutningen finns ingen uppgift kvar om var tillfället låg, så den som ändrar
+  // förskjutningen måste flytta dem (beslut 56). Att i stället kasta dem hade tagit bort
+  // planerarens ställningstaganden i smyg varje gång balanseringen kördes om.
+  //
+  // Den provisoriska flytten är ett avstånd från ordinarie vecka, inte en absolut vecka:
+  // flyttas ordinarie vecka 2 veckor framåt följer målveckan med lika långt, så tillfället
+  // ligger kvar lika långt före sin ordinarie plats.
+  function flyttaNiva3(st, flytt) {
+    var nyaFlyttade = {}, nyaStrukna = {};
+    st.ronder.forEach(function (r) {
+      var karta = flytt[r.id] || {};
+      Object.keys(karta).forEach(function (gammal) {
+        var ov = Number(gammal), ny = karta[gammal];
+        var fId = tillfalleNyckel(r.id, ov), nyId = tillfalleNyckel(r.id, ny);
+        if (st.flyttade && st.flyttade[fId] !== undefined) {
+          nyaFlyttade[nyId] = st.flyttade[fId] + (ny - ov);
+        }
+        if (st.strukna && st.strukna[fId]) { nyaStrukna[nyId] = st.strukna[fId]; }
+      });
+    });
+    st.flyttade = nyaFlyttade;
+    st.strukna = nyaStrukna;
   }
 
   // Flyttar texterna på rutintillfällesnivå till tillfällenas nya veckor
@@ -612,6 +703,21 @@
     var finns = {};
     st.ronder.forEach(function (r) { finns[r.id] = true; });
     Object.keys(st.tider).forEach(function (id) { if (!finns[id]) { delete st.tider[id]; } });
+  }
+
+  // Provisoriska flyttar och strykningar för tillfällen som inte längre finns tas bort
+  // (beslut 40). En rond som bytt frekvens eller försvunnit har inte längre de ordinarie
+  // veckor nycklarna pekar på, och en flytt utan tillfälle hade legat kvar och slagit till
+  // igen om frekvensen någon gång råkade ge samma vecka.
+  function rensaNiva3(st) {
+    var finns = {};
+    st.ronder.forEach(function (r) {
+      veckorForRond(r, st).forEach(function (v) { finns[tillfalleNyckel(r.id, v)] = true; });
+    });
+    [st.flyttade, st.strukna].forEach(function (karta) {
+      if (!karta) { return; }
+      Object.keys(karta).forEach(function (n) { if (!finns[n]) { delete karta[n]; } });
+    });
   }
 
   // Status per steg i Planering, för en valfri byggnad. Samma regler som frågeflödet visar:
@@ -655,16 +761,27 @@
       veckoraknare: veckorFor,
       utforare: UTFORARE.map(function (u) { return { id: u.id, namn: u.namn, farg: u.farg }; }),
       kapacitet: svarKapacitet(gem),
-      veckorUtan: (gem.veckorUtan || []).slice(),
+      veckorUtan: svarVeckorUtan(gem),
       akerTill: svarAkerTill(gem),
       byggnader: klaraByggnader().map(function (bid) {
         var s = stateFor(bid), b = DP.byggnader[bid];
         return {
           id: bid, namn: b.namn, farg: b.farg, omrade: b.omrade,
           ronder: s.ronder.filter(function (r) { return freqKomplett(r.freq); }).map(function (r) {
+            // `veckor` är rondseriens **ordinarie** veckor, alltså de rytmen ger. Nivå 3 –
+            // provisoriska flyttar och strykningar – följer med som egna kartor nycklade på
+            // ordinarie vecka. Balanseringen räknar ut nivå 3 själv och behöver därför både
+            // utgångsläget och vad som redan är bestämt, och belastningen räknar fram de
+            // faktiska veckorna ur de två tillsammans.
             var veckor = veckorForRond(r, s);
-            var namnPerVecka = {};
-            veckor.forEach(function (v) { namnPerVecka[v] = rutintillfalleNamn(r.id, v, bid); });
+            var namnPerVecka = {}, flyttade = {}, strukna = {};
+            veckor.forEach(function (v) {
+              namnPerVecka[v] = rutintillfalleNamn(r.id, faktiskVecka(s, r.id, v), bid);
+              var f = s.flyttade && s.flyttade[tillfalleNyckel(r.id, v)];
+              if (f !== undefined && f !== null) { flyttade[v] = f; }
+              var st = strykStatus(s, r.id, v);
+              if (st) { strukna[v] = st; }
+            });
             var sparad = s.tider[r.id];
             return {
               id: r.id, namn: rondNamn(r.id), utforare: r.utforare,
@@ -672,7 +789,8 @@
               forskjutning: r.forskjutning || 0,
               timmar: tidTimmar(r.id, s, bid),
               dagsdel: sparad && sparad.godkand ? sparad.dagsdel : tidForslag(r.id, s, bid).dagsdel,
-              veckor: veckor, namnPerVecka: namnPerVecka
+              veckor: veckor, namnPerVecka: namnPerVecka,
+              flyttade: flyttade, strukna: strukna
             };
           })
         };
@@ -727,8 +845,16 @@
     s = s || state();
     return !!s.instTexter[instNyckel(k.atgard, k.inst)] || tillfalleAvvikelser(k, s).length > 0;
   }
+  // Veckan en avvikande åtgärdstext är nycklad på: tillfällets **ordinarie** vecka. Texten hör
+  // till planeringen, inte till den vecka tillfället råkar ligga i efter en provisorisk flytt –
+  // flyttas tillfället följer texten med av sig själv, utan att någon nyckel skrivs om
+  // (biljett #16). Äldre anropare som skickar ett tillfälle utan ordinarie vecka får sin
+  // faktiska vecka, som är densamma när inget flyttats.
+  function textVecka(t) {
+    return t.ordinarieVecka === undefined ? t.vecka : t.ordinarieVecka;
+  }
   function rutintillfalleAvviker(t, s) {
-    return t.atgarder.some(function (k) { return textFor(k, t.vecka, s).niva !== 'standard'; });
+    return t.atgarder.some(function (k) { return textFor(k, textVecka(t), s).niva !== 'standard'; });
   }
   function avvikandeInst(s) {
     s = s || state();
@@ -773,21 +899,38 @@
   // som inte längre har något att höra till tas bort. Allt som ändrar ett tillstånd går genom
   // andra() eller andraFlera(), så det räcker att städa där.
   function stada(st) {
+    if (!st.flyttade) { st.flyttade = {}; }
+    if (!st.strukna) { st.strukna = {}; }
     rensaTexter(st);
     rensaTider(st);
+    rensaNiva3(st);
   }
 
   // Vilka rutintillfällen flyttade till en annan vecka mellan två tillstånd? Används för att
   // animera förskjutningar i tidsaxeln och för att låta en öppen telefonvy följa med. En rond
   // som bytt frekvens eller försvunnit har inte flyttats utan planerats om, och räknas därför
   // inte som en flytt.
+  //
+  // Tillfällena paras ihop på sina **ordinarie** veckor – det är rytmen som parningen bygger på
+  // (beslut 56) – men `fran` och `till` är de **faktiska** veckorna. Det är där brickorna ligger
+  // och vad telefonens nycklar pekar på, så en provisorisk flytt animeras och följs av en öppen
+  // telefonvy på precis samma sätt som en förskjutning. Ett tillfälle som blivit struket har
+  // ingen vecka att flytta till och räknas därför inte som en flytt.
   function veckoSkillnad(fore, efter) {
     var ut = [];
     efter.ronder.forEach(function (r) {
       var f = fore.ronder.filter(function (x) { return x.id === r.id; })[0];
       if (!f || !sammaFreq(f.freq, r.freq)) { return; }
       parihop(veckorForRond(f, fore), veckorForRond(r, efter)).forEach(function (par) {
-        if (par.fran !== par.till) { ut.push({ rond: r.id, fran: par.fran, till: par.till, nyckel: r.id + ':' + par.till }); }
+        if (strykStatus(fore, r.id, par.fran) === 'struken' || strykStatus(efter, r.id, par.till) === 'struken') { return; }
+        var fran = faktiskVecka(fore, r.id, par.fran), till = faktiskVecka(efter, r.id, par.till);
+        if (fran !== till) {
+          ut.push({ rond: r.id, fran: fran, till: till,
+            // Nyckeln pekar ut *tillfället* och bygger därför på dess ordinarie vecka, som
+            // `rutintillfallen()` – `fran` och `till` är de faktiska veckorna, alltså var
+            // brickan flyger ifrån och till (beslut 64).
+            nyckel: tillfalleNyckel(r.id, par.till), franNyckel: tillfalleNyckel(r.id, par.fran) });
+        }
       });
     });
     return ut;
@@ -847,13 +990,31 @@
       a.gemensamt.kapacitetBesvarad = true;
     }, { balanseringsfraga: 'kapacitet' });
   }
+  // Veckor utan tillsyn och skötsel (fråga 3, beslut 32). Varje klick på en vecka är ett eget
+  // steg i historiken, som kapacitetssvaret: planeraren som korsar ut fel vecka ska kunna ta
+  // tillbaka just den.
+  function vaxlaVeckaUtan(vecka) {
+    var v = Math.round(Number(vecka) || 0);
+    if (v < 1 || v > ANTAL_VECKOR) { return; }
+    var nu = svarVeckorUtan();
+    var pa = nu.indexOf(v) < 0;
+    andraFlera('Balansering: v. ' + v + (pa ? ' utan tillsyn och skötsel' : ' har tillsyn och skötsel igen'), function (a) {
+      a.gemensamt.veckorUtan = (pa ? nu.concat([v]) : nu.filter(function (x) { return x !== v; }))
+        .sort(function (x, y) { return x - y; });
+      a.gemensamt.veckorUtanBesvarad = true;
+    }, { balanseringsfraga: 'veckorUtan' });
+  }
   // "Förvalen stämmer" är ett svar och inte ett tomrum: frågan får grön bock utan att något
   // tal ändras, och ett klick räcker (beslut 37).
+  var FRAGETEXT = { omraden: 'områdena stämmer', kapacitet: 'kapaciteten stämmer', veckorUtan: 'veckorna stämmer' };
   function godkannFraga(fraga) {
-    andraFlera('Balansering: ' + (fraga === 'omraden' ? 'områdena stämmer' : 'kapaciteten stämmer'), function (a) {
+    andraFlera('Balansering: ' + (FRAGETEXT[fraga] || fraga), function (a) {
       if (fraga === 'omraden') {
         a.gemensamt.akerTill = svarAkerTill(a.gemensamt);
         a.gemensamt.omradenBesvarad = true;
+      } else if (fraga === 'veckorUtan') {
+        a.gemensamt.veckorUtan = svarVeckorUtan(a.gemensamt);
+        a.gemensamt.veckorUtanBesvarad = true;
       } else {
         a.gemensamt.kapacitet = svarKapacitet(a.gemensamt);
         a.gemensamt.kapacitetBesvarad = true;
@@ -874,14 +1035,69 @@
         var rf = resultat.rondForskjutningar[bid] || {};
         Object.keys(rf).forEach(function (rondId) { sattRondForskjutning(st, rondId, rf[rondId]); });
       });
+      // Nivå 3 skrivs **efter** förskjutningarna, och skriver över det som fanns. Förskjutningen
+      // flyttade gamla flyttar till sina nya ordinarie veckor, men vilka tillfällen som nu
+      // hamnar i en vecka utan tillsyn och skötsel beror på var rytmen hamnade – och det vet
+      // bara uträkningen som just valde förskjutningen. Strykningar planeraren själv har gjort
+      // räknas också om: ett tillfälle som efter den nya rytmen inte längre ligger nära sitt
+      // granntillfälle ska inte vara struket av en tidigare balansering.
+      Object.keys(resultat.niva3 || {}).forEach(function (bid) {
+        var st = a.tillstand(bid);
+        if (!st) { return; }
+        st.flyttade = klona(resultat.niva3[bid].flyttade || {});
+        st.strukna = klona(resultat.niva3[bid].strukna || {});
+      });
       a.gemensamt.balanserad = {
         forskjutningar: klona(resultat.forskjutningar),
         rondForskjutningar: klona(resultat.rondForskjutningar),
         forklaring: klona(resultat.forklaring),
         kvarstaende: klona(resultat.kvarstaende),
-        forbattring: klona(resultat.forbattring)
+        forbattring: klona(resultat.forbattring),
+        provisoriska: resultat.provisoriska || 0,
+        foreslagna: klona(resultat.foreslagna || [])
       };
     }, { balansering: true });
+  }
+
+  // De tillfällen balanseringen föreslår att stryka, läst ur tillstånden. Panelen och knappen
+  // *Stryk alla* räknar på det som faktiskt står i planeringen och inte på det sparade
+  // resultatet: behåller planeraren ett enskilt tillfälle ska de övriga förslagen stå kvar,
+  // och listan ska krympa med dem (beslut 45).
+  function foreslagnaStrykningar() {
+    var ut = [];
+    BYGGNADSORDNING.forEach(function (bid) {
+      var s = stateFor(bid);
+      tillfallenMedStrukna(s, bid).forEach(function (t) {
+        if (t.foreslagen) {
+          ut.push({ byggnad: bid, byggnadNamn: DP.byggnader[bid].namn, rond: t.rond,
+            rondNamn: rondNamn(t.rond), ordinarieVecka: t.ordinarieVecka, vecka: t.vecka,
+            namn: t.namn, utforare: t.utforare });
+        }
+      });
+    });
+    return ut;
+  }
+  // Alla föreslagna tillfällen stryks i **ett** steg (beslut 45): förslaget kom i ett svep, och
+  // att säga ja till det ska gå att ta tillbaka i ett svep.
+  function strykAllaForeslagna() {
+    var lista = foreslagnaStrykningar();
+    if (!lista.length) { return 0; }
+    andraFlera('Balansering: strök ' + lista.length + ' föreslagna rutintillfällen', function (a) {
+      lista.forEach(function (t) {
+        var st = a.tillstand(t.byggnad);
+        if (st) { st.strukna[tillfalleNyckel(t.rond, t.ordinarieVecka)] = 'struken'; }
+      });
+    }, { strykning: true });
+    return lista.length;
+  }
+  // Behåll ett enskilt tillfälle: förslaget tas bort, tillfället ligger kvar där det ligger.
+  // Den provisoriska flytten rörs inte – den är skälet till att förslaget kom, och tillfället
+  // ska inte tillbaka in i en vecka utan tillsyn och skötsel.
+  function behallTillfalle(bid, rondId, ordinarieVecka) {
+    andraFlera('Balansering: behöll ' + rutintillfalleNamn(rondId, faktiskVecka(stateFor(bid), rondId, ordinarieVecka), bid), function (a) {
+      var st = a.tillstand(bid);
+      if (st) { delete st.strukna[tillfalleNyckel(rondId, ordinarieVecka)]; }
+    }, { strykning: true });
   }
 
   // Status för huvudsteget Balansering: frågorna och om balanseringen är gjord. Grön bock
@@ -892,8 +1108,12 @@
     return {
       omraden: !!gem.omradenBesvarad,
       kapacitet: !!gem.kapacitetBesvarad,
+      veckorUtan: !!gem.veckorUtanBesvarad,
       balanserad: !!gem.balanserad,
       resultat: gem.balanserad || null,
+      // Förslagen räknas ur tillstånden och inte ur det sparade resultatet, så att listan
+      // krymper när planeraren stryker eller behåller enskilda tillfällen.
+      foreslagna: foreslagnaStrykningar(),
       klar: !!gem.balanserad
     };
   }
@@ -901,6 +1121,7 @@
   window.DP.Plan = {
     standardText: standardText, instText: instText, textFor: textFor, tillfalleAvvikelser: tillfalleAvvikelser,
     kopplingAvviker: kopplingAvviker, rutintillfalleAvviker: rutintillfalleAvviker, avvikandeInst: avvikandeInst,
+    textVecka: textVecka,
     sattStandard: sattStandard, sattInst: sattInst, sattTillfalle: sattTillfalle, rensaTillfallen: rensaTillfallen, rensaInst: rensaInst,
     textSkillnad: textSkillnad, veckoSkillnad: veckoSkillnad, lika: lika,
     AR: AR, ANTAL_VECKOR: ANTAL_VECKOR, FREKVENSER: FREKVENSER, MANADER: MANADER, UTFORARE: UTFORARE,
@@ -916,6 +1137,7 @@
     prenumerera: function (fn) { lyssnare.push(fn); },
     instIndex: instIndex, rondNamn: rondNamn, utforare: utforare, atgard: atgard,
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
+    tillfallenMedStrukna: tillfallenMedStrukna,
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
     signifikanta: signifikanta, kopplingsStatus: kopplingsStatus, stegStatus: stegStatus,
     byggnadKlar: byggnadKlar, klaraByggnader: klaraByggnader, balanseringsUnderlag: balanseringsUnderlag,
@@ -925,7 +1147,10 @@
     rondForskjutning: rondForskjutning, veckorForRond: veckorForRond,
     sattForskjutning: sattForskjutning, sattRondForskjutning: sattRondForskjutning,
     svarAkerTill: svarAkerTill, svarKapacitet: svarKapacitet, akerTillForval: akerTillForval,
+    svarVeckorUtan: svarVeckorUtan, veckorUtanForval: veckorUtanForval, vaxlaVeckaUtan: vaxlaVeckaUtan,
     sattAkerTill: sattAkerTill, sattKapacitet: sattKapacitet, godkannFraga: godkannFraga,
-    tillampaBalansering: tillampaBalansering, balanseringStatus: balanseringStatus
+    tillampaBalansering: tillampaBalansering, balanseringStatus: balanseringStatus,
+    foreslagnaStrykningar: foreslagnaStrykningar, strykAllaForeslagna: strykAllaForeslagna,
+    behallTillfalle: behallTillfalle
   };
 })();

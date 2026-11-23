@@ -1673,10 +1673,11 @@ async function testBalansera(browser) {
     'förvalen gäller innan frågorna besvarats: Flygfältet och 3 dagar för alla');
   kontroll(forval.status.omraden === false && forval.status.kapacitet === false && forval.status.klar === false,
     'ingen fråga är besvarad och Balansering är inte klar från början');
-  kontroll(await page.locator('.bal-fraga').count() === 2
+  kontroll(await page.locator('.bal-fraga').count() === 3
     && (await page.locator('.bal-fraga[data-fraga="1"]').innerText()).includes('Flygfältet')
-    && (await page.locator('.bal-fraga[data-fraga="2"]').innerText()).includes('3 dagar'),
-    'båda frågorna visar sitt förval i sammanfattningen');
+    && (await page.locator('.bal-fraga[data-fraga="2"]').innerText()).includes('3 dagar')
+    && (await page.locator('.bal-fraga[data-fraga="3"]').innerText()).includes('28–31'),
+    'alla tre frågorna visar sitt förval i sammanfattningen');
 
   // Ett klick öppnar frågan, ett till bekräftar förvalet och ger grön bock
   await page.locator('.bal-fraga[data-fraga="1"] .steg-huvud').click();
@@ -1773,11 +1774,14 @@ async function testBalansera(browser) {
     && (await page.locator('.pl-steg[data-steg="balansering"]').getAttribute('data-klar')) === 'ja',
     'Balansering får grön bock i processlinjen när den är gjord');
 
-  // Förklaringen i klartext: en rad per byggnad, och den säger vilka veckor besöken hamnade i
-  const rader = await page.locator('.bal-frad').allInnerTexts();
-  kontroll(rader.length === 4 && rader.every(r => /v\. \d/.test(r)),
+  // Förklaringen i klartext: en rad per byggnad, och den säger vilka veckor besöken hamnade i.
+  // Nivå 3 lägger till egna rader om provisoriska flyttar och strykförslag (biljett #16), och
+  // de räknas inte som byggnadsrader – de hör till hela balanseringen, inte till en byggnad.
+  const byggnadsrader = await page.locator('.bal-frad:not(.niva3)').allInnerTexts();
+  kontroll(byggnadsrader.length === 4 && byggnadsrader.every(r => /v\. \d/.test(r)),
     'förklaringen har en rad per byggnad och säger vilka veckor den besöks i ('
-    + rader.length + ' rader)');
+    + byggnadsrader.length + ' rader)');
+  const rader = byggnadsrader;
   kontroll(rader.some(r => r.includes('Kasern 2')) && rader.some(r => r.includes('Kasern 1')),
     'förklaringen nämner båda kasernerna');
   kontroll((await page.locator('.bal-resultat .bal-vsum').innerText()).includes('Högsta veckan'),
@@ -1880,6 +1884,315 @@ async function testBalansera(browser) {
   await page.close();
 }
 
+// Etapp 5: veckor utan tillsyn och skötsel, provisoriska flyttar och strykningar (biljett #16).
+// Uträkningen prövas först i balanseringsmodulen med ett underlag som byggs i testet – reglerna
+// i beslut 32 och 45 är rena veckoräkningar och behöver ingen hopklickad planering för att
+// visa vad de gör. Sedan prövas frågan, markeringarna och knapparna i sidan.
+async function testVeckorUtanTillsyn(browser) {
+  console.log('Etapp 5 – Veckor utan tillsyn och skötsel');
+  const page = await nySida(browser, URL_INDEX);
+
+  // ------------------------------------------------------------------
+  // Nivå 3 i modulen: flytt bakåt, och förslag när flytten hamnar för nära
+  // ------------------------------------------------------------------
+  const rakning = await page.evaluate(() => {
+    const P = DP.Plan, B = DP.Balansering;
+    const UTAN = [28, 29, 30, 31, 52];
+    const rond = (id, veckor) => ({ id, namn: 'Rond ' + id, utforare: 'anna', timmar: 4, veckor });
+    const kor = (ronder, utan) => B.niva3({
+      antalVeckor: 52, veckorUtan: utan || UTAN,
+      byggnader: [{ id: 'a', namn: 'Hus A', ronder }]
+    });
+
+    // En månadsrond ligger var 4:e vecka. Tillfället i v. 28 flyttas till v. 27, och
+    // granntillfällena ligger i v. 24 och v. 32 – långt nog bort för att inte föreslås strykas.
+    const manad = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52];
+    const m = kor([rond('M', manad)]);
+
+    // En veckorond har ett tillfälle var vecka. Alla fyra semesterveckornas tillfällen hamnar
+    // i v. 27, där det redan ligger ett – fyra ronder på en dag är inte en flytt.
+    const vecka = []; for (let v = 1; v <= 52; v++) { vecka.push(v); }
+    const v = kor([rond('V', vecka)]);
+
+    // Veckan direkt före saknar också tillsyn och skötsel: sökningen går vidare bakåt.
+    // Med v. 26–31 utkorsade ska ett tillfälle i v. 31 hamna i v. 25, inte i v. 30.
+    const djup = kor([rond('D', [31])], [26, 27, 28, 29, 30, 31]);
+
+    // Året börjar med utkorsade veckor: då finns ingen tillåten vecka före, och flytten går
+    // framåt i stället. Regeln är att flytta bakåt, men syftet är att ingen ska arbeta en
+    // utkorsad vecka – och syftet väger tyngre än riktningen (beslut 65).
+    const framat = kor([rond('F', [1, 5, 9])], [1, 2]);
+
+    // Belastningen räknas på de faktiska veckorna: den flyttade veckan bär timmarna, och
+    // den utkorsade är tom. Ett struket tillfälle belastar ingenting alls.
+    const underlag = {
+      antalVeckor: 52, veckorUtan: UTAN,
+      utforare: [{ id: 'anna', namn: 'Anna Berg' }], kapacitet: { anna: 3 },
+      byggnader: [{ id: 'a', namn: 'Hus A', farg: '#888', ronder: [
+        { id: 'M', namn: 'M', utforare: 'anna', timmar: 4, veckor: manad,
+          flyttade: { 28: 27, 52: 51 }, strukna: { 52: 'struken' } }
+      ] }]
+    };
+    const bel = B.belastning(underlag);
+    const rad = bel.rad('anna');
+
+    return {
+      manadFlyttade: m.perByggnad.a.flyttade,
+      manadStrukna: m.perByggnad.a.strukna,
+      manadAntal: m.antalFlyttade,
+      veckaStrukna: Object.keys(v.perByggnad.a.strukna).length,
+      veckaForeslagna: v.foreslagna.map(f => f.ordinarieVecka).sort((x, y) => x - y),
+      veckaFlyttMal: Object.keys(v.perByggnad.a.flyttade).map(k => v.perByggnad.a.flyttade[k]),
+      djupMal: djup.perByggnad.a.flyttade['D:31'],
+      framatMal: framat.perByggnad.a.flyttade['F:1'],
+      bel: {
+        v27: rad.veckor[27].timmar, v28: rad.veckor[28].timmar,
+        v51: rad.veckor[51].timmar, v52: rad.veckor[52].timmar,
+        v27prov: rad.veckor[27].tillfallen.some(t => t.provisorisk),
+        utan28: rad.veckor[28].utanTillsyn
+      }
+    };
+  });
+
+  kontroll(JSON.stringify(rakning.manadFlyttade) === JSON.stringify({ 'M:28': 27, 'M:52': 51 })
+    && Object.keys(rakning.manadStrukna).length === 0,
+    'en månadsrond med tillfälle i v. 28 flyttas provisoriskt till v. 27 och föreslås inte strykas ('
+    + JSON.stringify(rakning.manadFlyttade) + ')');
+  kontroll(JSON.stringify(rakning.veckaForeslagna) === JSON.stringify([28, 29, 30, 31, 52])
+    && rakning.veckaStrukna === 5,
+    'en veckorond i v. 28–31 får förslag att stryka – alla fyra hamnar i samma vecka före ('
+    + JSON.stringify(rakning.veckaForeslagna) + ')');
+  kontroll(rakning.veckaFlyttMal.every(v => v === 27 || v === 51),
+    'veckorondens tillfällen flyttas till närmaste tillåtna vecka före, inte efter ('
+    + JSON.stringify(rakning.veckaFlyttMal) + ')');
+  kontroll(rakning.djupMal === 25,
+    'flytten går vidare bakåt när också veckan direkt före saknar tillsyn och skötsel '
+    + '(v. 31 med v. 26–31 utkorsade → v. ' + rakning.djupMal + ')');
+  kontroll(rakning.framatMal === 3,
+    'finns ingen tillåten vecka före går flytten framåt i stället – inget tillfälle lämnas '
+    + 'i en utkorsad vecka (v. 1 med v. 1–2 utkorsade → v. ' + rakning.framatMal + ')');
+  kontroll(rakning.bel.v28 === 0 && rakning.bel.v27 === 4 && rakning.bel.v27prov
+    && rakning.bel.utan28 === true,
+    'belastningen räknas på den faktiska veckan: v. 28 är tom och v. 27 bär ' + rakning.bel.v27
+    + ' h, märkt som provisorisk');
+  kontroll(rakning.bel.v51 === 0 && rakning.bel.v52 === 0,
+    'ett struket tillfälle belastar ingen vecka alls (v. 51 ' + rakning.bel.v51
+    + ' h, v. 52 ' + rakning.bel.v52 + ' h)');
+
+  // ------------------------------------------------------------------
+  // Fråga 3 i sidan: förval, ett klick, och varje vecka för sig
+  // ------------------------------------------------------------------
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await vanta(page, () => DP.Plan.klaraByggnader().length === 4, 'alla fyra byggnaderna klara');
+
+  const forval = await page.evaluate(() => ({
+    veckor: DP.Plan.balanseringsUnderlag().veckorUtan,
+    besvarad: DP.Plan.balanseringStatus().veckorUtan
+  }));
+  kontroll(JSON.stringify(forval.veckor) === JSON.stringify([28, 29, 30, 31, 52])
+    && forval.besvarad === false,
+    'v. 28–31 och v. 52 är förvalda, och frågan är inte besvarad från början');
+  kontroll(await page.locator('.bal-fraga').count() === 3
+    && (await page.locator('.bal-fraga[data-fraga="3"]').innerText()).includes('28–31'),
+    'fråga 3 finns och visar sitt förval som ett intervall i sammanfattningen');
+
+  await oppnaFraga(page, 3);
+  kontroll(await page.locator('.bal-veckoknapp').count() === 52
+    && await page.locator('.bal-veckoknapp.pa').count() === 5,
+    'året visas som 52 klickbara veckor, fem av dem utkorsade');
+
+  // Varje klick är ett eget steg, och det går att ångra
+  let foreHist = await historiklangd(page);
+  await page.locator('.bal-veckoknapp[data-vecka="27"]').click();
+  await stegKlart(page, foreHist, 'korsade ut v. 27');
+  kontroll(await page.evaluate(() => DP.Plan.balanseringsUnderlag().veckorUtan.indexOf(27) >= 0)
+    && await page.evaluate(() => DP.Plan.balanseringStatus().veckorUtan) === true,
+    'ett klick korsar ut en vecka och besvarar frågan');
+  await angra(page);
+  kontroll(await page.evaluate(() => DP.Plan.balanseringsUnderlag().veckorUtan.indexOf(27) < 0),
+    'ångra tar tillbaka den utkorsade veckan');
+
+  // Positionen och inte längden: ångran ovanför har spolat tillbaka historiken, och nästa steg
+  // skriver då över det som låg framför – längden står still, positionen går fram.
+  await oppnaFraga(page, 3);
+  let forePosFraga = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('.bal-fraga[data-fraga="3"] button[data-godkann]').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'bekräftade veckofrågan', forePosFraga);
+  kontroll(await page.evaluate(() => DP.Plan.balanseringStatus().veckorUtan) === true
+    && (await page.locator('.bal-fraga[data-fraga="3"] .steg-nr').innerText()) === '✓',
+    'fråga 3 får grön bock av ett klick på "Förvalet stämmer"');
+
+  // ------------------------------------------------------------------
+  // Balansera: inget tillfälle blir kvar i en vecka utan tillsyn och skötsel
+  // ------------------------------------------------------------------
+  const forePos = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('#balansera-knapp').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'balanseringssteget', forePos);
+  await vanta(page, () => !!document.querySelector('.bal-frad'), 'förklaringen ritad');
+
+  const efter = await page.evaluate(() => {
+    const P = DP.Plan;
+    const utan = P.svarVeckorUtan();
+    let iUtan = 0, provisoriska = 0;
+    P.byggnadsordning.forEach(bid => {
+      P.rutintillfallen(P.stateFor(bid), bid).forEach(t => {
+        if (utan.indexOf(t.vecka) >= 0) { iUtan++; }
+        if (t.provisorisk) { provisoriska++; }
+      });
+    });
+    const bst = P.balanseringStatus();
+    return {
+      iUtan, provisoriska, pos: P.historik().pos,
+      foreslagna: bst.foreslagna.length,
+      typer: bst.resultat.forklaring.map(f => f.typ),
+      // Ordinarie veckor är orörda: en provisorisk flytt ändrar ingen frekvens och ingen
+      // förskjutning, så rytmen ligger kvar där förskjutningen satte den.
+      ordinarieKvar: P.byggnadsordning.every(bid => {
+        const s = P.stateFor(bid);
+        return s.ronder.every(r => {
+          const rytm = P.veckorForRond(r, s);
+          return P.tillfallenMedStrukna(s, bid).filter(t => t.rond === r.id)
+            .every(t => rytm.indexOf(t.ordinarieVecka) >= 0);
+        });
+      })
+    };
+  });
+  kontroll(efter.iUtan === 0 && efter.provisoriska > 0,
+    'inget tillfälle ligger i en vecka utan tillsyn och skötsel efter Balansera ('
+    + efter.provisoriska + ' flyttades provisoriskt)');
+  kontroll(efter.pos === forePos + 1,
+    'de provisoriska flyttarna ingår i balanseringens enda historiksteg (position '
+    + forePos + ' → ' + efter.pos + ')');
+  kontroll(efter.ordinarieKvar === true,
+    'de ordinarie veckorna är orörda – planeringen ändras inte av en provisorisk flytt');
+  kontroll(efter.typer.indexOf('provisorisk') >= 0,
+    'förklaringen säger att tillfällen flyttades provisoriskt ('
+    + efter.typer.join(', ') + ')');
+  await rorelsePaus(page);
+  await bild(page, 'etapp5-veckor-utan-tillsyn');
+
+  // ------------------------------------------------------------------
+  // Markeringarna i Balanseringens tidsaxel
+  // ------------------------------------------------------------------
+  kontroll(await page.locator('.bt-vecka.utan').count() === 5
+    && await page.locator('.bt-cell.utan').count() > 0,
+    'veckorna utan tillsyn och skötsel är markerade i tidsaxeln ('
+    + await page.locator('.bt-vecka.utan').count() + ' veckor)');
+  kontroll(await page.locator('.bt-bricka.provisorisk').count() === efter.provisoriska,
+    'varje provisoriskt flyttat tillfälle har en egen markering i tidsaxeln ('
+    + await page.locator('.bt-bricka.provisorisk').count() + ' av ' + efter.provisoriska + ')');
+  kontroll(await page.locator('.bt-bricka.foreslagen').count() === efter.foreslagna
+    && efter.foreslagna > 0,
+    'de föreslagna tillfällena har en egen markering (' + efter.foreslagna + ')');
+
+  // ------------------------------------------------------------------
+  // "Stryk alla" och "behåll" – egna steg, båda går att ångra (beslut 45)
+  // ------------------------------------------------------------------
+  await vanta(page, () => !!document.querySelector('.bal-strykrad'), 'listan över förslag');
+  kontroll(await page.locator('.bal-strykrad').count() === efter.foreslagna,
+    'förslagen listas en och en med ordinarie och faktisk vecka');
+
+  // Behåll ett enskilt: förslaget försvinner, flytten står kvar, de andra är orörda
+  const forsta = await page.evaluate(() => {
+    const f = DP.Plan.balanseringStatus().foreslagna[0];
+    return { byggnad: f.byggnad, rond: f.rond, ordinarie: f.ordinarieVecka, vecka: f.vecka };
+  });
+  foreHist = await historiklangd(page);
+  await page.locator('.bal-strykrad[data-byggnad="' + forsta.byggnad + '"][data-rond="'
+    + forsta.rond + '"][data-ordinarie="' + forsta.ordinarie + '"] .bal-behall').click();
+  await stegKlart(page, foreHist, 'behöll ett enskilt tillfälle');
+  const behallet = await page.evaluate(arg => {
+    const P = DP.Plan;
+    const t = P.rutintillfallen(P.stateFor(arg.byggnad), arg.byggnad)
+      .filter(x => x.rond === arg.rond && x.ordinarieVecka === arg.ordinarie)[0];
+    return { finns: !!t, foreslagen: t && t.foreslagen, vecka: t && t.vecka, provisorisk: t && t.provisorisk,
+      kvar: P.balanseringStatus().foreslagna.length };
+  }, forsta);
+  kontroll(behallet.finns && behallet.foreslagen === false && behallet.vecka === forsta.vecka
+    && behallet.provisorisk === true,
+    'ett enskilt tillfälle kan behållas: förslaget tas bort men den provisoriska flytten står kvar');
+  kontroll(behallet.kvar === efter.foreslagna - 1,
+    'de övriga förslagen står kvar (' + behallet.kvar + ' av ' + efter.foreslagna + ')');
+  await angra(page);
+  kontroll(await page.evaluate(() => DP.Plan.balanseringStatus().foreslagna.length) === efter.foreslagna,
+    'ångra ger förslaget tillbaka');
+
+  // Stryk alla: ett steg, och de strukna tillfällena finns inte längre
+  const forePosStryk = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('#stryk-alla').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'strök alla föreslagna', forePosStryk);
+  const struket = await page.evaluate(() => {
+    const P = DP.Plan;
+    let strukna = 0, kvarIListan = 0;
+    P.byggnadsordning.forEach(bid => {
+      P.tillfallenMedStrukna(P.stateFor(bid), bid).forEach(t => { if (t.struken) { strukna++; } });
+      P.rutintillfallen(P.stateFor(bid), bid).forEach(t => { if (t.foreslagen) { kvarIListan++; } });
+    });
+    return { strukna, kvarIListan, forslag: P.balanseringStatus().foreslagna.length };
+  });
+  kontroll(struket.strukna === efter.foreslagna && struket.forslag === 0 && struket.kvarIListan === 0,
+    'Stryk alla stryker de föreslagna tillfällena i ett steg (' + struket.strukna + ' strukna)');
+  kontroll(await page.locator('.bt-bricka.struken').count() === efter.foreslagna,
+    'de strukna tillfällena har en egen markering i tidsaxeln');
+  await bild(page, 'etapp5-strukna');
+  await angra(page);
+  kontroll(await page.evaluate(() => DP.Plan.balanseringStatus().foreslagna.length) === efter.foreslagna,
+    'ett enda ångra tar tillbaka alla strykningar');
+
+  // ------------------------------------------------------------------
+  // Planeringens tidsaxel och telefonvyerna visar faktisk vecka
+  // ------------------------------------------------------------------
+  await page.evaluate(arg => { DP.Plan.vaxlaByggnad(arg.byggnad); }, forsta);
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppen');
+  await vanta(page, () => !!document.querySelector('.rt-mark.provisorisk'),
+    'ett provisoriskt flyttat tillfälle i planeringens tidsaxel');
+
+  const iPlanering = await page.evaluate(arg => {
+    const mark = document.querySelector('.ta-cell[data-rond="' + arg.rond + '"][data-vecka="'
+      + arg.vecka + '"] .rt-mark');
+    const ordinarieCell = document.querySelector('.ta-cell[data-rond="' + arg.rond
+      + '"][data-vecka="' + arg.ordinarie + '"] .rt-mark');
+    return {
+      iFaktisk: !!mark,
+      provisorisk: mark ? mark.classList.contains('provisorisk') : false,
+      nyckel: mark ? mark.dataset.nyckel : null,
+      iOrdinarie: !!ordinarieCell,
+      utanMarkerade: document.querySelectorAll('.ta-vecka.utan').length
+    };
+  }, forsta);
+  kontroll(iPlanering.iFaktisk && iPlanering.provisorisk && !iPlanering.iOrdinarie,
+    'planeringens tidsaxel visar tillfället i den faktiska veckan (v. ' + forsta.vecka
+    + '), inte i den ordinarie (v. ' + forsta.ordinarie + ')');
+  kontroll(iPlanering.utanMarkerade === 5,
+    'veckorna utan tillsyn och skötsel är markerade också i planeringens tidsaxel');
+
+  // Telefonen: namnet bygger på den faktiska veckan, och flytten sägs rakt ut
+  await page.locator('.ta-cell[data-rond="' + forsta.rond + '"][data-vecka="'
+    + forsta.vecka + '"] .rt-mark').click();
+  await vanta(page, () => document.querySelectorAll('.telefon').length > 0, 'telefonvyn öppen');
+  // Nyckeln bygger på den **ordinarie** veckan (beslut 64) – det är den som pekar ut
+  // tillfället. Namnet i vyn bygger däremot på den faktiska, och det är kontrollen.
+  const iTelefon = await page.evaluate(arg => {
+    const tel = document.querySelector('.telefon[data-nyckel="' + arg.rond + ':' + arg.ordinarie + '"]');
+    return {
+      finns: !!tel,
+      titel: tel ? tel.querySelector('.tf-titel').textContent : '',
+      flyttad: tel ? (tel.querySelector('.tf-flyttad') || {}).textContent || '' : ''
+    };
+  }, forsta);
+  kontroll(iTelefon.finns && iTelefon.titel.includes(await page.evaluate(v => DP.Plan.veckoNamn(v), forsta.vecka)),
+    'telefonvyns namn bygger på den faktiska veckan (' + iTelefon.titel + ')');
+  kontroll(iTelefon.flyttad.includes('v. ' + forsta.ordinarie),
+    'telefonen säger att tillfället är provisoriskt flyttat och varifrån ('
+    + iTelefon.flyttad + ')');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testBalanseringRymsPaSkarmen(browser) {
   console.log('Etapp 5 – Balansering på 1920×1200');
   const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
@@ -1952,6 +2265,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testProcesslinjen(browser);
     await testBalanseringensTidsaxel(browser);
     await testBalansera(browser);
+    await testVeckorUtanTillsyn(browser);
     await testBalanseringRymsPaSkarmen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {

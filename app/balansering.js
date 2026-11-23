@@ -34,15 +34,38 @@
   //   {
   //     antalVeckor: 52,
   //     byggnader: [{ id, namn, farg, omrade,
-  //                   ronder: [{ id, namn, utforare, timmar, veckor: [1, 5, 9 …] }] }],
+  //                   ronder: [{ id, namn, utforare, timmar,
+  //                              veckor: [1, 5, 9 …],      // **ordinarie** veckor, ur rytmen
+  //                              flyttade: { 28: 27 },     // ordinarie vecka -> faktisk vecka
+  //                              strukna:  { 29: 'struken' | 'foreslagen' } }] }],
   //     utforare:   [{ id, namn, farg }],            // ordningen är radordningen
   //     kapacitet:  { anna: 3, … },                  // dagar i veckan, förval 3
   //     veckorUtan: [28, 29, 30, 31, 52]             // veckor utan tillsyn och skötsel
   //   }
   //
+  // Rondens `veckor` är de ordinarie veckorna. Belastningen räknas på de **faktiska**: ett
+  // provisoriskt flyttat tillfälle belastar den vecka det ligger i, och ett struket belastar
+  // ingen alls. Ett *föreslaget* räknas med – förslaget är en fråga, inte ett beslut (beslut 45).
+  //
   // Svaret har en rad per utförare, och varje rad en cell per vecka (index 1..antalVeckor,
   // cell 0 används inte – veckonummer är 1-baserade och då slipper vi räkna om överallt).
   // ------------------------------------------------------------------
+  // Rondens tillfällen som de faktiskt ligger: ordinarie vecka, faktisk vecka och strykstatus.
+  // Allt som räknar på en rondserie går den här vägen, så nivå 3 tolkas på ett enda ställe.
+  function tillfallenFor(rond) {
+    var flyttade = rond.flyttade || {}, strukna = rond.strukna || {};
+    var ut = [];
+    (rond.veckor || []).forEach(function (ov) {
+      if (strukna[ov] === 'struken') { return; }
+      var f = flyttade[ov];
+      ut.push({
+        ordinarieVecka: ov,
+        vecka: f === undefined || f === null ? ov : f,
+        foreslagen: strukna[ov] === 'foreslagen'
+      });
+    });
+    return ut;
+  }
   function belastning(underlag) {
     var antalVeckor = underlag.antalVeckor || 52;
     var kapacitet = underlag.kapacitet || {};
@@ -82,14 +105,18 @@
       (b.ronder || []).forEach(function (r) {
         var rad = radFor[r.utforare];
         if (!rad) { return; }   // en utförare som inte har någon rad hör inte hit
-        (r.veckor || []).forEach(function (v) {
+        tillfallenFor(r).forEach(function (t) {
+          var v = t.vecka;
           if (v < 1 || v > antalVeckor) { return; }
           var cell = rad.veckor[v];
           cell.timmar += r.timmar || 0;
           cell.tillfallen.push({
             byggnad: b.id, byggnadNamn: b.namn, farg: b.farg,
-            rond: r.id, rondNamn: r.namn, vecka: v, timmar: r.timmar || 0,
-            dagsdel: r.dagsdel || null, namn: r.namnPerVecka ? r.namnPerVecka[v] : null
+            rond: r.id, rondNamn: r.namn, vecka: v, ordinarieVecka: t.ordinarieVecka,
+            provisorisk: t.vecka !== t.ordinarieVecka, foreslagen: t.foreslagen,
+            timmar: r.timmar || 0,
+            dagsdel: r.dagsdel || null,
+            namn: r.namnPerVecka ? r.namnPerVecka[t.ordinarieVecka] : null
           });
         });
       });
@@ -145,6 +172,136 @@
   function timmarText(timmar) {
     var t = avrunda(timmar, 1);
     return (t === Math.round(t) ? String(Math.round(t)) : String(t).replace('.', ',')) + ' h';
+  }
+
+  // ------------------------------------------------------------------
+  // Nivå 3: provisoriska flyttar och förslag att stryka (beslut 26, 32 och 45)
+  //
+  // Veckorna utan tillsyn och skötsel är semestern och veckan mellan jul och nyår. Ingen gör
+  // tillsyn då, så inget tillfälle får ligga där. Flytten är **provisorisk**: frekvensen,
+  // förskjutningen och den ordinarie veckan står still, och tillfället ligger bara den här
+  // gången i en annan vecka. Därför flyttas det **bakåt** och inte framåt – arbetet ska vara
+  // gjort innan semestern, inte skjutas upp till efter den.
+  //
+  // Kommer flytten för nära nästa ordinarie tillfälle i samma rondserie **föreslås** tillfället
+  // strykas i stället (beslut 45). En veckorond har ett tillfälle var vecka, så alla fyra
+  // semesterveckornas tillfällen hamnar i samma vecka före semestern – att göra fyra
+  // veckoronder på en dag är inte en flytt, det är fyra tillfällen för mycket. Ett förslag är
+  // ändå inte en strykning: tillfället ligger kvar och räknas med tills planeraren säger ja.
+  // ------------------------------------------------------------------
+  var NARA_VECKOR = 1;   // högst så många veckor från ett annat tillfälle ger förslag (beslut 45)
+
+  // Närmaste vecka med tillsyn och skötsel, bakåt från en vecka. Gäller även när veckan direkt
+  // före också saknar tillsyn och skötsel: sökningen går vidare bakåt vecka för vecka
+  // (biljett #16).
+  //
+  // Når sökningen vecka 0 finns ingen tillåten vecka före i året – året börjar med utkorsade
+  // veckor. Då går den **framåt** i stället. Att flytta bakåt är regeln, eftersom arbetet ska
+  // vara gjort innan semestern, men regeln är till för att inget tillfälle ska ligga i en
+  // vecka ingen arbetar. Att lämna tillfället kvar i en utkorsad vecka hade följt bokstaven
+  // och brutit mot syftet. Finns ingen tillåten vecka alls – hela året är utkorsat – ligger
+  // tillfället kvar; då är frågan besvarad så att ingen tillsyn och skötsel görs över huvud
+  // taget, och det är inget uträkningen kan laga.
+  function narmasteFore(vecka, utan, antalVeckor) {
+    var v;
+    for (v = vecka - 1; v >= 1; v--) {
+      if (!utan[v]) { return v; }
+    }
+    for (v = vecka + 1; v <= antalVeckor; v++) {
+      if (!utan[v]) { return v; }
+    }
+    return null;
+  }
+
+  // Nivå 3 för en rondserie: vilka tillfällen som flyttas och vilka som föreslås strykas.
+  // Räknas alltid om från grunden ur de ordinarie veckorna, så att resultatet bara beror på
+  // var rytmen hamnade – inte på vad en tidigare balansering råkade bestämma.
+  function niva3ForRond(rond, utan, antalVeckor) {
+    var flyttade = {}, strukna = {};
+    var tillfallen = (rond.veckor || []).map(function (ov) {
+      var mal = utan[ov] ? narmasteFore(ov, utan, antalVeckor) : null;
+      return { ordinarieVecka: ov, vecka: mal === null ? ov : mal, flyttad: mal !== null };
+    });
+    tillfallen.forEach(function (t) {
+      if (t.flyttad) { flyttade[t.ordinarieVecka] = t.vecka; }
+    });
+    // Förslaget mäts mot de **faktiska** veckorna: det är där tillfällena ligger, och det är
+    // avståndet mellan dem planeraren möter. Bara ett flyttat tillfälle kan föreslås strykas –
+    // ett tillfälle som ligger kvar på sin ordinarie plats är planeringen, och den ändrar
+    // balanseringen inte (beslut 26).
+    tillfallen.forEach(function (t, i) {
+      if (!t.flyttad) { return; }
+      var nara = tillfallen.some(function (annat, j) {
+        return i !== j && Math.abs(annat.vecka - t.vecka) <= NARA_VECKOR;
+      });
+      if (nara) { strukna[t.ordinarieVecka] = 'foreslagen'; }
+    });
+    return { flyttade: flyttade, strukna: strukna };
+  }
+
+  // Nivå 3 för hela underlaget: en post per byggnad, nycklad på ordinarie vecka som i
+  // tillståndet. Svaret går rakt in i planeringen i balanseringens historiksteg.
+  function niva3(underlag) {
+    var utan = {};
+    (underlag.veckorUtan || []).forEach(function (v) { utan[v] = true; });
+    var ut = {}, antalFlyttade = 0, foreslagna = [];
+    (underlag.byggnader || []).forEach(function (b) {
+      var flyttade = {}, strukna = {};
+      (b.ronder || []).forEach(function (r) {
+        var n = niva3ForRond(r, utan, underlag.antalVeckor || 52);
+        Object.keys(n.flyttade).forEach(function (ov) {
+          flyttade[r.id + ':' + ov] = n.flyttade[ov];
+          antalFlyttade++;
+        });
+        Object.keys(n.strukna).forEach(function (ov) {
+          strukna[r.id + ':' + ov] = n.strukna[ov];
+          foreslagna.push({
+            byggnad: b.id, byggnadNamn: b.namn, rond: r.id, rondNamn: r.namn,
+            ordinarieVecka: Number(ov), vecka: n.flyttade[ov], utforare: r.utforare
+          });
+        });
+      });
+      ut[b.id] = { flyttade: flyttade, strukna: strukna };
+    });
+    return { perByggnad: ut, antalFlyttade: antalFlyttade, foreslagna: foreslagna };
+  }
+
+  // Underlaget med nivå 3 tillämpad, så att belastningen kan räknas på det faktiska läget
+  function medNiva3(underlag, n3) {
+    var kopia = {
+      antalVeckor: underlag.antalVeckor, utforare: underlag.utforare,
+      kapacitet: underlag.kapacitet, veckorUtan: underlag.veckorUtan,
+      akerTill: underlag.akerTill,
+      byggnader: (underlag.byggnader || []).map(function (b) {
+        var post = (n3.perByggnad && n3.perByggnad[b.id]) || { flyttade: {}, strukna: {} };
+        return {
+          id: b.id, namn: b.namn, farg: b.farg, omrade: b.omrade,
+          ronder: (b.ronder || []).map(function (r) {
+            var flyttade = {}, strukna = {};
+            Object.keys(post.flyttade).forEach(function (n) {
+              var d = delaNyckel(n);
+              if (d.rond === r.id) { flyttade[d.vecka] = post.flyttade[n]; }
+            });
+            Object.keys(post.strukna).forEach(function (n) {
+              var d = delaNyckel(n);
+              if (d.rond === r.id) { strukna[d.vecka] = post.strukna[n]; }
+            });
+            return {
+              id: r.id, namn: r.namn, utforare: r.utforare, timmar: r.timmar,
+              dagsdel: r.dagsdel, freq: r.freq, veckor: r.veckor,
+              namnPerVecka: r.namnPerVecka, flyttade: flyttade, strukna: strukna
+            };
+          })
+        };
+      })
+    };
+    return kopia;
+  }
+  // Nyckeln är 'rondId:vecka', och rond-id kan själv innehålla kolon om det någon gång ändras –
+  // därför delas den på den **sista** kolonen.
+  function delaNyckel(n) {
+    var i = n.lastIndexOf(':');
+    return { rond: n.slice(0, i), vecka: Number(n.slice(i + 1)) };
   }
 
 
@@ -221,6 +378,11 @@
   // belastningen kan räknas på det prövade läget utan att något tillstånd ändras.
   // `bara` (valfri) begränsar underlaget till en lista byggnads-id. Steg 1 använder den för
   // att mäta ett val mot de byggnader som redan har valt sin plats.
+  // Nivå 3 räknas om i samma veva (`medNiva3` nedan), eftersom de provisoriska flyttarna
+  // följer av var rytmen hamnar: en fas som lägger fyra tillfällen i semesterveckorna ger
+  // fyra tillfällen i veckan före, och det ska sökningen få se. Mättes läget på de ordinarie
+  // veckorna hade balanseringen valt en fas som ser jämn ut och i verkligheten klumpar ihop
+  // arbetet precis före semestern.
   function medForskjutningar(underlag, fsk, rondFsk, veckoraknare, bara) {
     var med = bara ? (underlag.byggnader || []).filter(function (b) { return bara.indexOf(b.id) >= 0; })
                    : (underlag.byggnader || []);
@@ -229,6 +391,7 @@
       utforare: underlag.utforare,
       kapacitet: underlag.kapacitet,
       veckorUtan: underlag.veckorUtan,
+      akerTill: underlag.akerTill,
       byggnader: med.map(function (b) {
         var bf = fsk[b.id] || 0;
         return {
@@ -237,14 +400,19 @@
             var rf = (rondFsk[b.id] && rondFsk[b.id][r.id]) || 0;
             return {
               id: r.id, namn: r.namn, utforare: r.utforare, timmar: r.timmar,
-              dagsdel: r.dagsdel, freq: r.freq,
+              dagsdel: r.dagsdel, freq: r.freq, namnPerVecka: r.namnPerVecka,
               veckor: veckoraknare(r.freq, bf + rf)
             };
           })
         };
       })
     };
-    return kopia;
+    // Nivå 3 räknas och **sparas på kopian**, så att den som vill ha svaret – balansera()
+    // när förskjutningarna är valda – kan läsa det i stället för att räkna om samma sak.
+    var n3 = niva3(kopia);
+    var med = medNiva3(kopia, n3);
+    med.niva3 = n3;
+    return med;
   }
 
   // Byggnaderna som delar område med en byggnad man åker till, i underlagets ordning
@@ -372,6 +540,31 @@
       }
     }
 
+    // ---------------- Nivå 3: veckorna utan tillsyn och skötsel töms (beslut 32) ----------------
+    // Nivå 3 har redan vägt in i sökningen: `medForskjutningar` tillämpar den i varje prövat
+    // läge (beslut 66) och lämnar svaret med. Här läses det ur det slutliga läget i stället
+    // för att räknas en gång till – samma underlag ger samma svar, och ett dubbelarbete som
+    // *kan* gå isär är värre än inget alls.
+    var n3 = medForskjutningar(underlag, fsk, rondFsk, veckoraknare).niva3;
+    if (n3.antalFlyttade) {
+      forklaring.push({
+        typ: 'provisorisk', antal: n3.antalFlyttade, veckorUtan: (underlag.veckorUtan || []).slice(),
+        text: antalText(n3.antalFlyttade, 'rutintillfälle', 'rutintillfällen') + ' låg i en vecka utan ' +
+          'tillsyn och skötsel (' + veckorKort((underlag.veckorUtan || []).slice()) + ') och ' +
+          'flyttades provisoriskt till närmaste vecka före. Planeringen är orörd – flytten ' +
+          'gäller bara i år.'
+      });
+    }
+    if (n3.foreslagna.length) {
+      forklaring.push({
+        typ: 'foreslagen-strykning', antal: n3.foreslagna.length,
+        text: 'Av dem hamnade ' + antalText(n3.foreslagna.length, 'tillfälle', 'tillfällen') +
+          ' högst en vecka från ett annat tillfälle i samma rondserie. Det är tätt nog att ' +
+          'arbetet görs två gånger i rad, så ' + (n3.foreslagna.length === 1 ? 'det' : 'de') +
+          ' föreslås strykas – du bestämmer.'
+      });
+    }
+
     // ---------------- Kvarstående överbelastning (beslut 46) ----------------
     var kvarstaende = efter.rader.filter(function (rad) { return rad.over.length; }).map(function (rad) {
       return {
@@ -384,6 +577,9 @@
     return {
       forskjutningar: fsk,
       rondForskjutningar: rondFsk,
+      niva3: n3.perByggnad,
+      provisoriska: n3.antalFlyttade,
+      foreslagna: n3.foreslagna,
       fore: fore,
       efter: efter,
       kvarstaende: kvarstaende,
@@ -395,6 +591,7 @@
       forklaring: forklaring
     };
   }
+  function antalText(n, ental, flertal) { return n + ' ' + (n === 1 ? ental : flertal); }
 
   // Kandidaterna i den ordning ett samlat område vill ha dem: samma vecka först, sedan
   // veckorna efter varandra, och till sist resten (så att listan alltid är komplett).
@@ -483,8 +680,12 @@
     TIMMAR_PER_DAG: TIMMAR_PER_DAG,
     MANGA_TILLFALLEN: MANGA_TILLFALLEN,
     KAPACITET_FORVAL: KAPACITET_FORVAL,
+    NARA_VECKOR: NARA_VECKOR,
     belastning: belastning,
     balansera: balansera,
+    // Nivå 3 för sig: provisoriska flyttar och förslag att stryka, utan att något balanseras.
+    // Reglerna i beslut 32 och 45 går därför att pröva på ett underlag som byggs i ett test.
+    niva3: niva3,
     cellText: cellText,
     timmarText: timmarText
   };

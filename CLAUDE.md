@@ -133,16 +133,33 @@ Skriptens ordning i `index.html` spelar roll:
   de avvikande texterna på rutintillfällesnivå lika många veckor som tillfällena, eftersom texterna är
   nycklade på veckan och efteråt inte går att para ihop med sitt tillfälle.
   `veckoSkillnad(fore, efter)` ger de tillfällen som bytt vecka – flödet animerar dem i tidsaxeln (även
-  vid ångra) och telefonen låter en öppen vy följa med till den nya veckan. Båda parar ihop före och
+  vid ångra) och telefonen låter en öppen vy följa med till den nya veckan. Den parar ihop på
+  **ordinarie** vecka men svarar med de **faktiska**, så en provisorisk flytt animeras likadant. Båda parar ihop före och
   efter med `parihop`: tillfälle nummer *n* före svarar mot nummer *n* efter. Listorna kan vara olika
   långa (varannan månad ger 6 eller 7 tillfällen beroende på fas), och det sista tillfället saknar då
   motsvarighet – men de övriga har flyttat som vanligt.
+- **Nivå 3: provisoriska flyttar och strykningar (beslut 26, 32, 45 och 64–66):** ett rutintillfälle har
+  två veckor. Den **ordinarie** är den rytmen ger, den **faktiska** är där det ligger efter en provisorisk
+  flytt. `s.flyttade` (`'rond:ordinarieVecka'` → faktisk vecka) och `s.strukna` (samma nyckel →
+  `'struken'` | `'foreslagen'`) är båda nycklade på den **ordinarie** veckan, som står still när tillfället
+  flyttas. `rutintillfallen()` svarar med `vecka` (faktisk), `ordinarieVecka`, `provisorisk` och
+  `foreslagen`, och utelämnar de strukna; `tillfallenMedStrukna()` tar med dem. **Nyckeln
+  (`rond:ordinarieVecka`) bygger på den ordinarie veckan**, inte på den faktiska: flera
+  tillfällen i samma rondserie kan flyttas till samma vecka, och hade nyckeln följt den
+  faktiska hade de delat nyckel. Avvikande åtgärdstexter
+  nycklas på den **ordinarie** veckan – `DP.Plan.textVecka(t)` är vägen dit – så de följer med flytten
+  av sig själva. `DP.Balansering.niva3(underlag)` räknar ut flyttar och strykförslag: flytt till närmaste
+  tillåtna vecka **före** (vidare bakåt om också den saknar tillsyn, framåt bara när ingen vecka finns
+  före), och förslag när ett flyttat tillfälle hamnar högst en vecka från ett annat i samma rondserie. `strykAllaForeslagna()`, `behallTillfalle()` och
+  `aterstallStruket()` är egna historiksteg; balanseringens flyttar ingår i dess enda steg.
 - **Balanseringens underlag:** `DP.Plan.balanseringsUnderlag()` samlar ihop de byggnader där alla sex stegen
   är klara (`byggnadKlar(bid)`, `klaraByggnader()` – beslut 39) till en ren datastruktur: per byggnad id, namn,
   färg, område och ronder med utförare, planerad tid i timmar, dagsdel och **de veckor tillfällena ligger i**.
   Veckorna räknas där, med båda förskjutningarna, så att `DP.Balansering` själv inte behöver veta något om
-  frekvenser eller tillstånd. Underlaget bär också svaren ur det gemensamma tillståndet (`kapacitet` i dagar,
-  `veckorUtan`, `akerTill`) med förval när de inte är besvarade.
+  frekvenser eller tillstånd. Veckorna i underlaget är de **ordinarie**; nivå 3 följer med som `flyttade`
+  och `strukna` per rond, och belastningen räknar fram de faktiska ur de två. Underlaget bär också svaren
+  ur det gemensamma tillståndet (`kapacitet` i dagar, `veckorUtan`, `akerTill`) med förval när de inte är
+  besvarade.
 - **`DP.Balansering.belastning(underlag)`** ger en rad per utförare och en cell per vecka: planerad tid i
   timmar och dagar, antal rutintillfällen och vilka de är, om veckan är över kapaciteten (`over`) och om den
   har fler än 6 tillfällen (`manga`, den mjuka varningen i beslut 31). En dag är 8 h och kapaciteten är
@@ -154,16 +171,19 @@ Skriptens ordning i `index.html` spelar roll:
   deterministisk: byggnaderna placeras i byggnadsordning, varje val mäts mot **de redan placerade**
   (annars hade den första byggnaden flyttat för att komma undan byggnader som ännu inte valt plats), och
   måtten jämförs i ordningen lägsta topp → färst veckor över kapaciteten → färst veckor med fler än 6
-  tillfällen → jämnast spridning. Vid lika utfall vinner den minsta förskjutningen. I ett område man åker
+  tillfällen → jämnast spridning. Vid lika utfall vinner den minsta förskjutningen. Varje prövat läge mäts
+  **med nivå 3 tillämpad** (beslut 66), så att en fas som klumpar ihop arbetet före semestern inte ser jämn ut. I ett område man åker
   till prövas områdets vecka först och sedan veckorna efter den: första som ryms vinner (beslut 38).
   Räcker nivå 1 inte prövas enskilda rondserier (nivå 2). Svaret är rena data – `forskjutningar`,
   `rondForskjutningar`, `fore`/`efter`, `kvarstaende` och `forklaring` – och skrivs till planeringen av
   `DP.Plan.tillampaBalansering(resultat)` som **ett** historiksteg (beslut 36). Förklaringens `text`
   formuleras i modulen och inte i vyn: varför en byggnad hamnade där den hamnade vet bara den som
   valde, och raderna ska kunna läsas i ett test utan DOM (beslut 61).
-- **Balanseringens frågor** ligger i det gemensamma tillståndet: `akerTill`, `kapacitet` (dagar per utförare)
-  och `veckorUtan` (inte byggd än). Tomt betyder "inte besvarad", och `svarAkerTill()`/`svarKapacitet()`
-  ger förvalen. `omradenBesvarad` och `kapacitetBesvarad` är själva ställningstagandet – att bekräfta
+- **Balanseringens tre frågor** ligger i det gemensamma tillståndet: `akerTill`, `kapacitet` (dagar per
+  utförare) och `veckorUtan` (förval v. 28–31 och 52). Tomt betyder "inte besvarad", och
+  `svarAkerTill()`/`svarKapacitet()`/`svarVeckorUtan()` ger förvalen – för veckorna går förvalet inte att
+  läsa av listan, eftersom ett riktigt svar kan vara tomt, så `veckorUtanBesvarad` avgör.
+  `omradenBesvarad`, `kapacitetBesvarad` och `veckorUtanBesvarad` är själva ställningstagandet – att bekräfta
   förvalet är ett svar, inte ett tomrum (beslut 37). `balanseringStatus()` svarar på vad som är besvarat,
   om balanseringen är gjord och vad den gav; `klar` kräver att den är gjord, och styr grön bock i
   processlinjen.
@@ -178,7 +198,9 @@ Skriptens ordning i `index.html` spelar roll:
 (`id, freq, foljerBas, besvarad, utforare, forskjutning`), `kopplingar` (`atgard, inst, rond`; `inst` kan vara `'BYGGNAD'`
 för generella åtgärder), `standardTexter`, `instTexter`, `tillfalleTexter`, `tider`
 (rond → `{ dagsdel, godkand, forslagVidGodkandet, minuterVidGodkandet, arvd }` – de två mittersta är
-förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med en kopiering).
+förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med en kopiering),
+`flyttade` (`'rond:ordinarieVecka'` → faktisk vecka) och `strukna` (samma nyckel → `'struken'` |
+`'foreslagen'`).
 
 **Byggnadsdata:** `plan` (nedifrån och upp, `elev`), `rum` (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`,
 valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej signifikanta), `stil`
@@ -193,18 +215,17 @@ steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (be
 processlinjen och ordlistan (beslut 54–55), förskjutningarna i planeringen (beslut 26, 41 och 56),
 Balanseringens tidsaxel med belastning per utförare (beslut 28, 31, 33, 39 och 47) samt **Balansera** med
 de två första frågorna, uträkningen, förklaringen i klartext och den kvarstående överbelastningen
-(beslut 36, 37, 38 och 46) byggda.
+(beslut 36, 37, 38 och 46) samt **veckor utan tillsyn och skötsel** med provisoriska flyttar, förslag att
+stryka, *Stryk alla* och *behåll* (beslut 32, 45 och 64–66) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
-**Nästa: etapp 5** – frågan om veckor utan tillsyn och skötsel (beslut 32), flytt för hand (beslut 34),
-förslaget att stryka ett tillfälle (beslut 45) och markeringen när planeringen ändrats sedan balanseringen
+**Nästa: etapp 5** – flytt för hand (beslut 34) och markeringen när planeringen ändrats sedan balanseringen
 (beslut 40). Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
-- Den tredje frågan – veckor utan tillsyn och skötsel (beslut 32) – är inte byggd. Tills den finns gäller
-  förvalet: inga veckor är utkorsade. Fälten `veckorUtan` i det gemensamma tillståndet och i underlaget
-  finns redan och används av belastningsräkningen.
-- Flytt för hand, provisoriska flyttar och strykningar (nivå 3 i beslut 26) finns inte än, och Balansering
-  markeras inte när planeringen ändrats sedan balanseringen (beslut 40).
+- **Flytt för hand** (nivå 3 för planerarens egen hand, beslut 34) finns inte än: provisoriska flyttar och
+  strykningar kommer bara ur Balansera och ur knapparna *Stryk alla* och *Behåll*. Tillståndet och
+  `rutintillfallen()` bär dem redan, så en dra-och-släpp behöver inte ändra datamodellen.
+- Balansering markeras inte när planeringen ändrats sedan balanseringen (beslut 40).
 - Balanseringens sökning är greedy per byggnad i byggnadsordning, inte uttömmande: den hittar ett bra läge,
   inte bevisat det bästa. Valet är deterministiskt, så samma underlag ger alltid samma resultat.
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.

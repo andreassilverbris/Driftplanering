@@ -248,6 +248,63 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     balanseringen hade varit osynligt där det gäller. En knapp bredvid *Balansera om* gör samma sak
     som Ctrl+Z.
 
+64. **Ett rutintillfälle har två veckor: ordinarie och faktisk** (biljett #16, beslut 26 och 32).
+    Den **ordinarie** veckan är den rytmen ger – frekvens plus de två förskjutningarna. Den
+    **faktiska** är där tillfället ligger efter en provisorisk flytt. Provisoriska flyttar och
+    strykningar är därför nycklade på den **ordinarie** veckan, och bara på den: den står still
+    när tillfället flyttas, så nyckeln pekar på samma tillfälle hela tiden. Hade nyckeln följt
+    den faktiska veckan hade en andra flytt inte kunnat hitta tillbaka till vad tillfället
+    egentligen hette, och två tillfällen som flyttats till samma vecka hade kolliderat.
+
+    Av samma skäl bygger **rutintillfällets nyckel** (`rond:ordinarieVecka`) på den ordinarie
+    veckan. Flera tillfällen i en rondserie kan hamna i samma vecka – en veckorond får alla
+    semesterveckornas tillfällen flyttade till veckan före – och hade nyckeln följt den
+    faktiska veckan hade de delat nyckel. Tidsaxeln hade då visat ett av dem och telefonen
+    alltid öppnat samma, och just det fallet är det som utlöser strykförslagen.
+
+    `DP.Plan.rutintillfallen()` svarar med den **faktiska** veckan i `vecka` och bär den
+    ordinarie i `ordinarieVecka`. Allt som visar tillfällen – planeringens tidsaxel, telefonen,
+    informationskortet – läser `vecka` och får därmed flytten utan att veta något om nivå 3,
+    och namnet bygger på den faktiska veckan. De **avvikande åtgärdstexterna** är däremot
+    nycklade på den ordinarie: texten hör till planeringen och inte till den vecka tillfället
+    råkar ligga i just nu, så den följer med flytten av sig själv. `DP.Plan.textVecka(t)` är
+    den vägen, och `tillfallenMedStrukna()` listar även de strukna – ett struket tillfälle är
+    inte borta, det är ett ställningstagande som går att ta tillbaka.
+
+65. **Flytten går bakåt, och förslaget att stryka mäts på de faktiska veckorna** (biljett #16,
+    beslut 32 och 45). Ett tillfälle i en vecka utan tillsyn och skötsel flyttas till närmaste
+    **tillåtna vecka före** – arbetet ska vara gjort innan semestern, inte skjutas upp till
+    efter den. Saknar också veckan direkt före tillsyn och skötsel går sökningen vidare bakåt
+    vecka för vecka. Finns ingen tillåten vecka före i året – året börjar med utkorsade
+    veckor – går flytten **framåt** i stället. Att flytta bakåt är regeln, men regeln finns
+    för att inget tillfälle ska ligga i en vecka ingen arbetar; att lämna det kvar hade följt
+    bokstaven och brutit mot syftet. Är hela året utkorsat ligger tillfället kvar: då har
+    planeraren svarat att ingen tillsyn och skötsel görs alls, och det är inget uträkningen
+    kan laga.
+
+    Ett tillfälle som efter flytten hamnar högst **en vecka** från ett annat tillfälle i samma
+    rondserie **föreslås** strykas. Avståndet mäts på de faktiska veckorna – det är där
+    tillfällena ligger, och det är avståndet planeraren möter. Bara ett flyttat tillfälle kan
+    föreslås strykas: ett som ligger kvar på sin ordinarie plats är planeringen, och den ändrar
+    balanseringen inte. Ett **förslag är inte en strykning**: tillfället ligger kvar och räknas
+    med i belastningen tills planeraren säger ja. *Stryk alla* är ett steg i historiken och
+    *behåll* ett eget, så att ett ja till alla går att ta tillbaka i ett svep medan ett enskilt
+    ställningstagande står för sig.
+
+66. **Sökningen mäter på läget med nivå 3 tillämpad** (biljett #16, beslut 60). De provisoriska
+    flyttarna följer av var rytmen hamnar: en fas som lägger fyra tillfällen i semesterveckorna
+    ger fyra tillfällen i veckan före. Mättes lägena på de ordinarie veckorna hade balanseringen
+    valt en fas som ser jämn ut i tabellen och i verkligheten klumpar ihop arbetet precis före
+    semestern – och planeraren hade sett en tidsaxel som inte stämde med måttet som valde den.
+    Nivå 3 räknas därför om i varje prövat läge, och en gång till på det slutliga.
+
+    Av samma skäl räknas nivå 3 **om från grunden** varje gång Balansera körs. Flyttarna är
+    balanseringens resultat och inte planerarens, och en strykning som en tidigare körning
+    föreslog ska inte hänga kvar när den nya rytmen lagt tillfället någon annanstans. De
+    provisoriska flyttar och strykningar som **planeraren** gjort följer däremot med när en
+    förskjutning ändrar de ordinarie veckorna, parade på ordningsnummer precis som texterna
+    (beslut 56): flytten är ett avstånd från den ordinarie veckan, inte en absolut vecka.
+
 ## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)

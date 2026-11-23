@@ -104,8 +104,15 @@ Alla rutintillfällen för en rond i en byggnad under året.
 **Permanent ändring**:
 En ändring av planeringen som gäller alla kommande tillfällen, t.ex. att förskjuta en besöksrytm eller en rondserie.
 
+**Ordinarie vecka**:
+Den vecka ett rutintillfälle hör hemma i enligt planeringen: frekvensen plus byggnadens och rondseriens förskjutningar. Står still när tillfället flyttas provisoriskt.
+
+**Faktisk vecka**:
+Den vecka ett rutintillfälle ligger i. Samma som den ordinarie om tillfället inte är provisoriskt flyttat. Namnet bygger på den faktiska veckan.
+
 **Provisorisk flytt**:
-Ett enskilt rutintillfälle flyttas till en annan vecka utan att planeringen ändras.
+Ett enskilt rutintillfälle flyttas till en annan vecka utan att planeringen ändras. Frekvensen, förskjutningarna och den ordinarie veckan rörs inte – flytten gäller bara i år.
 
 **Stryka**:
 Att ta bort ett enskilt rutintillfälle som annars skulle hamna nära nästa ordinarie tillfälle.
+_Föreslaget att strykas_ är inte struket: tillfället ligger kvar och räknas med tills planeraren säger ja.
