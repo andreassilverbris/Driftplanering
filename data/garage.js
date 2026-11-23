@@ -19,6 +19,9 @@
     id: 'garage',
     namn: 'Garage',
     typ: 'garage',
+    omrade: 'kasernomradet',
+    // Byggnadsfärg: brickorna i Balanseringens tidsaxel har byggnadens färg (beslut 47)
+    farg: '#d08a2f',
     beskrivning: 'Enkel byggnad för två bilar. Bra att börja med: bara tre signifikanta installationer – en handbrandsläckare och två portar.',
     stil: { tak: 'sadel', sadel: { bas: HOJD, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N', dekor: 'garage', fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
     konstanter: { PLANHOJD: HOJD, BJALKLAG: 0.2, FRIHOJD: HOJD },

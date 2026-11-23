@@ -74,6 +74,12 @@ Hur lång tid ett rutintillfälle förväntas ta, angivet i dagsdelar. Sätts pe
 **Dagsdel**:
 Den grova skalan för planerad tid: kort (≈1 h), kvartsdag, halvdag, heldag. Ett rutintillfälle ska rymmas på en dag.
 
+**Ändrad förutsättning**:
+Att en rond tar en annan tid än när dess planerade tid godkändes, för att åtgärderna i ronden ändrats eller
+för att tiden är kopierad från en annan byggnad. Ronden markeras med det nya förslaget, men den godkända
+tiden ändras aldrig av sig själv: den gäller tills planeraren använder förslaget eller behåller sin tid.
+_Undvik_: Föråldrad tid, inaktuell tid
+
 **Standardplanering**:
 En färdig planering per byggnadstyp som man utgår från och justerar.
 
@@ -98,8 +104,21 @@ Alla rutintillfällen för en rond i en byggnad under året.
 **Permanent ändring**:
 En ändring av planeringen som gäller alla kommande tillfällen, t.ex. att förskjuta en besöksrytm eller en rondserie.
 
+**Ordinarie vecka**:
+Den vecka ett rutintillfälle hör hemma i enligt planeringen: frekvensen plus byggnadens och rondseriens förskjutningar. Står still när tillfället flyttas provisoriskt.
+
+**Faktisk vecka**:
+Den vecka ett rutintillfälle ligger i. Samma som den ordinarie om tillfället inte är provisoriskt flyttat. Namnet bygger på den faktiska veckan.
+
 **Provisorisk flytt**:
-Ett enskilt rutintillfälle flyttas till en annan vecka utan att planeringen ändras.
+Ett enskilt rutintillfälle flyttas till en annan vecka utan att planeringen ändras. Frekvensen, förskjutningarna och den ordinarie veckan rörs inte – flytten gäller bara i år.
 
 **Stryka**:
 Att ta bort ett enskilt rutintillfälle som annars skulle hamna nära nästa ordinarie tillfälle.
+_Föreslaget att strykas_ är inte struket: tillfället ligger kvar och räknas med tills planeraren säger ja.
+
+**Ändrad planering**:
+Att planeringen i en byggnad ändrats sedan balanseringen gjordes, så att balanseringen vilar på ett
+underlag som inte längre stämmer. Förskjutningarna ligger kvar och ingenting räknas om av sig själv:
+Balansering markeras, ändringarna listas, och planeraren balanserar om när hen vill.
+_Undvik_: Ogiltig balansering, föråldrad balansering

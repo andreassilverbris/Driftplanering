@@ -13,40 +13,18 @@
     <label class="byggval">Byggnad
       <select id="byggnad"></select>
     </label>
-    <div class="steg">
-      <span class="steg-post aktiv">1 · En byggnad</span>
-      <a class="steg-post" href="flerbyggnad.html" style="text-decoration:none">2 · Flera byggnader (skiss)</a>
-    </div>
   </header>
 
   <div class="layout">
     <aside class="sidopanel">
-      <nav class="flikar">
-        <button class="flik aktiv" data-mal="flik-planering">Planering</button>
-        <button class="flik" data-mal="flik-byggnad">Byggnad</button>
-        <button class="flik" data-mal="flik-begrepp">Begrepp</button>
-      </nav>
-      <section id="flik-planering" class="flikinnehall"><div id="flode"></div></section>
-      <section id="flik-byggnad" class="flikinnehall" hidden><div id="trad"></div></section>
-      <section id="flik-begrepp" class="flikinnehall" hidden>
-        <dl class="begrepp">
-          <dt>Byggnad → Plan → Rum</dt>
-          <dd>Den fysiska strukturen. Plan och rum har var sitt id och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>2010 – Konferensrum</b>.</dd>
-          <dt>Signifikant installation</dt>
-          <dd>Registreras som individ med ett id på 8 siffror, t.ex. <b>00000089</b>. Ska alltid ha minst en kopplad åtgärd. Klickbar i modellen.</dd>
-          <dt>Övrig installation</dt>
-          <dd>Registreras inte som individ, t.ex. lysrörsarmaturer, väggbrytare och toalettstolar. Kontrolleras översiktligt i <i>Kontroll byggnad invändigt</i>. Syns i modellen men går inte att klicka på.</dd>
-          <dt>Åtgärd</dt>
-          <dd>Något som ska göras, t.ex. <i>Kontroll handbrandsläckare</i>. Alla åtgärder finns i en bruttolista.</dd>
-          <dt>Åtgärdstext och kontrollpunkter</dt>
-          <dd>Åtgärdstexten beskriver vad som ska göras som en lista med kontrollpunkter.</dd>
-          <dt>Rond</dt>
-          <dd>Det man planerar mot: en gruppering av åtgärder, t.ex. <i>Brandskydd</i> eller <i>Byggnad invändigt</i>. Varje rond har en frekvens och en utförare.</dd>
-          <dt>Rutintillfälle</dt>
-          <dd>Skapas automatiskt av planeringen: ett per byggnad, utförare, rond och vecka, t.ex. <b>Hangar-Brandskydd-2027v05</b>. Det är det som drifteknikern ser i telefonen.</dd>
-          <dt>Frekvens</dt>
-          <dd>Planeras alltid i veckor. "Varje månad" betyder var 4:e vecka (13 gånger per år).</dd>
-        </dl>
+      <nav class="processlinje" id="processlinje"></nav>
+      <div class="pl-rad">
+        <button id="ordlista-knapp" class="knapp sekundar liten-knapp" title="Slå upp ett begrepp utan att lämna steget du står i">Ordlista</button>
+      </div>
+      <section id="hs-byggnad" class="hs-innehall" hidden><div id="trad"></div></section>
+      <section id="hs-planering" class="hs-innehall"><div id="flode"></div></section>
+      <section id="hs-balansering" class="hs-innehall" hidden>
+        <div id="balansering"></div>
       </section>
     </aside>
 
@@ -89,6 +67,7 @@
         </div>
       </main>
       <section id="tidsaxel" class="tidsaxel"></section>
+      <section id="balansering-yta" class="balansering-yta"></section>
     </div>
   </div>
 
@@ -98,8 +77,11 @@
   <script src="vendor/OrbitControls.js"></script>
   <script src="data/hangar.js"></script>
   <script src="data/katalog.js"></script>
+  <script src="data/tidsschablon.js"></script>
+  <script src="data/ordlista.js"></script>
   <script src="data/garage.js"></script>
   <script src="data/kasern.js"></script>
+  <script src="app/balansering.js"></script>
   <script src="app/planering.js"></script>
   <script src="app/flyg.js"></script>
   <script src="app/dialog.js"></script>
@@ -109,5 +91,6 @@
   <script src="app/tidsaxel.js"></script>
   <script src="app/telefon.js"></script>
   <script src="app/flode.js"></script>
+  <script src="app/vyer.js"></script>
 </body>
 </html>

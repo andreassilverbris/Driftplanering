@@ -54,6 +54,9 @@
 .prog-text { font-size: 13px; }
 .prog-bar { height: 6px; border-radius: 3px; background: #e6eaee; margin-top: 6px; overflow: hidden; }
 .prog-bar div { height: 100%; background: var(--gron); transition: width .6s; }
+.prog-saknas { font-size: 12px; color: var(--dov); margin-top: 6px; }
+.progress.klar { background: #f6fcf8; border-color: #bfe5cd; }
+.progress.klar .prog-saknas { color: var(--gron); }
 
 .steg5-lista { max-height: 520px; overflow-y: auto; margin-right: -6px; padding-right: 6px; }
 .atgrad { border: 1px solid var(--linje); border-radius: 8px; margin-bottom: 5px; padding: 7px 9px; background: #fff; }
@@ -75,6 +78,176 @@
 .dov { color: var(--svag); }
 .forhands { margin-top: 8px; font-size: 13px; background: #eefaf2; border: 1px solid #bfe5cd; border-radius: 6px; padding: 6px 9px; }
 
+/* ---------- Balansering ----------
+ * I Balansering döljs 3D-vyn och planeringens tidsaxel, och balanseringsytan tar deras plats.
+ * Döljningen sker med CSS på behållaren: vyn byggs aldrig om, så kamera, valt plan och
+ * vald installation finns kvar när man går tillbaka till Byggnad eller Planering.
+ */
+.balansering-yta { display: none; flex: 1; min-height: 0; background: #fff; }
+body.i-balansering #vy { display: none; }
+body.i-balansering .tidsaxel { display: none; }
+body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
+
+.bal-status { margin-top: 16px; color: var(--dov); line-height: 1.6; font-size: 12px; }
+.bal-status b { color: var(--text); }
+
+/* Sidopanelen i Balansering: byggnaderna som räknas med, hur tidsaxeln läses och veckolistan */
+.bal-grupp { margin-top: 14px; }
+.bal-grupp h3 { margin: 0 0 7px; font-size: 13px; }
+.bal-byggnader { display: flex; flex-direction: column; gap: 3px; }
+.bal-byggnad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 6px; }
+/* Gråad = byggnaden är inte klar i alla sex stegen och räknas inte med (beslut 39) */
+.bal-byggnad.grad { background: #f7f8f9; }
+.bal-byggnad.grad .bal-namn { color: var(--svag); }
+.bal-byggnad.grad .bal-farg { opacity: .3; }
+.bal-farg { width: 11px; height: 11px; border-radius: 3px; flex: none; background: var(--svag); }
+.bal-bnamn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-namn { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bal-omrade { font-size: 11px; color: var(--svag); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bal-med { font-size: 11px; color: var(--gron); font-weight: 600; flex: none; }
+.bal-lank { font-size: 11px; color: var(--accent); background: var(--accent-svag); border: 1px solid #b8cff8; border-radius: 999px; padding: 3px 9px; flex: none; }
+.bal-lank:hover { background: #d6e4fc; }
+.bal-notis { font-size: 12px; color: var(--dov); line-height: 1.55; margin-top: 7px; }
+.bal-punkter { margin: 0; padding-left: 17px; font-size: 12px; color: var(--dov); line-height: 1.55; }
+.bal-punkter b { color: var(--text); }
+.bal-veckolista { border-top: 1px solid var(--linje); padding-top: 12px; }
+.bal-vsum { font-size: 12px; color: var(--dov); background: #fafbfc; border: 1px solid var(--linje); border-radius: 6px; padding: 5px 8px; }
+.bal-vsum b { color: var(--text); }
+.bal-vsum.over { background: #fdecec; border-color: #f3c3c1; }
+.bal-vsum.manga { border-color: #e8c98a; }
+.bal-varning { font-size: 12px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: #fdecec; border: 1px solid #f3c3c1; color: #a33; line-height: 1.5; }
+.bal-varning.mjuk { background: #fdf5e6; border-color: #e8c98a; color: #8a6414; }
+.bal-tillfallen { display: flex; flex-direction: column; gap: 2px; margin-top: 7px; }
+.bal-tillfalle { display: flex; align-items: center; gap: 8px; padding: 4px 7px; border-bottom: 1px solid #f0f2f4; }
+.bal-tnamn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-tid { font-size: 11px; color: var(--dov); flex: none; white-space: nowrap; }
+.bal-veckorad { font-size: 11px; color: var(--svag); white-space: nowrap; }
+.bal-tillfalle.provisorisk .bal-veckorad { color: #3a6ea8; font-weight: 600; }
+.bal-tillfalle.foreslagen .bal-veckorad { color: #8a6414; font-weight: 600; }
+.bal-tillfalle.struken { opacity: .7; }
+.bal-tillfalle.struken .bal-namn { text-decoration: line-through; }
+.bal-behall { font-size: 11px; flex: none; }
+
+/* Fråga 3: året som en rad klickbara veckor. Semestern är ett intervall i planerarens huvud
+ * ("v. 28–31"), inte en uppräkning, och ett intervall syns direkt i en rad men måste läsas i
+ * en lista (beslut 32). Månadsskiftena är markerade, annars är 52 rutor oläsliga. */
+.bal-arrad { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 9px; }
+.bal-veckoknapp {
+  width: 25px; height: 22px; padding: 0; font-size: 10px; line-height: 1;
+  border: 1px solid var(--linje); background: #fff; color: var(--dov); border-radius: 3px; flex: none;
+}
+.bal-veckoknapp:hover { border-color: var(--accent); color: var(--accent); }
+.bal-veckoknapp.manadsstart { border-left: 2px solid #c3c9d1; }
+.bal-veckoknapp.pa { background: #4a5663; border-color: #39434e; color: #fff; font-weight: 700; }
+.bal-veckoknapp.pa:hover { background: #5a6775; color: #fff; }
+
+/* Förslagen att stryka: en lista att handla på (beslut 45) */
+.bal-stryk { margin-top: 11px; padding: 9px 10px; border: 1px solid #e8c98a; background: #fdf8ee; border-radius: 7px; }
+.bal-strykrub { font-size: 12px; color: #6b5420; line-height: 1.55; }
+.bal-strykrub b { color: #4a3a12; }
+.bal-stryklista { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.bal-strykrad { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-top: 1px solid #efe3c8; }
+
+/* Balanseringens tidsaxel: en rad per utförare, en kolumn per vecka (beslut 33) */
+.bal-tidsaxel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.bt-huvud { display: flex; align-items: center; gap: 18px; padding: 9px 16px; border-bottom: 1px solid var(--linje); flex: none; }
+.bt-rubrik { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-rubrik span { color: var(--dov); font-size: 12px; margin-left: 6px; }
+.bt-forklaring { display: flex; gap: 14px; margin-left: auto; font-size: 11px; color: var(--dov); flex: none; }
+.bt-fpost { display: flex; align-items: center; gap: 5px; }
+.bt-prov { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--linje); flex: none; }
+.bt-prov.lagom { background: #cfe6d6; }
+.bt-prov.nara { background: #f3dfae; }
+.bt-prov.over { background: #f0b4b1; }
+.bt-prov.manga { background: #fff; box-shadow: inset 0 0 0 2px #d98b1f; }
+.bt-tom { padding: 28px 32px; max-width: 720px; color: var(--dov); line-height: 1.6; }
+
+/* Varje utförarrad har en fast höjd, satt i vyer.js tillsammans med radmallen (beslut 58):
+ * hög nog att fyllnaden mot kapaciteten går att läsa, låg nog att fyra utförare och hela
+ * året ryms på 1920x1200 utan att sidan scrollar. Fäller man ut utförare växer antalet
+ * rader, och då får gridden scrolla i stället för att trycka ihop raderna. */
+.bt-grid {
+  display: grid; min-height: 0; overflow: auto; padding: 0 16px 8px;
+  align-content: start; flex: none; max-height: 100%;
+}
+.bt-grid > div, .bt-grid > button { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #e8ebee; }
+.bt-etikett { justify-content: flex-start !important; gap: 7px; padding-right: 10px; font-size: 13px; overflow: hidden; }
+.bt-manad { font-size: 11px; font-weight: 700; color: var(--dov); border-left: 1px solid #e3e7eb; justify-content: flex-start !important; padding-left: 5px; text-transform: uppercase; }
+
+.bt-vecka { font-size: 10px; color: var(--svag); border-left: 1px solid #f3f5f7; }
+.bt-vecka-etikett { font-size: 11px; color: var(--svag); }
+/* Vecka utan tillsyn och skötsel: markerad så att det syns varför den är tom (berättelse 56).
+ * Snedstrecken säger "här arbetar ingen" starkare än en grå ton, och de syns också bakom en
+ * cell som har fyllnad – en vecka kan vara utkorsad och ändå bära ett provisoriskt flyttat
+ * tillfälle som planeraren valt att behålla (beslut 32). */
+.bt-vecka.utan { background: #eceef1; color: var(--dov); font-weight: 700; }
+.bt-cell.utan, .bt-ucell.utan, .ta-cell.utan {
+  background-image: repeating-linear-gradient(135deg, rgba(110,118,128,.22) 0 2px, transparent 2px 6px);
+}
+/* Fyllnadsstapeln ligger ovanpå cellens bakgrund och hade annars dolt streckningen i just de
+ * veckor där den betyder mest: en vecka utan tillsyn och skötsel som ändå har arbete i sig. */
+.bt-cell.utan .bt-fyll {
+  background-image: repeating-linear-gradient(135deg, rgba(110,118,128,.22) 0 2px, transparent 2px 6px);
+}
+
+.bt-utforare { gap: 6px; }
+.bt-fall { width: 18px; height: 18px; padding: 0; border: 1px solid var(--linje); background: #fff; border-radius: 4px; color: var(--dov); font-size: 9px; line-height: 1; flex: none; }
+.bt-fall:hover { border-color: var(--accent); color: var(--accent); }
+.bt-unamn { min-width: 0; display: flex; flex-direction: column; }
+.bt-nrad { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-krad { font-size: 11px; color: var(--svag); line-height: 1.4; white-space: nowrap; }
+.bt-vrad { font-size: 11px; color: #c0392b; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.bt-vrad.mjuk { color: #8a6414; }
+.bt-under { padding-left: 32px; font-size: 12px; color: var(--dov); background: #fcfcfd; }
+.bt-bnamn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Cellen: fyllnaden mot kapaciteten som en stapel underifrån, brickorna ovanpå */
+.bt-cell {
+  position: relative; border-left: 1px solid #f3f5f7; border-bottom: 1px solid #f0f2f4;
+  background: #fff; padding: 0; overflow: hidden; align-items: flex-start !important;
+}
+.bt-cell.utan { background: #f4f5f7; }
+.bt-cell.har { background: #f6faf7; }
+.bt-cell.nara { background: #fcf2dc; }
+.bt-cell.over { background: #fbe0de; }
+.bt-cell.vald { box-shadow: inset 0 0 0 2px var(--accent); z-index: 2; }
+.bt-cell:hover { box-shadow: inset 0 0 0 1px #b8cff8; }
+/* Fyllnaden mot kapaciteten: en stapel underifrån med en tydlig överkant. Kanten är det som
+ * faktiskt går att läsa av – själva ytan hamnar bakom brickorna, och utan en linje att sikta
+ * på går skillnaden mellan 83 % och 108 % inte att se. Brickorna ligger i cellens övre del
+ * så att stapelns topp har någonstans att synas. */
+.bt-fyll {
+  position: absolute; left: 0; right: 0; bottom: 0; background: #cfe6d6;
+  border-top: 2px solid #4a9c6b; pointer-events: none;
+}
+.bt-cell.nara .bt-fyll { background: #f3dfae; border-top-color: #c9922a; }
+.bt-cell.over .bt-fyll { background: #f0b4b1; border-top-color: #c0392b; }
+/* Ringen = fler än 6 rutintillfällen. Den mjuka varningen gäller även när tiden räcker (beslut 31) */
+.bt-ring { position: absolute; inset: 2px; border: 2px solid #d98b1f; border-radius: 4px; pointer-events: none; }
+.bt-brickor {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 2px;
+  align-items: flex-start; justify-content: center; padding: 3px;
+}
+.bt-bricka { width: 11px; height: 11px; border-radius: 3px; background: var(--svag); flex: none; box-shadow: 0 0 0 1px rgba(255,255,255,.7); position: relative; }
+/* De tre slagen av markering skiljer sig i **form** och inte bara i färg: färgen är redan
+ * upptagen av byggnaden (beslut 47), så en fjärde färgskala hade varit oläslig. I 11 px
+ * bär ringen och snedstrecket skillnaden – en ändrad hörnradie syns inte alls i den storleken.
+ *   provisoriskt flyttad = blå ring runt brickan
+ *   föreslås strykas     = gul ring och ett vitt snedstreck över brickan
+ *   struken              = ihålig bricka, bara byggnadens färg som kant */
+.bt-bricka.provisorisk { box-shadow: 0 0 0 1px #fff, 0 0 0 2px #3a6ea8; }
+.bt-bricka.foreslagen { box-shadow: 0 0 0 1px #fff, 0 0 0 2px #b8860b; }
+.bt-bricka.foreslagen::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(45deg, transparent 42%, #fff 42% 58%, transparent 58%);
+}
+.bt-bricka.struken { background: #fff !important; border: 2px solid var(--svag); box-shadow: none; opacity: .75; }
+
+.bt-ucell { align-items: center !important; }
+.bt-ucell .bt-brickor { position: relative; align-items: center; justify-content: center; }
+.bt-ucell .bt-bricka { width: 12px; height: 12px; }
+.bt-ucell.utan { background: #f4f5f7; }
+
 /* ---------- Tidsaxel ---------- */
 .tidsaxel { flex: none; height: 290px; background: #fff; border-top: 1px solid var(--linje); display: flex; flex-direction: column; min-height: 0; }
 .ta-huvud { display: flex; align-items: center; gap: 14px; padding: 7px 14px; border-bottom: 1px solid var(--linje); }
@@ -88,7 +261,12 @@
 .ta-antal { margin-left: auto; color: var(--svag); font-size: 11px; white-space: nowrap; }
 .ta-manad { font-size: 11px; font-weight: 700; color: var(--dov); border-left: 1px solid #e3e7eb; justify-content: flex-start !important; padding-left: 4px; text-transform: uppercase; }
 .ta-vecka { font-size: 10px; color: var(--svag); border-left: 1px solid #f3f5f7; }
-.ta-cell { border-left: 1px solid #f3f5f7; }
+/* Också i Planeringens tidsaxel: det är förklaringen till att ett tillfälle ligger en vecka
+ * tidigare än rytmen säger (beslut 32) */
+.ta-vecka.utan { background: #eceef1; color: var(--dov); font-weight: 700; }
+/* Flera markörer kan dela cell när provisoriska flyttar samlar tillfällen i samma vecka.
+ * De krymper då i stället för att flyta ut ur cellen – att de är många är poängen. */
+.ta-cell { border-left: 1px solid #f3f5f7; gap: 1px; overflow: hidden; }
 .ta-besok { background: #fafbfc; }
 .ta-besok-etikett { background: #fafbfc; }
 .besok-prick { width: 8px; height: 8px; border-radius: 50%; background: #2b3340; }
@@ -101,6 +279,23 @@
 .rt-mark.fylld { background: var(--u); }
 .rt-mark.oppen { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1f2833; }
 .rt-mark:hover { transform: scale(1.15); }
+/* Provisoriskt flyttad och föreslagen att strykas: egna symboler i markörens hörn, som den
+ * befintliga ✎ för avvikande åtgärdstext. Markören ligger redan i den faktiska veckan – det
+ * symbolerna säger är att veckan inte är den ordinarie (biljett #16). */
+.rt-mark.provisorisk { border-style: dashed; }
+.rt-mark.foreslagen { opacity: .8; }
+.rt-symbol {
+  position: absolute; display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; border-radius: 50%; font-size: 8px; font-weight: 700;
+  color: #fff; border: 1.5px solid #fff; line-height: 1;
+}
+.rt-symbol.flytt { top: -7px; left: -7px; background: #3a6ea8; }
+.rt-symbol.stryk { bottom: -7px; right: -7px; background: #b8860b; }
+
+/* Telefonen: samma två besked, i klartext (beslut 26 och 45) */
+.tf-flyttad, .tf-foreslagen { font-size: 10px; line-height: 1.4; margin-top: 3px; padding: 2px 5px; border-radius: 4px; }
+.tf-flyttad { background: #e8eff8; color: #2d5580; }
+.tf-foreslagen { background: #fdf5e6; color: #8a6414; }
 .puls { animation: puls 1.1s ease-out; }
 .puls-rod { animation: pulsrod 1.1s ease-out; }
 @keyframes puls { 0% { box-shadow: 0 0 0 0 rgba(34,180,90,.9); transform: scale(1.4); } 60% { box-shadow: 0 0 0 10px rgba(34,180,90,0); transform: scale(1); } 100% { box-shadow: none; } }
@@ -214,3 +409,130 @@
 .ks-rad.ok { background: #f3fbf6; }
 .ks-rad.varn { background: #fff8e6; }
 .byggval select { min-width: 130px; }
+
+/* Steg 6: planerad tid per rond. Uträkningen står under rondnamnet, så att förslaget
+   alltid visas med sin motivering. */
+.tidrad { border: 1px solid var(--linje); border-radius: 8px; margin-bottom: 6px; padding: 8px 10px; background: #fff; }
+.tidrad.godkand { border-color: #bfe5cd; background: #f8fdfa; }
+.tidrad.andrad { border-color: #f0dca8; }
+.td-namn { font-size: 13px; }
+.td-utrakning { font-size: 12px; color: var(--dov); margin-top: 3px; }
+.tidrad .chiprad { margin-top: 7px; }
+.tidrad .notis { margin-top: 7px; }
+.tagg.gron { background: #dcf3e4; color: var(--gron); }
+
+/* Foten under Balanseringens tidsaxel: slutsatsen i klartext */
+.bt-fot { padding: 14px 18px; border-top: 1px solid var(--linje); background: #fafbfc; }
+.bt-fot-text { max-width: 1100px; font-size: 13px; color: var(--dov); line-height: 1.65; }
+.bt-fot-text b { color: var(--text); }
+.bt-fot-rub { font-weight: 700; color: var(--text); }
+
+/* Balanseringens frågor: samma utseende som Planeringens steg, så att det syns att det är
+   samma sorts arbete. Båda har förval och kan klickas igenom med ett klick var (beslut 37). */
+.bal-fraga { margin-bottom: 6px; }
+.bal-fraga .steg-kropp { padding-top: 2px; }
+.bal-omradeslista, .bal-kaplista { display: flex; flex-direction: column; gap: 4px; margin: 7px 0; }
+.bal-omrade-rad, .bal-kaprad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 6px; background: #fff; }
+.bal-omrade-rad.pa { border-color: #b8cff8; background: #f6f9ff; }
+.bal-kryss { width: 20px; height: 20px; flex: none; border: 1px solid var(--linje); border-radius: 5px; background: #fff; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; }
+.bal-kryss.pa { background: var(--gron); border-color: var(--gron); }
+.bal-otext, .bal-ktext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bal-obyggnader { font-size: 11px; color: var(--accent); }
+.bal-dagar { margin: 0; flex: none; gap: 3px; }
+.bal-dagar .chip { padding: 2px 8px; font-size: 12px; }
+
+/* Knappen Balansera och förklaringen efteråt */
+.bal-balansera { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--linje); }
+.bal-resultat { border-top: 1px solid var(--linje); padding-top: 12px; }
+.bal-forklaring { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.bal-frad { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; color: var(--text); }
+.bal-frad .bal-farg { margin-top: 4px; }
+.bal-frad.orord { color: var(--dov); }
+.bal-ftext { min-width: 0; }
+.bal-kvar { margin-top: 9px; }
+.bal-kvarlankar { margin-top: 5px; gap: 10px; }
+.bal-kvarlankar .lank { font-size: 12px; padding: 0; color: #a33; }
+
+/* Markeringen när planeringen ändrats sedan balanseringen (beslut 40). Den har den varma
+ * tonen och inte den röda: ingenting är fel, men något behöver göras om. Den står ovanför
+ * knappen Balansera om, så att beskedet och handlingen ligger ihop. */
+.bal-andrad, .bal-bortstadad { margin-bottom: 9px; }
+.bal-andrad-rubrik { font-size: 12.5px; }
+.bal-andringar { display: flex; flex-direction: column; gap: 3px; margin: 7px 0 2px; }
+/* Samma form som förklaringens rader (.bal-frad) – färgprick, text, radavstånd */
+.bal-arad { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; }
+.bal-arad .bal-farg { margin-top: 4px; }
+/* En byggnad som slutat vara klar är den tyngsta ändringen – den räknas inte med alls */
+.bal-arad[data-typ="ej-klar"] .bal-atext { font-weight: 600; }
+.bal-atext { min-width: 0; }
+/* Notisen ärver rutans egen ton i stället för den dova grå */
+.bal-andrad .bal-notis, .bal-bortstadad .bal-notis { color: inherit; }
+
+/* ---------- Flytt för hand: dragning, besked och frågan (beslut 34) ---------- */
+/* Brickan ska se ut att gå att ta i. Pekaren är det enda som säger det i 11 px – en
+ * dragsymbol hade inte fått plats, och en ram till hade krockat med de tre markeringarna
+ * för provisorisk, föreslagen och struken. */
+.bt-bricka.dragbar { cursor: grab; }
+body.drar-bricka { cursor: grabbing; user-select: none; }
+body.drar-bricka .bt-cell:hover { box-shadow: none; }
+/* Kopian som följer pekaren. Den ligger över allt och tar inga händelser: det är cellen under
+ * pekaren som ska svara, inte kopian. */
+.bt-dragkopia {
+  position: fixed; z-index: 90; pointer-events: none; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 5px;
+  background: #fff; border: 1px solid var(--linje); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(20,30,45,.22); font-size: 11px; white-space: nowrap;
+}
+.bt-dragnamn { font-weight: 600; }
+/* Målveckan medan man drar: en tydlig ram, så att det syns vilken kolumn som gäller när
+ * cellerna är 20 px breda */
+.bt-cell.siktad { box-shadow: inset 0 0 0 2px var(--accent) !important; z-index: 3; }
+/* Beskedet om hur full målveckan blir (berättelse 59). Det ligger ovanför cellen, där blicken
+ * redan är, och inte i en panel vid sidan – under en dragning hinner ingen titta åt sidan. */
+.bt-dragbesked {
+  position: fixed; z-index: 91; pointer-events: none; width: 250px; text-align: center;
+  padding: 5px 8px; background: #1f2833; color: #fff; border-radius: 6px;
+  font-size: 11px; line-height: 1.45; box-shadow: 0 4px 14px rgba(20,30,45,.3);
+}
+.bt-dragbesked b { color: #fff; }
+.bt-dragbesked .bt-dbover { color: #ff9f98; }
+.bt-dragbesked .bt-dbmjuk { color: #ffd88a; }
+
+/* Frågan när brickan släpps: ett kort per nivå, i ordningen minst till mest ingripande */
+.flyttfraga { display: flex; flex-direction: column; gap: 8px; }
+.ff-topp { font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.ff-topp span { color: var(--dov); font-size: 12px; }
+.ff-val {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left;
+  padding: 9px 11px; border: 1px solid var(--linje); border-radius: 8px; background: #fff;
+  font: inherit; cursor: pointer;
+}
+.ff-val:hover { border-color: var(--accent); }
+.ff-val.vald { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: #f5f8ff; }
+.ff-val.av { opacity: .55; cursor: not-allowed; background: #f7f8f9; }
+.ff-rubrik { font-weight: 600; font-size: 13px; }
+.ff-under { font-size: 11px; color: var(--svag); text-transform: uppercase; letter-spacing: .3px; }
+.ff-utfall { font-size: 12px; color: var(--dov); line-height: 1.5; }
+/* Varför ett val är avstängt, i klartext. En grå knapp utan skäl lär planeraren att verktyget
+ * ibland bara säger nej – och beslut 41 har ett skäl som är värt att förstå. */
+.ff-sparr {
+  font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 6px;
+  background: #fdf5e6; color: #6b5214; border: 1px solid #ecd9a8;
+}
+/* Strykknappen i veckolistan: sist på raden, så att namnet och tiden läses först */
+.bal-strykknapp { margin-left: 6px; flex: none; align-self: center; }
+/* Förskjutningsmärket: samma ⇥ i båda tidsaxlarna, så att en permanent flytt heter samma sak
+ * var man än står. Det är medvetet en annan symbol än ⤺, som betyder provisorisk: skillnaden
+ * mellan permanent och provisoriskt är den svåraste i balanseringen (beslut 26 och 34). */
+.ta-fsk, .bt-fsk {
+  font-size: 10px; font-weight: 700; color: #2d5580; background: #e8eff8;
+  border-radius: 4px; padding: 1px 3px; white-space: nowrap; flex: none;
+}
+/* Etiketten är 220 px och ska rymma namn, märke och antalet per år. Märket är smalt och
+ * kommer före antalet, så det är rondens namn som får ge vika – och ett avkortat namn går
+ * att läsa i radens titel, medan en förskjutning som inte syns inte går att läsa någonstans. */
+.ta-fsk { margin-left: 4px; margin-right: 0; }
+.bt-fsk { margin-left: auto; margin-right: 4px; }
+.bt-fsk.tom { background: none; }
+.bt-fsk.rond { background: #dfeaf7; box-shadow: inset 0 0 0 1px #9dbce0; }
+.bal-fsk { font-size: 10px; color: #2d5580; line-height: 1.4; }

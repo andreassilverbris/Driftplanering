@@ -405,6 +405,9 @@
     id: 'hangar',
     namn: 'Hangar',
     typ: 'hangar',
+    omrade: 'flygfaltet',
+    // Byggnadsfärg för brickorna i Balanseringens tidsaxel (beslut 47)
+    farg: '#2f8f66',
     beskrivning: 'Komplex byggnad med hög installationstäthet: kontorsdel i tre plan och en stor hall för fordon.',
     stil: { tak: 'platt', motX: 12, dekor: 'hangar' },
     konstanter: { PLANHOJD: PLANHOJD, BJALKLAG: BJALKLAG, FRIHOJD: FRIHOJD, HANGARHOJD: HANGARHOJD },

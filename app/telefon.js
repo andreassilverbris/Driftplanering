@@ -20,6 +20,23 @@
   // Byte av byggnad: stäng telefonerna
   P.prenumereraByte(function () { indexera(); oppna = []; rita(); });
 
+  // Förskjuts en rondserie eller byggnadens besöksrytm flyttar tillfället till en annan vecka,
+  // och nyckeln (rond:ordinarieVecka) pekar på ett tillfälle som inte längre finns. En öppen
+  // telefon ska följa med dit tillfället tog vägen, inte stängas: det är samma rutintillfälle
+  // teknikern tittar på, med ett nytt namn (berättelse 71).
+  //
+  // En rent **provisorisk** flytt ändrar däremot inte nyckeln – den bygger på den ordinarie
+  // veckan, som står still (beslut 64) – så telefonen följer med av sig själv, och bara en
+  // ändrad rytm behöver flytta nyckeln.
+  //
+  // Prenumerationen ligger här och inte i flode.js därför att telefon.js laddas först, så
+  // nycklarna är flyttade innan flödets lyssnare ritar om telefonerna.
+  P.prenumerera(function (fore, efter) {
+    var flytt = {};
+    P.veckoSkillnad(fore, efter).forEach(function (f) { flytt[f.franNyckel] = f.nyckel; });
+    oppna.forEach(function (o) { if (flytt[o.nyckel]) { o.nyckel = flytt[o.nyckel]; } });
+  });
+
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) { e.className = cls; }
@@ -99,10 +116,20 @@
       var h = el('div', 'tf-rubrik');
       h.appendChild(el('div', 'tf-titel', t.namn));
       var under = el('div', 'tf-under');
-      var nAvv = lista.filter(function (k) { return P.textFor(k, t.vecka).niva !== 'standard'; }).length;
+      var nAvv = lista.filter(function (k) { return P.textFor(k, P.textVecka(t)).niva !== 'standard'; }).length;
       under.innerHTML = '<span class="avatar liten" style="background:' + u.farg + '">' + u.namn[0] + '</span>' + u.namn + ' · ' + lista.length + ' åtgärder' +
         (nAvv ? ' · <span class="avvik-symbol liten">✎</span>' + nAvv + ' avvikande' : '');
       h.appendChild(under);
+      // Namnet bygger på den faktiska veckan, så teknikern ser rätt vecka av sig själv. Att
+      // veckan inte är den ordinarie syns däremot inte i namnet, och det är just vad en
+      // provisorisk flytt är: samma rutintillfälle, en annan vecka den här gången (beslut 26).
+      if (t.provisorisk) {
+        h.appendChild(el('div', 'tf-flyttad', '⤺ Provisoriskt flyttat från v. ' + t.ordinarieVecka +
+          ' – den veckan har ingen tillsyn och skötsel'));
+      }
+      if (t.foreslagen) {
+        h.appendChild(el('div', 'tf-foreslagen', '✂ Föreslås strykas: ligger för nära ett annat tillfälle i samma rondserie'));
+      }
       skarm.appendChild(h);
       var inn = el('div', 'tf-innehall');
       if (!lista.length) {
@@ -113,7 +140,7 @@
       lista.forEach(function (k, idx) {
         var a = P.atgard(k.atgard), info = installationsInfo(k);
         var rad = el('div', 'tf-rad');
-        var avviker = P.textFor(k, t.vecka).niva !== 'standard';
+        var avviker = P.textFor(k, P.textVecka(t)).niva !== 'standard';
         rad.innerHTML = '<div class="tf-a">' + a.namn + (avviker ? ' <span class="avvik-symbol liten" title="Avvikande åtgärdstext">✎</span>' : '') + '</div><div class="tf-i">' + (info.bet ? info.bet + ' · ' : '') + info.namn + '</div><span class="tf-pil">›</span>';
         rad.addEventListener('click', function () {
           o.vy = 'detalj'; o.index = idx; o.redigerar = false;
@@ -151,7 +178,7 @@
     falt('Rum', info.rum);
     falt('Åtgärd', a.namn);
     inn.appendChild(el('div', 'tf-falt-rub', 'Åtgärdstext'));
-    var gall = P.textFor(k, t.vecka);
+    var gall = P.textFor(k, P.textVecka(t));
     if (o.redigerar) {
       inn.appendChild(DP.Dialog.redigerare({
         punkter: gall.punkter, kompakt: true,
@@ -159,7 +186,7 @@
           o.redigerar = false;
           if (P.lika(punkter, gall.punkter)) { rita(); return; }
           rita();
-          DP.Texter.sparaTillfalle(k, t.vecka, punkter, DP.mitt(kn));
+          DP.Texter.sparaTillfalle(k, P.textVecka(t), punkter, DP.mitt(kn));
         },
         onAvbryt: function () { o.redigerar = false; rita(); }
       }));
@@ -168,7 +195,7 @@
         var av = el('div', 'tf-avvik');
         av.innerHTML = '<span class="avvik-symbol">✎</span> Avvikande åtgärdstext – gäller ' + (gall.niva === 'tillfalle' ? 'bara detta rutintillfälle' : 'denna installation i alla rutintillfällen');
         var jmf = el('button', 'tf-lank', 'Jämför');
-        jmf.addEventListener('click', function () { DP.Texter.jamforNivaer(k, t.vecka); });
+        jmf.addEventListener('click', function () { DP.Texter.jamforNivaer(k, P.textVecka(t)); });
         av.appendChild(jmf);
         inn.appendChild(av);
       }

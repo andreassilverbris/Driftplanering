@@ -38,6 +38,16 @@
       kontrollpunkter: ['Att värme och fläkt fungerar', 'Att timer fungerar', 'Att luddfilter är rent', 'Att dörren stänger tätt'] }
   ].forEach(function (a) { DP.atgarder.push(a); });
 
+  // ---------------- Områden ----------------
+  // Närhet anges med områden (beslut 28). Ett område är byggnader som ligger så nära varandra
+  // att avståndet inte spelar någon roll för veckoplaneringen. Ett område man åker till ligger
+  // så långt bort att man vill samla besöken där till samma vecka; vilka de är svarar planeraren
+  // på i Balansering, och Flygfältet är förvalt.
+  DP.omraden = [
+    { id: 'kasernomradet', namn: 'Kasernområdet', beskrivning: 'Byggnaderna ligger inom gångavstånd från varandra.' },
+    { id: 'flygfaltet', namn: 'Flygfältet', beskrivning: 'Ligger en bit bort – dit åker man.', akerTill: true }
+  ];
+
   // ---------------- Byggnadstyper och standardplanering ----------------
   //   freq: 'bas' = samma som besöken, annars { typ, startManad }
   DP.byggnadstyper = {

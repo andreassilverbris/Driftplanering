@@ -60,7 +60,9 @@ Begreppen står i [`GLOSSARY.md`](../GLOSSARY.md) i roten av repot.
 Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
 
 23. **Steg 5 är klart** när alla signifikanta installationer har minst en kopplad åtgärd och båda de generella
-    åtgärderna (Kontroll byggnad invändigt och utvändigt) är kopplade. Tidigare kunde steget aldrig bli klart.
+    åtgärderna (Kontroll byggnad invändigt och utvändigt) är kopplade – byggt. Tidigare kunde steget aldrig bli
+    klart. Statusen räknar upp luckorna i klartext ("2 installationer och Kontroll byggnad utvändigt saknas"),
+    och bocken följer planeringen även vid ångra och gör om.
 24. **Tre huvudsteg i en processlinje, inga flikar:** 1 Byggnad (förstå byggnaden, senare läsa in den) →
     2 Planering (en byggnad i taget, stegen i frågeflödet) → 3 Balansering (alla byggnader för utförarnas skull).
     Begrepp är inget steg utan en ordlista som alltid går att öppna. I Balansering tar tidsaxeln över ytan där
@@ -128,6 +130,229 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     (raderna är redan utförare).
 48. **Telefonen ändras inte i etapp 5.** Gruppering av veckans rutintillfällen hör till idé 8 och etapp 6.
 49. **`flerbyggnad.html` tas bort** när Balansering är byggd. Det i skissen som inte byggs skrivs ner först.
+    *(Gjort 2026-11-23, biljett #19: skissen och dess test är borta, och de fem delar som inte byggdes –
+    motivering vid strykning, ändringsloggen, växeln "Visa ordinarie plan", spöket på den ordinarie
+    platsen och det rullande veckofönstret – står som idé 10 i `ideer-och-resonemang.md`.)*
+50. **Ralph-loopen (`ralph/`) tar `ready-for-agent`-biljetter obevakat**, en per varv med en färsk agent, portad
+    från photo_manager (2026-11-22). Den arbetar **på en arbetsgren och vägrar starta på `main`**. Den pushar bara
+    till grenen, och Andreas för in grenen i `main` via pull request när han har tittat. Varje pass kräver ett
+    **spår**, en etikett utöver `ready-for-agent` (till exempel `etapp-5`), och inom spåret bestämmer blockerarna
+    ordningen. Loopen **stänger biljetten** när granskningen är gjord, hela sviten är grön, den fristående filen är
+    byggd och committen är pushad. Fynd utanför biljetten blir egna `needs-triage`-biljetter, aldrig
+    `ready-for-agent`. Arbetsordningen står i `.claude/commands/biljett.md` och hur loopen körs i `ralph/DESIGN.md`.
+51. **Ändrade förutsättningar mäts i minuter, inte bara i dagsdel** (biljett #11). Dagsdelen är det planeraren
+    beslutat, men den är grov: Kasern 1 och Kasern 2 har båda heldag för Byggnad invändigt trots 310 mot 340
+    minuter. Gick jämförelsen bara på dagsdelen skulle en kopiering mellan kasernerna aldrig märkas, och
+    Kasern 2 ärva en tid som inte stämmer. Markeringen sätts därför när dagsdelen ändras **eller** minuterna
+    flyttat sig tillräckligt. Hur mycket som krävs beror på var tiden kommer ifrån:
+    - **Planeraren har själv tagit ställning till byggnaden:** tröskeln är **30 minuter**, fast och lika för
+      alla ronder, eftersom det är den absoluta tiden planeraren känner igen. En enstaka lätt installation
+      (3 min) är ingen ändrad förutsättning, och en markering som kommer för ofta lär planeraren att
+      strunta i den.
+    - **Tiden är ärvd genom kopiering:** **varje** avvikelse märks. Ingen har räknat på den här byggnaden,
+      så skillnaden är osedd oavsett storlek. Kasern 2:s Byggnad invändigt blir 295 min mot Kasern 1:s
+      ärvda 310 direkt efter kopieringen, och det ska synas. Tar planeraren ställning blir tiden hens egen
+      och mäts därefter med 30-minuterströskeln.
+52. **Planeraren kommer ur markeringen på två vägar** (biljett #11): *använd det nya förslaget* eller
+    *behåll min tid*. Den senare rör inte dagsdelen men räknas som ett nytt ställningstagande, så markeringen
+    försvinner. Båda är steg i historiken och går att ångra. Står dagsdelen still och bara minuterna har
+    ändrats erbjuds bara *behåll*, eftersom det inte finns någon annan dagsdel att byta till.
+53. **Standardplaneringen och kopieringen fyller i steg 6** (biljett #11, berättelse 22 och 23). Standard-
+    planeringen godkänner sina egna förslag, så alla sex stegen är besvarade direkt för var och en av de fyra
+    byggnaderna, och ingen standardrond blir mer än en heldag. Kopieringen tar med tiderna och källans förslag,
+    märkta som ärvda, så att målbyggnadens egna förutsättningar ger markeringen enligt beslut 51 i stället för
+    en tyst ärvd tid. Markeringen säger då varifrån tiden kommer ("där tog ronden 5,2 h, här tar den 5,7 h"),
+    eftersom en oförändrad dagsdel annars inte förklarar varför ett ställningstagande behövs.
+54. **Processlinjen ersätter flikarna** (biljett #12, berättelse 1–3 och 5–8). Flikarna Planering, Byggnad och
+    Begrepp sa inte i vilken ordning arbetet görs. I stället står huvudstegen **Byggnad → Planering →
+    Balansering** överst i sidopanelen: förstå byggnaden, planera en byggnad i taget, balansera alla byggnader
+    för utförarnas skull. **Byggnad** går alltid att öppna och har ingen bock – orienteringen i en byggnad är
+    inget steg som blir klart. **Planering** visar hur långt arbetet kommit ("3 av 4 byggnader klara"), och en
+    byggnad räknas som klar när alla sex stegen är klara. **Begrepp** blir en **ordlista** (`data/ordlista.js`)
+    som öppnas i dialogrutan från vilket huvudsteg som helst, så att man kan slå upp ett ord mitt i arbetet
+    utan att tappa platsen.
+55. **3D-vyn döljs i Balansering, men byggs inte om** (biljett #12, berättelse 7–8). Balanseringen behöver hela
+    ytan till den årsbreda tidsaxeln, så `#vy` och planeringens tidsaxel döljs med CSS (`body.i-balansering`).
+    Döljningen är avsiktligt bara visuell: scenen, kameran, det valda planet och den valda installationen lever
+    kvar, så planeraren kommer tillbaka till byggnaden precis där hen lämnade den. Telefonvyerna ligger inuti
+    `#vy` och försvinner därför med den – de hör till en enskild byggnad och har inget att säga i Balansering.
+
+56. **Förskjutningen räknas modulo intervallet** (biljett #13, berättelse 35, 40 och 69–71). En förskjutning
+    flyttar *när i året* en rytm ligger, aldrig hur ofta (beslut 26). Hade den bara lagts på startveckan
+    hade en stor förskjutning tryckt ut det sista tillfället ur året, och balanseringen hade ändrat
+    frekvensen i smyg – just det den aldrig får göra. Därför räknas den modulo intervallet: en månadsrond
+    förskjuten 5 veckor ligger likadant som förskjuten 1, och mellanrummet mellan tillfällena är alltid
+    intervallet. Rytmen rullar löpande över årsskiftet (förslag A), och året visar de tillfällen som
+    faller inom det. För intervall som delar året jämnt (vecka, månad, kvartal, år) är antalet tillfällen
+    därför detsamma vid varje förskjutning; varannan månad ger 6 eller 7 beroende på fas, vilket är vad
+    frekvensen själv säger ("6–7 ggr/år").
+
+    De två nivåerna läggs ihop innan veckorna räknas: byggnadens besöksrytm (nivå 1) plus rondseriens egen
+    (nivå 2). En rondserie kan därför ligga ur fas med resten av byggnaden utan att byggnadens förskjutning
+    tappas. **Halvårsronder med vald startmånad** klampas i *sin egen* månad, inte i startmånaden: en rond
+    som börjar i april har tillfällen i april och oktober, och oktobertillfället hör hemma i oktober (beslut 41).
+
+    **Avvikande texter på rutintillfällesnivå flyttas av den som ändrar förskjutningen**, inte av städningen.
+    Texterna är nycklade på veckan, och efter ändringen finns ingen uppgift kvar om var tillfället låg –
+    städningen hade bara sett en text på en vecka utan tillfälle och kastat den. Tillfällena paras ihop på
+    ordningsnummer: rytmen är densamma, bara förskjuten, så det n:te tillfället före svarar mot det n:te efter.
+    Av samma skäl **följer en öppen telefonvy med** till tillfällets nya vecka i stället för att stängas –
+    det är samma rutintillfälle teknikern tittar på, med ett nytt namn (berättelse 71).
+
+    Att listorna är olika långa är inget skäl att ge upp parningen. Varannan månad ger 6 eller 7
+    tillfällen beroende på fas, och då saknar det sista motsvarighet – men de övriga har flyttat precis
+    som vanligt och ska bära sina texter med sig och animeras. Just den frekvensen hade annars varit den
+    enda som tyst tappade både texter och animering.
+
+57. **Balanseringens underlag bär färdiga veckor** (biljett #14, berättelse 25–27 och 50–55).
+    `DP.Balansering` är en ren uträkning utan DOM, och den vet därför ingenting om frekvenser,
+    startmånader eller förskjutningar: `DP.Plan.balanseringsUnderlag()` räknar fram **vilka veckor**
+    varje rondserie ligger i och skickar listan med. Det gör att modulen går att pröva med ett
+    underlag som byggs direkt i ett test – tre rader data i stället för en hopklickad planering
+    som råkar ge rätt siffror – och att veckoberäkningen bara finns på ett ställe (beslut 56).
+    Underlaget bär också planerad tid i **timmar**, inte i dagsdel, eftersom belastningen räknas
+    i tid: kort 1 h, kvartsdag 2 h, halvdag 4 h, heldag 8 h och en dag 8 h (beslut 31).
+
+58. **Tidsaxeln i Balansering har fast radhöjd och en slutsats under sig** (biljett #14, beslut 33).
+    Fyra utförarrader som delar på hela ytan blev 250 px höga celler där fyllnaden mot kapaciteten
+    inte gick att läsa – stapeln blev en pelare och brickorna låg och skvalpade i tomrum. Raderna
+    har därför en fast höjd, och ytan som blir över tar frågorna och Balansera-panelen i nästa
+    biljett. Under tidsaxeln står **slutsatsen i klartext**: vem som har mer än hen hinner, vilka
+    veckor det gäller och att veckorna emellan står tomma. En tidsaxel full av färger säger inte
+    av sig själv vad som är fel, och problemet ska synas *innan* något balanseras (berättelse 50–52).
+
+59. **Byggnaden som inte är klar visas, den döljs inte** (biljett #14, berättelse 26). Balansering
+    räknar bara med byggnader där alla sex stegen är klara (beslut 39), men de övriga står kvar i
+    listan – gråade, med sitt område och en knapp som öppnar Planering för just den byggnaden.
+    Att utelämna dem hade besvarat frågan "varför saknas Kasern 2?" med tystnad. Knappen
+    *Standardplanering för alla* ger alla som saknar planering en standardplanering i **ett**
+    historiksteg, så att ett enda ångra tar bort den igen.
+60. **Balanseringens sökning är greedy i byggnadsordning, och mäter mot de redan placerade**
+    (biljett #15, beslut 38). Byggnaderna får sin förskjutning en i taget, och varje val vägs bara
+    mot de byggnader som redan valt plats. Att i stället mäta mot alla på en gång lät den första
+    byggnaden flytta för att komma undan byggnader som ännu inte hade bestämt sig – planeraren såg
+    en flytt utan att kunna se vad den var till för. Nu ligger en byggnad kvar om den inte krockar
+    med något som redan ligger där. Måtten jämförs i ordningen lägsta topp → färst veckor över
+    kapaciteten → färst veckor med fler än 6 tillfällen → jämnast spridning, och vid lika utfall
+    vinner den minsta förskjutningen. Sökningen hittar ett bra läge, inte bevisat det bästa; den är
+    deterministisk, så samma underlag ger alltid samma svar och samma förklaring.
+61. **Förklaringen säger vilka veckor besöken hamnade i, inte bara hur många veckor det förskjöts**
+    (biljett #15, beslut 36). Förskjutningen i veckor räcker inte som besked, eftersom varje rond
+    räknar den modulo sitt eget intervall (beslut 26): en byggnad kan få "4 veckor" och ha sina
+    månadsronder kvar på exakt samma veckor. Varje rad säger därför vilka veckor byggnaden besöks i
+    nu, och hur många av dess rondserier som faktiskt bytte vecka.
+62. **Frågorna i Balansering besvaras med ett klick, och förvalet är ett svar** (biljett #15,
+    beslut 37). Varje fråga är ett kort som ser ut som Planeringens steg, med förval synligt i
+    sammanfattningen och en knapp *Förvalet stämmer*. Grön bock på frågan betyder att planeraren
+    tagit ställning, inte att något tal ändrats. Grön bock på huvudsteget Balansering kräver
+    däremot att balanseringen är **gjord**: frågorna är förutsättningen, balanseringen är arbetet.
+63. **Ångra balanseringen går att nå från Balansering** (biljett #15). Mediaspelaren hör till
+    Planeringens tidsaxel och är dold i Balansering, så löftet att ett enda ångra tar tillbaka hela
+    balanseringen hade varit osynligt där det gäller. En knapp bredvid *Balansera om* gör samma sak
+    som Ctrl+Z.
+
+64. **Ett rutintillfälle har två veckor: ordinarie och faktisk** (biljett #16, beslut 26 och 32).
+    Den **ordinarie** veckan är den rytmen ger – frekvens plus de två förskjutningarna. Den
+    **faktiska** är där tillfället ligger efter en provisorisk flytt. Provisoriska flyttar och
+    strykningar är därför nycklade på den **ordinarie** veckan, och bara på den: den står still
+    när tillfället flyttas, så nyckeln pekar på samma tillfälle hela tiden. Hade nyckeln följt
+    den faktiska veckan hade en andra flytt inte kunnat hitta tillbaka till vad tillfället
+    egentligen hette, och två tillfällen som flyttats till samma vecka hade kolliderat.
+
+    Av samma skäl bygger **rutintillfällets nyckel** (`rond:ordinarieVecka`) på den ordinarie
+    veckan. Flera tillfällen i en rondserie kan hamna i samma vecka – en veckorond får alla
+    semesterveckornas tillfällen flyttade till veckan före – och hade nyckeln följt den
+    faktiska veckan hade de delat nyckel. Tidsaxeln hade då visat ett av dem och telefonen
+    alltid öppnat samma, och just det fallet är det som utlöser strykförslagen.
+
+    `DP.Plan.rutintillfallen()` svarar med den **faktiska** veckan i `vecka` och bär den
+    ordinarie i `ordinarieVecka`. Allt som visar tillfällen – planeringens tidsaxel, telefonen,
+    informationskortet – läser `vecka` och får därmed flytten utan att veta något om nivå 3,
+    och namnet bygger på den faktiska veckan. De **avvikande åtgärdstexterna** är däremot
+    nycklade på den ordinarie: texten hör till planeringen och inte till den vecka tillfället
+    råkar ligga i just nu, så den följer med flytten av sig själv. `DP.Plan.textVecka(t)` är
+    den vägen, och `tillfallenMedStrukna()` listar även de strukna – ett struket tillfälle är
+    inte borta, det är ett ställningstagande som går att ta tillbaka.
+
+65. **Flytten går bakåt, och förslaget att stryka mäts på de faktiska veckorna** (biljett #16,
+    beslut 32 och 45). Ett tillfälle i en vecka utan tillsyn och skötsel flyttas till närmaste
+    **tillåtna vecka före** – arbetet ska vara gjort innan semestern, inte skjutas upp till
+    efter den. Saknar också veckan direkt före tillsyn och skötsel går sökningen vidare bakåt
+    vecka för vecka. Finns ingen tillåten vecka före i året – året börjar med utkorsade
+    veckor – går flytten **framåt** i stället. Att flytta bakåt är regeln, men regeln finns
+    för att inget tillfälle ska ligga i en vecka ingen arbetar; att lämna det kvar hade följt
+    bokstaven och brutit mot syftet. Är hela året utkorsat ligger tillfället kvar: då har
+    planeraren svarat att ingen tillsyn och skötsel görs alls, och det är inget uträkningen
+    kan laga.
+
+    Ett tillfälle som efter flytten hamnar högst **en vecka** från ett annat tillfälle i samma
+    rondserie **föreslås** strykas. Avståndet mäts på de faktiska veckorna – det är där
+    tillfällena ligger, och det är avståndet planeraren möter. Bara ett flyttat tillfälle kan
+    föreslås strykas: ett som ligger kvar på sin ordinarie plats är planeringen, och den ändrar
+    balanseringen inte. Ett **förslag är inte en strykning**: tillfället ligger kvar och räknas
+    med i belastningen tills planeraren säger ja. *Stryk alla* är ett steg i historiken och
+    *behåll* ett eget, så att ett ja till alla går att ta tillbaka i ett svep medan ett enskilt
+    ställningstagande står för sig.
+
+66. **Sökningen mäter på läget med nivå 3 tillämpad** (biljett #16, beslut 60). De provisoriska
+    flyttarna följer av var rytmen hamnar: en fas som lägger fyra tillfällen i semesterveckorna
+    ger fyra tillfällen i veckan före. Mättes lägena på de ordinarie veckorna hade balanseringen
+    valt en fas som ser jämn ut i tabellen och i verkligheten klumpar ihop arbetet precis före
+    semestern – och planeraren hade sett en tidsaxel som inte stämde med måttet som valde den.
+    Nivå 3 räknas därför om i varje prövat läge, och en gång till på det slutliga.
+
+    Av samma skäl räknas nivå 3 **om från grunden** varje gång Balansera körs. Flyttarna är
+    balanseringens resultat och inte planerarens, och en strykning som en tidigare körning
+    föreslog ska inte hänga kvar när den nya rytmen lagt tillfället någon annanstans. De
+    provisoriska flyttar och strykningar som **planeraren** gjort följer däremot med när en
+    förskjutning ändrar de ordinarie veckorna, parade på ordningsnummer precis som texterna
+    (beslut 56): flytten är ett avstånd från den ordinarie veckan, inte en absolut vecka.
+
+67. **Dragningen är ett avstånd, och frågan säger vad avståndet betyder på varje nivå**
+    (biljett #17, beslut 26 och 34, berättelse 58–64). Planeraren drar en bricka och svarar
+    på vad flytten ska gälla. Avståndet är detsamma vad svaret än blir, men innebörden skiljer:
+    *bara denna gång* lägger det på tillfället (nivå 3), *hela rondserien* på rondens
+    förskjutning (nivå 2) och *hela byggnadens besöksrytm* på byggnadens (nivå 1). Att samma
+    gest når alla tre nivåerna är avsikten: skillnaden mellan provisoriskt och permanent är
+    den svåraste i hela balanseringen, och den ska mötas som ett val – inte som tre skilda
+    verktyg planeraren måste veta om i förväg.
+
+    De två permanenta räknas från tillfällets **ordinarie** vecka och inte från den faktiska.
+    En förskjutning flyttar rytmen, och rytmen är de ordinarie veckorna; drar planeraren ett
+    redan provisoriskt flyttat tillfälle vidare är det rytmen som ska hamna i målveckan, inte
+    rytmen plus den gamla flytten en gång till.
+
+    Frågan säger för varje val vad det **landar i**, räknat innan valet görs
+    (`DP.Plan.flyttAlternativ`). Det viktigaste beskedet gäller beslut 56: förskjutningen
+    räknas modulo intervallet, så ett drag längre än intervallet ger en rytm som ligger
+    likadant som ett kortare drag, och då hamnar det dragna tillfället inte i målveckan utan
+    ett annat tillfälle i serien gör det. Det ska stå i dialogen och inte upptäckas i
+    tidsaxeln efteråt. Är ronden en halvårsrond med vald startmånad och målveckan ligger i en
+    annan månad är de permanenta valen avstängda, med skälet utskrivet (beslut 41) – den
+    provisoriska flytten går fortfarande, eftersom den inte ändrar någon planering.
+
+    Det senaste valet är förvalt nästa gång. Förvalet lever i vyn och inte i planeringen: det
+    är en vana hos den som arbetar, inte en uppgift om byggnaden, och ska därför varken följa
+    med i historiken eller gå att ångra.
+
+68. **Permanent märks per rad, provisoriskt per bricka** (biljett #17, berättelse 64). En
+    provisorisk flytt syns på det enskilda tillfället (⤺), men en permanent flytt *är* en
+    förskjutning och syns bara som att hela rytmen ligger någon annanstans – det går inte att
+    se på en bricka. Därför får raden ett eget märke, ⇥ med förskjutningen i veckor: i
+    Balanseringens tidsaxel på byggnadsraden och i byggnadslistan, i planeringens tidsaxel på
+    besöksraden (nivå 1) och på rondens rad (nivå 2). Markeringen ligger på den nivå flytten
+    faktiskt rör, och de två symbolerna är medvetet olika.
+
+    Både beskedet i klartext (`DP.Plan.forskjutningStatus`) och själva märket
+    (`DP.Plan.forskjutningMarke`) formuleras i planeringen och inte i vyerna, så att de två
+    tidsaxlarna säger samma sak om samma flytt – och så att ett byte av symbol är en
+    redigering och inte tre. Byggnadens förskjutning upprepas inte på varje rondrad: den
+    gäller alla rader, och en siffra på varje rond hade sagt att de är förskjutna var för sig.
+
+    Släppet begränsas till **utförarens egen rad**. Balanseringen byter aldrig utförare
+    (beslut 46), och ett släpp på en annan rad hade annars flyttat tillfället utan att vare
+    sig sikte eller besked visats under dragningen – planeraren hade fått ett resultat hen
+    inte sett komma.
 
 ## Förslag (bekräftade)
 
@@ -180,7 +405,13 @@ och byggs så att man senare kan välja version.
    Varje byggnad har sin egen planering, och historiken är gemensam (ångra byter till rätt byggnad).
    Nytt: **standardplanering per byggnadstyp** och **kopiera planering** mellan byggnader av samma typ.
    Se `ideer-och-resonemang.md`.
-5. **Flera byggnader:** belastning per utförare, provisoriska flyttar, stryka tillfällen *(skiss finns i `flerbyggnad.html`)*.
+5. **Flera byggnader** *(första utkast klart)*: huvudsteget **Balansering** med en årsbred tidsaxel, en rad
+   per utförare som fälls ut till en rad per byggnad, belastning i timmar och dagar per vecka, de tre
+   frågorna (områden man åker till, kapacitet, veckor utan tillsyn och skötsel), knappen **Balansera** med
+   förklaringen i klartext, provisoriska flyttar och strykningar, flytt för hand med dra och släpp på tre
+   nivåer och markeringen när planeringen ändrats sedan balanseringen. Planering fick ett **steg 6**,
+   planerad tid ur en tidsschablon. Skissen `flerbyggnad.html` är borttagen (beslut 49); det i den som
+   inte byggdes står som idé 10 i `ideer-och-resonemang.md`.
    Krav från användaren:
    - I fastighetssystemet väljer man en eller flera byggnader och ser en tidsaxel med en rad per rond och byggnad.
      Det blir svåröverskådligt när man vill se hur många byggnader ska besökas i förhållande till varandra.

@@ -34,9 +34,6 @@
   function rumNamn(nr) { var r = rumIndex[nr]; return r.nr + ' – ' + r.namn; }
   function antalText(n, typ) { return n + ' ' + (n === 1 ? typer[typ].namn.toLowerCase() : (PLURAL[typ] || typer[typ].namn.toLowerCase())); }
 
-  function matchandeInst(a) {
-    return signifikanta.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; });
-  }
   function atgardForTyp(typ) {
     return DP.atgarder.filter(function (a) { return a.galler.indexOf(typ) >= 0; })[0];
   }
@@ -120,16 +117,6 @@
   $('#lamna-rum').addEventListener('click', function () { viewer.lamnaRum(); });
 
   // ------------------------------------------------------------------
-  // Flikar
-  // ------------------------------------------------------------------
-  [].forEach.call(document.querySelectorAll('.flik'), function (f) {
-    f.addEventListener('click', function () {
-      [].forEach.call(document.querySelectorAll('.flik'), function (x) { x.classList.toggle('aktiv', x === f); });
-      [].forEach.call(document.querySelectorAll('.flikinnehall'), function (x) { x.hidden = x.id !== f.dataset.mal; });
-    });
-  });
-
-  // ------------------------------------------------------------------
   // Byggnadsträd
   // ------------------------------------------------------------------
   function byggTrad() {
@@ -202,49 +189,7 @@
     var rd = li.closest('details.rum'), pd = li.closest('details.plan');
     if (pd) { pd.open = true; }
     if (rd) { rd.open = true; }
-    if (!$('#flik-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
-  }
-
-  // ------------------------------------------------------------------
-  // Åtgärdskatalog (bruttolista)
-  // ------------------------------------------------------------------
-  function byggAtgarder() {
-    var rot = $('#atgardslista');
-    var intro = el('p', 'intro');
-    intro.innerHTML = 'Bruttolistan innehåller <b>alla</b> åtgärder som finns. De som matchar installationer i <b>' + b.namn +
-      '</b> visas överst. I planeringssteget (nästa etapp) får de en <i>Lägg till</i>-knapp.';
-    rot.appendChild(intro);
-
-    var relevanta = [], ovriga = [];
-    DP.atgarder.forEach(function (a) {
-      if (a.generell || matchandeInst(a).length) { relevanta.push(a); } else { ovriga.push(a); }
-    });
-    rot.appendChild(el('h3', 'grupprubrik', 'Relevanta för ' + b.namn + ' (' + relevanta.length + ')'));
-    relevanta.forEach(function (a) { rot.appendChild(atgardKort(a, true)); });
-    rot.appendChild(el('h3', 'grupprubrik', 'Övriga åtgärder – ingen matchande installation (' + ovriga.length + ')'));
-    ovriga.forEach(function (a) { rot.appendChild(atgardKort(a, false)); });
-  }
-
-  function atgardKort(a, relevant) {
-    var d = el('details', 'atgard' + (relevant ? '' : ' irrelevant'));
-    var s = el('summary');
-    var antal = a.generell ? 'Hela byggnaden' : (matchandeInst(a).length + ' st');
-    s.innerHTML = '<span class="a-namn">' + a.namn + '</span><span class="a-meta">' + antal + '</span>';
-    d.appendChild(s);
-    var kropp = el('div', 'a-kropp');
-    var meta = el('div', 'a-rad');
-    meta.innerHTML = '<span class="etikett">Föreslagen rond</span> ' + rondNamn(a.foreslagenRond) +
-      (a.generell ? '' : ' · <span class="etikett">Gäller</span> ' + a.galler.map(function (t) { return typer[t] ? typer[t].namn : t; }).join(', '));
-    kropp.appendChild(meta);
-    kropp.appendChild(atgardstext(a.kontrollpunkter));
-    if (relevant && !a.generell) {
-      var knapp = el('button', 'knapp sekundar', 'Visa i modellen');
-      knapp.title = 'Installationerna blinkar till i grönt genom väggar och tak';
-      knapp.addEventListener('click', function () { viewer.blinka(matchandeInst(a)); });
-      kropp.appendChild(knapp);
-    }
-    d.appendChild(kropp);
-    return d;
+    if (!$('#hs-byggnad').hidden) { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
 
   function atgardstext(punkter) {

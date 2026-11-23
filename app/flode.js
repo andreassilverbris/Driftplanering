@@ -10,7 +10,7 @@
   var b, signifikanta;
   function indexera() {
     b = P.byggnad();
-    signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
+    signifikanta = P.signifikanta();
   }
   indexera();
   var typer = DP.installationstyper;
@@ -39,14 +39,10 @@
   }
 
   // ------------------------------------------------------------------
-  // Status per steg
+  // Status per steg – reglerna ligger i planeringen, så att den också kan svara för
+  // en byggnad som inte är aktiv (Balansering behöver det).
   // ------------------------------------------------------------------
-  function klara(s) {
-    var k1 = P.freqKomplett(s.bas);
-    var k2 = k1 && s.ronder.length > 0;
-    var k3 = k2 && s.ronder.every(function (r) { return r.besvarad && P.freqKomplett(r.freq); });
-    return { 1: k1, 2: k2, 3: k3, 4: k3, 5: false };
-  }
+  var klara = P.stegStatus;
   function tillganglig(n, k) {
     for (var i = 1; i < n; i++) { if (!k[i]) { return false; } }
     return true;
@@ -67,8 +63,10 @@
       { n: 2, titel: 'Vilka ronder behöver byggnaden?', sammanf: s.ronder.map(function (r) { return P.rondNamn(r.id); }).join(', '), kropp: steg2 },
       { n: 3, titel: 'Vilken frekvens ska varje rond ha?', sammanf: k[3] ? s.ronder.map(function (r) { return P.rondNamn(r.id) + ': ' + P.frekvens(r.freq.typ).namn.toLowerCase(); }).join(' · ') : obesvarade(s), kropp: steg3 },
       { n: 4, titel: 'Vem utför ronderna?', sammanf: k[4] ? utforareSammanf(s) : '', kropp: steg4 },
-      { n: 5, titel: 'Koppla åtgärder till installationerna', sammanf: k[4] ? kopplingsStatus(s).text : '', kropp: steg5 }
+      { n: 5, titel: 'Koppla åtgärder till installationerna', sammanf: k[4] ? kopplingsStatus(s).text : '', kropp: steg5 },
+      { n: 6, titel: 'Hur lång tid tar ronderna?', sammanf: k[5] ? P.tidStatus(s).text : '', kropp: steg6 }
     ];
+    var sista = steg[steg.length - 1].n;
 
     steg.forEach(function (st) {
       var tillg = tillganglig(st.n, k);
@@ -86,7 +84,7 @@
       if (oppen) {
         var kropp = el('div', 'steg-kropp');
         st.kropp(kropp, s, k);
-        if (st.n < 5) {
+        if (st.n < sista) {
           var nasta = knapp('Nästa →', 'knapp', function () { ui.oppet = st.n + 1; rita(); });
           nasta.disabled = !k[st.n];
           var rad = el('div', 'knapprad hoger');
@@ -303,18 +301,17 @@
   }
 
   // ---------------- Steg 5 ----------------
-  function kopplingsStatus(s) {
-    var kopplade = {};
-    s.kopplingar.forEach(function (x) { kopplade[x.inst] = true; });
-    var n = signifikanta.filter(function (i) { return kopplade[i.id]; }).length;
-    return { n: n, tot: signifikanta.length, saknas: signifikanta.filter(function (i) { return !kopplade[i.id]; }), text: n + ' av ' + signifikanta.length + ' signifikanta installationer har kopplad åtgärd' };
-  }
+  var kopplingsStatus = P.kopplingsStatus;
 
   function steg5(k, s) {
     var st = kopplingsStatus(s);
-    var prog = el('div', 'progress');
+    var prog = el('div', 'progress' + (st.klar ? ' klar' : ''));
     prog.innerHTML = '<div class="prog-text"><b>' + st.n + '</b> av ' + st.tot + ' signifikanta installationer har kopplad åtgärd</div>' +
       '<div class="prog-bar"><div style="width:' + Math.round(st.n / st.tot * 100) + '%"></div></div>';
+    // Steget är klart först när ingen lucka finns kvar (beslut 23), så luckorna står i klartext.
+    prog.appendChild(el('div', 'prog-saknas', st.klar
+      ? 'Allt är kopplat: varje signifikant installation har en åtgärd, och båda de generella åtgärderna ligger i en rond.'
+      : st.saknasText + ' innan steget är klart.'));
     if (st.saknas.length && st.n > 0) {
       prog.appendChild(knapp('Visa de ' + st.saknas.length + ' som saknar åtgärd', 'lank', function () { DP.viewer.blinka(st.saknas, 1800, 0xe07b26); }));
     }
@@ -407,6 +404,131 @@
     return pl[namn] || namn;
   }
 
+  // ---------------- Steg 6: planerad tid ----------------
+  // Varje rond får ett förslag ur tidsschablonen, med uträkningen synlig. Planeraren godkänner,
+  // väljer en annan dagsdel eller godkänner alla på en gång. En godkänd tid ändras aldrig av sig
+  // själv: ändrade förutsättningar visas som en markering med ett nytt förslag (beslut 27 och 35).
+  function steg6(k, s) {
+    var ts = P.tidStatus(s);
+    var prog = el('div', 'progress' + (ts.klar ? ' klar' : ''));
+    prog.innerHTML = '<div class="prog-text">' + ts.text + '</div>';
+    prog.appendChild(el('div', 'prog-saknas', ts.klar
+      ? 'Alla ronder har en planerad tid. Byggnaden är klar för Balansering.'
+      : ts.utan.length + ' ' + (ts.utan.length === 1 ? 'rond väntar' : 'ronder väntar') + ' på ett ställningstagande.'));
+    k.appendChild(prog);
+    k.appendChild(el('p', 'forklar', 'Planerad tid sätts per rond i grova <b>dagsdelar</b>: kort (≈ 1 h), kvartsdag (2 h), halvdag (4 h) och heldag (8 h). ' +
+      'Förslaget räknas fram ur de kopplade åtgärderna och en tidsschablon. Uträkningen står under varje rond, så att du kan bedöma om den är rimlig – godkänn eller välj en annan dagsdel.'));
+
+    if (ts.utan.length > 1) {
+      var rad = el('div', 'knapprad');
+      rad.appendChild(knapp('Godkänn alla ' + ts.utan.length + ' förslag', 'knapp', function () { godkannAlla(); }));
+      k.appendChild(rad);
+    }
+
+    ts.rader.forEach(function (x) { k.appendChild(tidRad(x, s)); });
+  }
+
+  function dagsdelNamn(id) {
+    return (DP.tidsschablon.dagsdel(id) || {}).namn || id;
+  }
+
+  function tidRad(x, s) {
+    var rad = el('div', 'tidrad' + (x.godkand ? ' godkand' : '') + (x.andrad ? ' andrad' : ''));
+    rad.setAttribute('data-rond', x.rond);
+    var valdNamn = dagsdelNamn(x.dagsdel);
+    rad.appendChild(el('div', 'td-namn', '<b>' + P.rondNamn(x.rond) + '</b>' +
+      (x.godkand ? ' <span class="tagg gron">✓ ' + valdNamn + '</span>' : ' <span class="tagg">förslag: ' + valdNamn + '</span>')));
+    rad.appendChild(el('div', 'td-utrakning', x.forslag.text));
+
+    // Mer än en heldag: ronden ryms inte på en dag. Delningen görs för hand, med de verktyg
+    // som redan finns, så att planeraren bestämmer hur åtgärderna fördelas (beslut 27).
+    if (x.forslag.foreslaDelning) {
+      var delning = el('div', 'notis varning', '<b>Ronden tar mer än en heldag</b> (' + P.timText(x.forslag.minuter) +
+        '). Ett rutintillfälle ska rymmas på en dag. Dela ronden i två: lägg till en rond i steg 2 och flytta hälften av åtgärderna dit i steg 5.');
+      rad.appendChild(delning);
+    }
+
+    // Förutsättningarna har ändrats sedan tiden godkändes. Den godkända tiden står kvar, och
+    // planeraren har två vägar ut: använda det nya förslaget eller behålla sin egen tid. Båda
+    // räknas som ett ställningstagande och tar bort markeringen (berättelse 19).
+    if (x.andrad) {
+      var nyNamn = dagsdelNamn(x.forslag.dagsdel);
+      var notisText;
+      if (x.forslag.dagsdel !== x.dagsdel) {
+        notisText = '<b>Förutsättningarna har ändrats</b>, nytt förslag: ' + nyNamn +
+          '. Din tid (' + valdNamn + ') gäller tills du tar ställning.';
+      } else if (x.arvd) {
+        // Tiden kom med en kopiering. Säg varifrån, så att planeraren förstår varför en
+        // oförändrad dagsdel ändå är värd ett ställningstagande.
+        notisText = '<b>Tiden är kopierad från en annan byggnad</b>: där tog ronden ' +
+          P.timText(x.minuterVidGodkandet) + ', här tar den ' + P.timText(x.forslag.minuter) +
+          '. Båda ryms i ' + nyNamn + ', men siffran är räknad på en annan byggnad.';
+      } else {
+        // Dagsdelen är oförändrad och det är minuterna bakom den som flyttat sig. Då räcker
+        // det inte att nämna dagsdelen – planeraren skulle läsa "nytt förslag: heldag" om
+        // sin egen heldag.
+        notisText = '<b>Förutsättningarna har ändrats</b>: ronden tar nu ' + P.timText(x.forslag.minuter) +
+          ' i stället för ' + P.timText(x.minuterVidGodkandet) + ', fortfarande ' + nyNamn + '.';
+      }
+      var notis = el('div', 'notis konflikt', notisText);
+      var vagar = el('div', 'chiprad');
+      if (x.forslag.dagsdel !== x.dagsdel) {
+        vagar.appendChild(knapp('Använd ' + nyNamn, 'lank', function () { godkann(x.rond, x.forslag.dagsdel); }));
+      }
+      vagar.appendChild(knapp('Behåll ' + valdNamn, 'lank', function () { behall(x.rond); }));
+      notis.appendChild(vagar);
+      rad.appendChild(notis);
+    }
+
+    var val = el('div', 'chiprad');
+    if (!x.godkand) {
+      val.appendChild(knapp('Godkänn ' + valdNamn, 'knapp liten-knapp', function () { godkann(x.rond, x.forslag.dagsdel); }));
+    }
+    DP.tidsschablon.DAGSDELAR.forEach(function (d) {
+      var vald = x.godkand && x.dagsdel === d.id;
+      val.appendChild(knapp(d.namn + ' <span class="dov">' + d.timmar + ' h</span>', 'chip' + (vald ? ' pa' : ''), function () {
+        if (!vald) { godkann(x.rond, d.id); }
+      }));
+    });
+    rad.appendChild(val);
+    return rad;
+  }
+
+  // Att välja en dagsdel räknas som att ta ställning, oavsett om det är förslaget eller något
+  // annat. Förslaget som gällde sparas, så att en senare ändring av kopplingarna upptäcks.
+  function godkann(rondId, dagsdel) {
+    var s = P.state();
+    var forslag = P.tidForslag(rondId, s);
+    var d = DP.tidsschablon.dagsdel(dagsdel);
+    var text = dagsdel === forslag.dagsdel
+      ? 'Godkände ' + d.namn + ' för ' + P.rondNamn(rondId)
+      : 'Planerad tid för ' + P.rondNamn(rondId) + ': ' + d.namn;
+    P.andra(text, function (st) {
+      P.sattTid(st, rondId, dagsdel, forslag);
+    });
+  }
+
+  // Den andra vägen ut ur en ändrad förutsättning: planeraren står fast vid sin tid. Dagsdelen
+  // rörs inte, men ställningstagandet är nytt, så markeringen försvinner (berättelse 19).
+  function behall(rondId) {
+    var s = P.state();
+    var forslag = P.tidForslag(rondId, s);
+    var sparad = s.tider[rondId];
+    var d = DP.tidsschablon.dagsdel(sparad ? sparad.dagsdel : forslag.dagsdel);
+    P.andra('Behöll ' + d.namn + ' för ' + P.rondNamn(rondId), function (st) {
+      P.behallTid(st, rondId, forslag);
+    });
+  }
+
+  function godkannAlla() {
+    var s = P.state();
+    var utan = P.tidStatus(s).utan;
+    if (!utan.length) { return; }
+    P.andra('Godkände de ' + utan.length + ' föreslagna tiderna', function (st) {
+      utan.forEach(function (x) { P.sattTid(st, x.rond, x.forslag.dagsdel, x.forslag); });
+    });
+  }
+
   // ---------------- Guiden för Lägg till ----------------
   function oppnaGuide(a) {
     var s = P.state();
@@ -485,7 +607,7 @@
     var giltig = antal > 0 && g.rond && (!behoverSamma || g.samma === true);
     if (giltig) {
       var rond = s.ronder.filter(function (r) { return r.id === g.rond; })[0];
-      var n = P.veckorFor(rond.freq).length;
+      var n = P.veckorForRond(rond, s).length;
       w.appendChild(el('div', 'forhands', '→ ' + antal + ' åtgärd' + (antal > 1 ? 'er' : '') + ' hamnar i vart och ett av ' + n + ' rutintillfällen <b>' + P.rondNamn(g.rond) + '</b> under ' + P.AR + '.'));
     }
     var kr = el('div', 'knapprad');
@@ -541,24 +663,45 @@
 
   function harPlanering(s) { return s.ronder.length > 0 || s.kopplingar.length > 0; }
 
+  // Standardplanering som en ändring av ett tillstånd, oberoende av vilken byggnad som är aktiv.
+  // Används både av knappen här och av "Standardplanering för alla" i Balansering, som skriver
+  // flera byggnader i ett enda historiksteg (beslut 39). Därför tar den byggnads-id:t och läser
+  // installationerna därifrån i stället för modulens `signifikanta`.
+  function skrivStandard(st, bid) {
+    var bb = DP.byggnader[bid], typ = DP.byggnadstyper[bb.typ];
+    if (!typ) { return false; }
+    var sig = bb.installationer.filter(function (i) { return i.signifikant; });
+    var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
+    st.bas = bas;
+    st.ronder = typ.standard.ronder.map(function (r) {
+      var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
+      return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
+    });
+    var finns = st.ronder.map(function (r) { return r.id; });
+    st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
+    DP.atgarder.forEach(function (a) {
+      var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
+      if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
+      sig.filter(function (i) { return a.galler.indexOf(i.typ) >= 0; })
+        .forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
+    });
+    // Steg 6 fylls i med godkända förslag, så att alla sex stegen är besvarade direkt
+    // (beslut 35, berättelse 22). Förslagen räknas på de kopplingar som just lagts.
+    st.tider = {};
+    st.ronder.forEach(function (r) {
+      var f = P.tidForslag(r.id, st, bid);
+      P.sattTid(st, r.id, f.dagsdel, f);
+    });
+    return true;
+  }
+
   // Standardplanering: byggnadstypens ronder och frekvenser + alla matchande åtgärder i föreslagen rond
   function standardplanering(kalla) {
     var typ = DP.byggnadstyper[b.typ], s = P.state();
     var gor = function () {
+      var bid = P.aktivId();
       P.andra('Standardplanering för ' + typ.namn.toLowerCase(), function (st) {
-        var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
-        st.bas = bas;
-        st.ronder = typ.standard.ronder.map(function (r) {
-          var f = r.freq === 'bas' ? { typ: bas.typ, startManad: bas.startManad } : { typ: r.freq.typ, startManad: r.freq.startManad || null };
-          return { id: r.id, freq: f, foljerBas: r.freq === 'bas', besvarad: true, utforare: r.utforare };
-        });
-        var finns = st.ronder.map(function (r) { return r.id; });
-        st.kopplingar = []; st.instTexter = {}; st.tillfalleTexter = {};
-        DP.atgarder.forEach(function (a) {
-          var rond = finns.indexOf(a.foreslagenRond) >= 0 ? a.foreslagenRond : 'BI';
-          if (a.generell) { st.kopplingar.push({ atgard: a.id, inst: 'BYGGNAD', rond: rond }); return; }
-          matchande(a).forEach(function (i) { st.kopplingar.push({ atgard: a.id, inst: i.id, rond: rond }); });
-        });
+        return skrivStandard(st, bid);
       }, { kalla: kalla, standard: true });
       ui.oppet = 5; ui.guide = null;
       rita();
@@ -592,7 +735,7 @@
 
     var nod = document.createElement('div');
     var html = '<p>All planering i <b>' + kb.namn + '</b> kopieras till <b>' + b.namn + '</b>: besöksfrekvens, ' + ks.ronder.length +
-      ' ronder med frekvens och utförare, kopplade åtgärder' + (nAvv ? ' och ' + nAvv + ' avvikande åtgärdstexter' : '') + '.</p>' +
+      ' ronder med frekvens och utförare, kopplade åtgärder, planerade tider' + (nAvv ? ' och ' + nAvv + ' avvikande åtgärdstexter' : '') + '.</p>' +
       '<p>Installationerna matchas på typ och beteckning (t.ex. HB01 ↔ HB01).</p>' +
       '<div class="kopiera-sammanf">' +
       '<div class="ks-rad ok"><b>' + traffar.length + '</b> ' + (traffar.length === 1 ? 'koppling får' : 'kopplingar får') + ' en motsvarighet</div>' +
@@ -619,6 +762,14 @@
             st.ronder = P.klona(ks.ronder).map(function (r) { if (nyUtf) { r.utforare = nyUtf; } return r; });
             st.kopplingar = traffar.map(function (k) { return { atgard: k.atgard, inst: k.inst, rond: k.rond }; });
             st.standardTexter = P.klona(ks.standardTexter);
+            // De planerade tiderna följer med, inklusive det förslag som gällde i källan. Tiden
+            // är godkänd, så steg 6 har inga luckor – men den är märkt som ärvd, så att varje
+            // avvikelse i målbyggnadens egna förutsättningar syns, hur liten den än är.
+            // Kasern 2 ska inte tyst ärva en tid som räknats på Kasern 1 (berättelse 23).
+            st.tider = {};
+            Object.keys(ks.tider).forEach(function (rondId) {
+              P.arvTid(st, rondId, ks.tider[rondId]);
+            });
             st.instTexter = {}; st.tillfalleTexter = {};
             Object.keys(ks.instTexter).forEach(function (n) {
               var d = n.split('|'); if (idMap[d[1]]) { st.instTexter[d[0] + '|' + idMap[d[1]]] = P.klona(ks.instTexter[n]); }
@@ -659,6 +810,13 @@
     DP.Telefon.rita();
     DP.ui.uppdatera();
 
+    // info.byggnader säger vilka byggnader steget ändrade. Ett steg som inte rörde den aktiva
+    // byggnaden (Balansering ändrar flera på en gång) har inget att animera här; vyerna är redan omritade.
+    if (info.byggnader && info.byggnader.indexOf(P.aktivId()) < 0) {
+      DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+      return;
+    }
+
     var set = {};
     efter.kopplingar.forEach(function (k) { set[k.inst] = true; });
 
@@ -670,6 +828,19 @@
 
     var kalla = info.kalla || DP.mitt(document.querySelector('.sidopanel'));
     DP.viewer.sattAvvikande(P.avvikandeInst(efter));
+
+    // Förskjutna rutintillfällen: en bricka flyger från den vecka tillfället låg i till den
+    // nya. Skillnaden räknas ur tillstånden, så ångra animerar flytten tillbaka av sig själv
+    // (berättelse 69). Tidsaxeln är redan omritad, men veckokolumnerna står still, så den
+    // gamla cellen finns kvar på sin plats – tom.
+    var vs = P.veckoSkillnad(fore, efter);
+    vs.slice(0, 40).forEach(function (f) {
+      var fran = DP.Tidsaxel.cellEl(f.rond, f.fran), till = DP.Tidsaxel.markorEl(f.nyckel);
+      if (!fran || !till) { return; }
+      var m = DP.mitt(till);
+      m.klar = function () { DP.puls(till); };
+      DP.flyg(DP.mitt(fran), [m], { text: '→', farg: '#4f6fd0' });
+    });
 
     // Ändrade åtgärdstexter: samma visualisering som när åtgärder läggs till
     var ts = P.textSkillnad(fore, efter);
@@ -733,7 +904,12 @@
     return lista.map(function (k) { return k.rond; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
   }
 
-  DP.Flode = { rita: rita };
+  // Öppnar ett steg i flödet. Balanseringens förklaring länkar hit när överbelastningen
+  // beror på vem som utför ronderna (beslut 46) – planeraren ska landa i steg 4, inte i
+  // flödets översikt och behöva leta.
+  function oppnaSteg(n) { ui.oppet = n; rita(); }
+
+  DP.Flode = { rita: rita, skrivStandard: skrivStandard, oppnaSteg: oppnaSteg };
   rita();
   DP.Tidsaxel.rita();
 })();

@@ -277,3 +277,78 @@ samma vecka, och att telefonen grupperar dem ("Brandskydd v. 12: Kasern 1, Kaser
 För att öva på balansering med områden (beslut 28) kan fler byggnadstyper läggas till: militärrestaurang,
 avlägset förråd, mindre logement, skjutbana, skjuthall, brandövningsplats. Även avlägsna områden med några av
 byggnadstyperna, så att det finns flera områden man måste åka till.
+
+---
+
+## 10. Det i skissen `flerbyggnad.html` som inte byggdes
+
+**Status:** idé. Skrivet ner 2026-11-23 när skissen togs bort (beslut 49, biljett #19).
+
+Skissen var en fristående sida med påhittade data som visade hur balansering av flera byggnader *kunde*
+se ut, innan utformningen bestämdes i beslut 23–49. Det mesta av den är byggt i etapp 5, men i en annan
+form: skissens tabell med en rad per byggnad och rond blev **en rad per utförare**, som fälls ut till en
+rad per byggnad när man vill se vem arbetet hör till (beslut 47 – raderna är utförare, och brickorna bär
+byggnadens färg). Belastningen är en egen rad per utförare med timmar, dagar och antal tillfällen per vecka
+i stället för skissens färgnivåer.
+
+Fem saker i skissen har ingen motsvarighet i det byggda. De är nedskrivna här för att inte försvinna
+med skissen.
+
+### A. Motivering som fritext när ett tillfälle stryks
+
+Skissen frågade efter en **motivering (riskbedömning)** i fritext när ett tillfälle ströks, med
+exempeltexten *"Brandlarmsprov utfört v50 i samband med service. Ingen risk att hoppa över."*
+Motiveringen följde med i tillfällets etikett och i ändringsloggen.
+
+Att stryka ett rutintillfälle är ett beslut om att något inte blir gjort i år, och i verkligheten
+behöver det kunna försvaras i efterhand. Det byggda verktyget stryker utan att fråga varför
+(beslut 45 och 64–66): strykningen är ett steg i historiken och går att ångra, men det finns ingen
+plats att skriva *varför*.
+
+Värt att pröva senare, men det hör egentligen till **etapp 6 Utförande**: en motivering är en uppgift om
+verkligheten, inte om planen, och den hör ihop med att markera ett tillfälle som utfört. Då finns också
+någon att visa motiveringen för.
+
+### B. Ändringslogg över de provisoriska ändringarna
+
+Skissen hade en lista i sidopanelen över varje provisorisk flytt och strykning, med en **Ångra-länk per
+rad**. Listan sa vad som var provisoriskt i planen just nu, på ett ställe.
+
+Det byggda verktyget visar i stället varje provisorisk flytt och strykning *där den ligger*, i tidsaxeln
+och i veckolistan, med egna markeringar (⤺ för provisoriskt, ✂ för struket) och *Återställ* i veckolistan.
+Historiken med ångra och gör om täcker att gå tillbaka, men bara i den ordning ändringarna gjordes –
+skissens lista lät en ta tillbaka den tredje flytten utan att röra de två efter.
+
+En samlad lista vore ändå värd att pröva: "det här är vad som avviker från planen i år" är en fråga en
+driftplanerare ställer, och svaret finns i dag bara utspritt i tidsaxeln.
+
+### C. Växeln "Visa ordinarie plan"
+
+Skissen hade en knapp som växlade hela vyn till planen **utan** de provisoriska flyttarna, så att man
+kunde jämföra avvikelsen med rytmen.
+
+Det byggda verktyget visar båda på en gång i stället: en provisoriskt flyttad bricka ligger i sin faktiska
+vecka med en ⤺-pil och säger i sin etikett vilken vecka den kom från. Det är färre klick, men det visar
+inte hur **belastningen** hade sett ut utan flyttarna – och det var skissens poäng med växeln: att se om
+flyttarna verkligen jämnade ut något.
+
+### D. Spöket på den ordinarie platsen
+
+I skissen lämnade en provisorisk flytt ett **spöke** (en streckad ruta) i den vecka tillfället kom ifrån,
+och en etikett som sa vart det flyttat. Det byggda verktyget lämnar den ordinarie veckan tom; pilen på
+brickan i den nya veckan är det som bär upplysningen.
+
+En årsbred tidsaxel med fyra utförare har ont om plats, och ett spöke per flytt dubblar antalet brickor.
+Men det går fortare att se *att* en vecka blivit tömd än att läsa sig till det ur en etikett. Värt att
+pröva som ett tillval, kanske tillsammans med växeln i C.
+
+### E. Rullande veckofönster från dagens vecka
+
+Skissen visade **13 veckor framåt från dagens vecka**, över årsskiftet, med den första veckan märkt "nu".
+Det byggda verktyget visar ett fast planeringsår (2027), vilket är enklare att undervisa på: alla ser
+samma bild, och veckonumren betyder samma sak för alla.
+
+Det här är redan en **öppen fråga** i `koncept-och-beslut.md` ("Ska planeringsåret vara fast eller rullande
+från dagens vecka?"). Skissen svarade rullande, och det är vad en driftplanerare faktiskt arbetar i: man
+planerar inte om januari i oktober. Ett rullande fönster tvingar också fram att ISO-år har 52 eller 53
+veckor, vilket det fasta året slipper.
