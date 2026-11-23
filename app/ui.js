@@ -37,7 +37,6 @@
   function atgardForTyp(typ) {
     return DP.atgarder.filter(function (a) { return a.galler.indexOf(typ) >= 0; })[0];
   }
-  function rondNamn(id) { return (DP.ronder.filter(function (r) { return r.id === id; })[0] || {}).namn || id; }
 
   // ------------------------------------------------------------------
   // Viewer
@@ -316,7 +315,7 @@
       var sek2 = el('div', 'sektion');
       sek2.appendChild(el('h4', null, 'Matchande åtgärd i bruttolistan'));
       var rad = el('div', 'a-rad');
-      rad.innerHTML = '<b>' + a.namn + '</b> · föreslagen rond <i>' + rondNamn(a.foreslagenRond) + '</i>';
+      rad.innerHTML = '<b>' + a.namn + '</b> · föreslagen rond <i>' + P.rondNamn(a.foreslagenRond) + '</i>';
       sek2.appendChild(rad);
       sek2.appendChild(atgardstext(DP.Plan.standardText(a.id)));
       k.appendChild(sek2);

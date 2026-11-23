@@ -147,6 +147,16 @@ async function testPlaneringsflode(browser) {
   await bild(page, 'etapp2-tillagd');
   await angra(page);
   kontroll(await page.evaluate(() => DP.Plan.state().kopplingar.length) === 0, 'ångra tar bort kopplingarna');
+  // Informationskortet för en installation utan kopplingar visar den matchande åtgärden ur
+  // bruttolistan med rondens **namn**, inte dess id. Rondnamnet slås upp i planeringen, och den
+  // här kontrollen är det som håller uppslagningen på plats: visar kortet 'BS' i stället för
+  // 'Brandskydd' har namnet tappats någonstans på vägen.
+  await page.evaluate(() => { DP.ui.visaInstKort(DP.Plan.instIndex['00000030']); return 1; });
+  const matchande = page.locator('#infokort .sektion', { hasText: 'Matchande åtgärd i bruttolistan' });
+  kontroll(await matchande.count() === 1, 'informationskortet visar den matchande åtgärden');
+  const forslagsrad = await matchande.locator('.a-rad').innerText();
+  kontroll(/föreslagen rond\s+Brandskydd/.test(forslagsrad),
+    'den föreslagna ronden visas med namn: "' + forslagsrad.replace(/\n/g, ' ') + '"');
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
