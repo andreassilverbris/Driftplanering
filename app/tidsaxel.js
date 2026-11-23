@@ -81,9 +81,16 @@
     // Utan ronder finns bara fråga 1:s svar att visa. Byggnadens förskjutning gäller även då,
     // så raden flyttar sig med besöksrytmen.
     var besok = s.ronder.length ? P.besoksveckor(s) : P.veckorFor(s.bas, s.forskjutning);
+    // En **permanent** flytt är en förskjutning, och en förskjuten rytm syns bara som att
+    // veckorna ligger någon annanstans. Markeringen på raden är det som säger att de gör det
+    // med flit – skilt från de provisoriska flyttarnas ⤺ på en enskild bricka (beslut 34).
+    var fsk = P.forskjutningStatus(P.aktivId());
     var be = el('div', 'ta-etikett ta-besok-etikett');
-    be.innerHTML = '<span class="ta-namn">Besök i byggnaden</span><span class="ta-antal">' + besok.length + ' / år</span>';
-    be.title = s.ronder.length ? 'Alla veckor där minst ett rutintillfälle infaller' : 'Planerade besök enligt fråga 1';
+    be.innerHTML = '<span class="ta-namn">Besök i byggnaden</span>' +
+      (fsk.byggnad ? '<span class="ta-fsk" title="' + fsk.byggnadText + '">' + P.forskjutningMarke(fsk.byggnad) + '</span>' : '') +
+      '<span class="ta-antal">' + besok.length + ' / år</span>';
+    be.title = (s.ronder.length ? 'Alla veckor där minst ett rutintillfälle infaller' : 'Planerade besök enligt fråga 1') +
+      (fsk.byggnadText ? '\n⇥ ' + fsk.byggnadText : '');
     grid.appendChild(be);
     for (v = 1; v <= n; v++) {
       var c = el('div', 'ta-cell ta-besok' + (utan[v] ? ' utan' : ''));
@@ -97,8 +104,15 @@
       var u = P.utforare(r.utforare);
       var lab = el('div', 'ta-etikett');
       var veck = P.veckorForRond(r, s).length;
+      // Rondseriens egen förskjutning (nivå 2) står på rondens rad. Byggnadens (nivå 1) står
+      // på besöksraden ovanför och upprepas inte här: den gäller alla rader, och en siffra på
+      // varje rond hade sagt att de är förskjutna var för sig.
+      var rfsk = fsk.ronder.filter(function (x) { return x.rond === r.id; })[0];
       lab.innerHTML = '<span class="avatar" style="background:' + u.farg + '" title="Utförare: ' + u.namn + '">' + u.namn[0] + '</span>' +
-        '<span class="ta-namn">' + P.rondNamn(r.id) + '</span><span class="ta-antal">' + (veck ? veck + ' / år' : 'frekvens?') + '</span>';
+        '<span class="ta-namn">' + P.rondNamn(r.id) + '</span>' +
+        (rfsk && rfsk.egen ? '<span class="ta-fsk" title="' + rfsk.text + '">' + P.forskjutningMarke(rfsk.egen) + '</span>' : '') +
+        '<span class="ta-antal">' + (veck ? veck + ' / år' : 'frekvens?') + '</span>';
+      if (rfsk && rfsk.text) { lab.title = '⇥ ' + rfsk.text; }
       grid.appendChild(lab);
       for (var w = 1; w <= n; w++) {
         var cell = el('div', 'ta-cell' + (utan[w] ? ' utan' : ''));

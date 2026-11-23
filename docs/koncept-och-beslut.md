@@ -305,6 +305,52 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     förskjutning ändrar de ordinarie veckorna, parade på ordningsnummer precis som texterna
     (beslut 56): flytten är ett avstånd från den ordinarie veckan, inte en absolut vecka.
 
+67. **Dragningen är ett avstånd, och frågan säger vad avståndet betyder på varje nivå**
+    (biljett #17, beslut 26 och 34, berättelse 58–64). Planeraren drar en bricka och svarar
+    på vad flytten ska gälla. Avståndet är detsamma vad svaret än blir, men innebörden skiljer:
+    *bara denna gång* lägger det på tillfället (nivå 3), *hela rondserien* på rondens
+    förskjutning (nivå 2) och *hela byggnadens besöksrytm* på byggnadens (nivå 1). Att samma
+    gest når alla tre nivåerna är avsikten: skillnaden mellan provisoriskt och permanent är
+    den svåraste i hela balanseringen, och den ska mötas som ett val – inte som tre skilda
+    verktyg planeraren måste veta om i förväg.
+
+    De två permanenta räknas från tillfällets **ordinarie** vecka och inte från den faktiska.
+    En förskjutning flyttar rytmen, och rytmen är de ordinarie veckorna; drar planeraren ett
+    redan provisoriskt flyttat tillfälle vidare är det rytmen som ska hamna i målveckan, inte
+    rytmen plus den gamla flytten en gång till.
+
+    Frågan säger för varje val vad det **landar i**, räknat innan valet görs
+    (`DP.Plan.flyttAlternativ`). Det viktigaste beskedet gäller beslut 56: förskjutningen
+    räknas modulo intervallet, så ett drag längre än intervallet ger en rytm som ligger
+    likadant som ett kortare drag, och då hamnar det dragna tillfället inte i målveckan utan
+    ett annat tillfälle i serien gör det. Det ska stå i dialogen och inte upptäckas i
+    tidsaxeln efteråt. Är ronden en halvårsrond med vald startmånad och målveckan ligger i en
+    annan månad är de permanenta valen avstängda, med skälet utskrivet (beslut 41) – den
+    provisoriska flytten går fortfarande, eftersom den inte ändrar någon planering.
+
+    Det senaste valet är förvalt nästa gång. Förvalet lever i vyn och inte i planeringen: det
+    är en vana hos den som arbetar, inte en uppgift om byggnaden, och ska därför varken följa
+    med i historiken eller gå att ångra.
+
+68. **Permanent märks per rad, provisoriskt per bricka** (biljett #17, berättelse 64). En
+    provisorisk flytt syns på det enskilda tillfället (⤺), men en permanent flytt *är* en
+    förskjutning och syns bara som att hela rytmen ligger någon annanstans – det går inte att
+    se på en bricka. Därför får raden ett eget märke, ⇥ med förskjutningen i veckor: i
+    Balanseringens tidsaxel på byggnadsraden och i byggnadslistan, i planeringens tidsaxel på
+    besöksraden (nivå 1) och på rondens rad (nivå 2). Markeringen ligger på den nivå flytten
+    faktiskt rör, och de två symbolerna är medvetet olika.
+
+    Både beskedet i klartext (`DP.Plan.forskjutningStatus`) och själva märket
+    (`DP.Plan.forskjutningMarke`) formuleras i planeringen och inte i vyerna, så att de två
+    tidsaxlarna säger samma sak om samma flytt – och så att ett byte av symbol är en
+    redigering och inte tre. Byggnadens förskjutning upprepas inte på varje rondrad: den
+    gäller alla rader, och en siffra på varje rond hade sagt att de är förskjutna var för sig.
+
+    Släppet begränsas till **utförarens egen rad**. Balanseringen byter aldrig utförare
+    (beslut 46), och ett släpp på en annan rad hade annars flyttat tillfället utan att vare
+    sig sikte eller besked visats under dragningen – planeraren hade fått ett resultat hen
+    inte sett komma.
+
 ## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)

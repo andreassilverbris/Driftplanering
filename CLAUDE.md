@@ -150,8 +150,22 @@ Skriptens ordning i `index.html` spelar roll:
   nycklas på den **ordinarie** veckan – `DP.Plan.textVecka(t)` är vägen dit – så de följer med flytten
   av sig själva. `DP.Balansering.niva3(underlag)` räknar ut flyttar och strykförslag: flytt till närmaste
   tillåtna vecka **före** (vidare bakåt om också den saknar tillsyn, framåt bara när ingen vecka finns
-  före), och förslag när ett flyttat tillfälle hamnar högst en vecka från ett annat i samma rondserie. `strykAllaForeslagna()`, `behallTillfalle()` och
-  `aterstallStruket()` är egna historiksteg; balanseringens flyttar ingår i dess enda steg.
+  före), och förslag när ett flyttat tillfälle hamnar högst en vecka från ett annat i samma rondserie. `strykAllaForeslagna()`, `behallTillfalle()`,
+  `strykTillfalle()` och `aterstallStruket()` är egna historiksteg; balanseringens flyttar ingår i dess enda steg.
+- **Flytt för hand (beslut 34, 67 och 68):** planeraren drar en bricka i Balanseringens tidsaxel och
+  svarar på vad flytten ska gälla. Dragningen är ett **avstånd**, och svaret säger vilken nivå det
+  läggs på: `flyttaTillfalle` (nivå 3, provisorisk), `flyttaRondserie` (nivå 2) och `flyttaBesoksrytm`
+  (nivå 1) – vart sitt historiksteg. De två permanenta räknas från **ordinarie** vecka, inte från den
+  faktiska: en förskjutning flyttar rytmen, och rytmen är de ordinarie veckorna.
+  `flyttAlternativ(bid, rond, ordinarieVecka, malVecka)` svarar med vad de tre valen skulle ge, som rena
+  data – avstånd, ny förskjutning, rytmens veckor, `nyVecka`, `traffar` (om det dragna tillfället självt
+  hamnar i målveckan – det gör det inte när draget är längre än intervallet, beslut 56) och `tillaten`
+  (falskt för de permanenta när en halvårsrond med startmånad dras ut ur sin månad, beslut 41, med
+  skälet i `sparr`). Dialogen i `vyer.js` läser bara den strukturen och räknar inget själv.
+  `forskjutningStatus(bid)` ger beskedet om de permanenta flyttarna i klartext och
+  `forskjutningMarke(veckor)` märket "⇥ +2 v." – båda bor i planeringen, så att de två tidsaxlarna
+  säger samma sak om samma flytt (⇥ för permanent, skilt från ⤺ för provisoriskt).
+  Släppet begränsas till utförarens egen rad: balanseringen byter aldrig utförare (beslut 46).
 - **Balanseringens underlag:** `DP.Plan.balanseringsUnderlag()` samlar ihop de byggnader där alla sex stegen
   är klara (`byggnadKlar(bid)`, `klaraByggnader()` – beslut 39) till en ren datastruktur: per byggnad id, namn,
   färg, område och ronder med utförare, planerad tid i timmar, dagsdel och **de veckor tillfällena ligger i**.
@@ -218,14 +232,14 @@ de två första frågorna, uträkningen, förklaringen i klartext och den kvarst
 (beslut 36, 37, 38 och 46) samt **veckor utan tillsyn och skötsel** med provisoriska flyttar, förslag att
 stryka, *Stryk alla* och *behåll* (beslut 32, 45 och 64–66) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
-**Nästa: etapp 5** – flytt för hand (beslut 34) och markeringen när planeringen ändrats sedan balanseringen
-(beslut 40). Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
+samt **flytt för hand** med dra och släpp, frågan om de tre nivåerna, beskedet om målveckans fyllnad,
+strykning för hand och de egna markeringarna för permanent och provisoriskt (beslut 34, 67 och 68) byggda.
+**Nästa: etapp 5** – markeringen när planeringen ändrats sedan balanseringen (beslut 40). Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
-- **Flytt för hand** (nivå 3 för planerarens egen hand, beslut 34) finns inte än: provisoriska flyttar och
-  strykningar kommer bara ur Balansera och ur knapparna *Stryk alla* och *Behåll*. Tillståndet och
-  `rutintillfallen()` bär dem redan, så en dra-och-släpp behöver inte ändra datamodellen.
 - Balansering markeras inte när planeringen ändrats sedan balanseringen (beslut 40).
+- Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
+  resultatet – de förskjutna veckorna och de provisoriska flyttarna – men går inte att dra i.
 - Balanseringens sökning är greedy per byggnad i byggnadsordning, inte uttömmande: den hittar ett bra läge,
   inte bevisat det bästa. Valet är deterministiskt, så samma underlag ger alltid samma resultat.
 - `flerbyggnad.html` använder påhittade data och påverkas inte av planeringen på huvudsidan.

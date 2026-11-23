@@ -53,6 +53,15 @@ async function stegKlart(page, fore, beskrivning) {
 }
 const historiklangd = page => page.evaluate(() => DP.Plan.historik().lista.length);
 
+// Samma väntan, men på **positionen** i stället för längden. Ett nytt steg efter en ångran
+// skriver över det som låg framför, så längden står still medan positionen går fram – och då
+// hade stegKlart() väntat förgäves. Varje kontroll som följer äger fortfarande sitt eget
+// villkor om vad steget gjorde.
+async function stegKlartPos(page, fore, beskrivning) {
+  await vanta(page, n => DP.Plan.historik().pos > n, 'steget "' + beskrivning + '"', fore);
+}
+const historikpos = page => page.evaluate(() => DP.Plan.historik().pos);
+
 // Klickar Ångra och väntar på att historiken backat ett steg. Ångra ändrar bara positionen i
 // historiken, inte dess längd, så det är pos som säger att klicket gått igenom.
 //
@@ -2193,6 +2202,475 @@ async function testVeckorUtanTillsyn(browser) {
   await page.close();
 }
 
+// ------------------------------------------------------------------
+// Etapp 5 – flytt för hand i Balanseringens tidsaxel (biljett #17, beslut 34)
+// ------------------------------------------------------------------
+// Dragningen styrs med musen steg för steg och inte med dragTo(): beskedet om målveckans
+// fyllnad ska läsas *medan* pekaren står över målcellen (berättelse 59), och det går bara
+// att se mellan mousemove och mouseup.
+async function dra(page, franValjare, tillValjare, opts) {
+  const fran = page.locator(franValjare).first();
+  const till = page.locator(tillValjare).first();
+  const a = await fran.boundingBox();
+  const b = await till.boundingBox();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  // Två rörelser: den första passerar tröskeln som skiljer ett drag från ett klick, den andra
+  // landar på målet. Ett enda hopp hade också gått, men då hade testet inte visat att
+  // tröskeln finns.
+  await page.mouse.move(a.x + a.width / 2 + 12, a.y + a.height / 2 + 12, { steps: 3 });
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 6 });
+  if (opts && opts.medanDuDrar) { await opts.medanDuDrar(); }
+  await page.mouse.up();
+}
+
+// Alla dragbara brickor i tidsaxeln, med det testet behöver veta om vart och ett: var brickan
+// sitter (utförare och vecka, för att hitta den i DOM) och vad planeringen säger om tillfället
+// (rond, ordinarie vecka, frekvens, rytm). Testet väljer sedan själv i JavaScript utanför
+// sidan, så filtret är en vanlig funktion och inte en sträng som måste tolkas i webbläsaren.
+async function dragbaraBrickor(page) {
+  return page.evaluate(() => {
+    const P = DP.Plan;
+    const bel = DP.Balansering.belastning(P.balanseringsUnderlag());
+    const ut = [];
+    bel.rader.forEach(rad => {
+      for (let v = 1; v <= bel.antalVeckor; v++) {
+        rad.veckor[v].tillfallen.forEach(t => {
+          const s = P.stateFor(t.byggnad);
+          const rond = s.ronder.filter(r => r.id === t.rond)[0];
+          ut.push({
+            byggnad: t.byggnad, rond: t.rond, vecka: t.vecka, ordinarie: t.ordinarieVecka,
+            utforare: rad.utforare, freq: rond.freq.typ, startManad: rond.freq.startManad || null,
+            provisorisk: !!t.provisorisk, timmar: t.timmar,
+            veckor: P.veckorForRond(rond, s), antalRonder: s.ronder.length
+          });
+        });
+      }
+    });
+    return ut;
+  });
+}
+async function valjBricka(page, filter) {
+  const alla = await dragbaraBrickor(page);
+  return (filter ? alla.filter(filter) : alla)[0] || null;
+}
+// Utförarraden och inte de utfällda byggnadsraderna: båda bär samma utförare och vecka i sin
+// data, och det är utförarradens cell som bär belastningen och är dropmålet.
+const cellValjare = (b, vecka) => '.bt-cell:not(.bt-ucell)[data-utforare="' + b.utforare
+  + '"][data-vecka="' + vecka + '"]';
+const brickValjare = b => cellValjare(b, b.vecka) + ' .bt-bricka[data-byggnad="' + b.byggnad
+  + '"][data-rond="' + b.rond + '"][data-ordinarie="' + b.ordinarie + '"]';
+
+// Öppnar Balansering med alla fyra byggnaderna planerade och balanserade – samma utgångsläge
+// som planeraren möter när hen börjar justera för hand.
+async function balanseradSida(browser) {
+  const page = await nySida(browser, URL_INDEX);
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await vanta(page, () => DP.Plan.klaraByggnader().length === 4, 'alla fyra byggnaderna klara');
+  const forePos = await page.evaluate(() => DP.Plan.historik().pos);
+  await page.locator('#balansera-knapp').click();
+  await vanta(page, n => DP.Plan.historik().pos > n, 'balanseringssteget', forePos);
+  await vanta(page, () => !!document.querySelector('.bt-bricka'), 'brickorna ritade');
+  return page;
+}
+
+async function testFlyttForHand(browser) {
+  console.log('Etapp 5 – flytt för hand (beslut 34)');
+
+  // ------------------------------------------------------------------
+  // Alternativen som rena data: vad de tre valen skulle ge, före valet
+  // ------------------------------------------------------------------
+  const page = await balanseradSida(browser);
+
+  const alt = await page.evaluate(() => {
+    const P = DP.Plan;
+    // En månadsrond i Kasern 1: intervallet är 4 veckor, så ett drag 2 veckor framåt landar
+    // rytmen 2 veckor framåt, och ett drag 5 veckor framåt landar den bara 1 vecka framåt
+    // (förskjutningen räknas modulo intervallet, beslut 56).
+    const s = P.stateFor('kasern1');
+    const rond = s.ronder.filter(r => P.frekvens(r.freq.typ).iv === 4)[0];
+    const veckor = P.veckorForRond(rond, s);
+    const ov = veckor[1];
+    const tva = P.flyttAlternativ('kasern1', rond.id, ov, ov + 2);
+    const fem = P.flyttAlternativ('kasern1', rond.id, ov, ov + 5);
+    return {
+      rond: rond.id, ordinarie: ov, intervall: P.frekvens(rond.freq.typ).iv,
+      tvaTillfalle: tva.tillfalle.delta,
+      tvaRondserie: { delta: tva.rondserie.delta, nyVecka: tva.rondserie.nyVecka, traffar: tva.rondserie.traffar },
+      tvaRytm: { delta: tva.besoksrytm.delta, antalRonder: tva.besoksrytm.antalRonder },
+      femRondserie: { delta: fem.rondserie.delta, nyVecka: fem.rondserie.nyVecka, traffar: fem.rondserie.traffar },
+      sparr: tva.sparr
+    };
+  });
+  kontroll(alt.tvaTillfalle === 2 && alt.tvaRondserie.delta === 2
+    && alt.tvaRondserie.nyVecka === alt.ordinarie + 2 && alt.tvaRondserie.traffar === true,
+    'ett drag 2 veckor framåt ger samma avstånd på alla tre nivåerna, och rytmen träffar '
+    + 'målveckan (v. ' + alt.ordinarie + ' → v. ' + alt.tvaRondserie.nyVecka + ')');
+  kontroll(alt.femRondserie.delta === 5 && alt.femRondserie.traffar === false
+    && alt.femRondserie.nyVecka === alt.ordinarie + 1,
+    'ett drag längre än intervallet ger en rytm som ligger modulo intervallet – det dragna '
+    + 'tillfället hamnar i v. ' + alt.femRondserie.nyVecka + ', inte i v. ' + (alt.ordinarie + 5)
+    + ', och alternativen säger det (beslut 56)');
+  kontroll(alt.tvaRytm.antalRonder > 1 && alt.sparr === null,
+    'besöksrytmen rör alla ' + alt.tvaRytm.antalRonder + ' rondserierna, och inget val är spärrat');
+
+  // Halvårsrond med vald startmånad: permanent bara inom månaden (beslut 41)
+  const halvar = await page.evaluate(() => {
+    const P = DP.Plan;
+    let svar = null;
+    P.byggnadsordning.forEach(bid => {
+      const s = P.stateFor(bid);
+      s.ronder.forEach(r => {
+        if (svar || r.freq.typ !== 'halvar' || !r.freq.startManad) { return; }
+        const ov = P.veckorForRond(r, s)[0];
+        // En vecka in i samma månad, och en vecka långt in i nästa – samma gest, olika svar
+        let iManaden = null, utanfor = null;
+        for (let v = 1; v <= P.ANTAL_VECKOR; v++) {
+          if (v === ov) { continue; }
+          if (P.manadForVecka(v) === P.manadForVecka(ov) && iManaden === null) { iManaden = v; }
+          if (P.manadForVecka(v) !== P.manadForVecka(ov) && utanfor === null) { utanfor = v; }
+        }
+        const a = P.flyttAlternativ(bid, r.id, ov, iManaden);
+        const b = P.flyttAlternativ(bid, r.id, ov, utanfor);
+        svar = {
+          byggnad: bid, rond: r.id, ordinarie: ov, iManaden, utanfor,
+          inomTillaten: a.rondserie.tillaten && a.besoksrytm.tillaten,
+          utanforTillaten: b.rondserie.tillaten || b.besoksrytm.tillaten,
+          utanforTillfalle: b.tillfalle.tillaten, sparr: b.sparr
+        };
+      });
+    });
+    return svar;
+  });
+  kontroll(halvar && halvar.inomTillaten === true && halvar.utanforTillaten === false
+    && halvar.utanforTillfalle === true && halvar.sparr === 'startmanad',
+    'en halvårsrond med startmånad får förskjutas inom månaden (v. ' + (halvar && halvar.iManaden)
+    + ') men inte ut ur den (v. ' + (halvar && halvar.utanfor)
+    + ') – där erbjuds bara "bara denna gång" (beslut 41)');
+
+  // ------------------------------------------------------------------
+  // Dra en bricka: beskedet under dragningen och frågan när man släpper
+  // ------------------------------------------------------------------
+  const b1 = await valjBricka(page, k => !k.provisorisk && k.freq === 'manad');
+  // Förskjutningarna som balanseringen redan satt är utgångsläget, inte noll: en flytt för
+  // hand ska lämna dem orörda, inte nollställa dem.
+  const fskFore = await page.evaluate(arg => {
+    const s = DP.Plan.stateFor(arg.byggnad);
+    const r = s.ronder.filter(x => x.id === arg.rond)[0];
+    return { byggnad: s.forskjutning || 0, rond: r.forskjutning || 0 };
+  }, b1);
+  const mal1 = b1.vecka + 2 <= 52 ? b1.vecka + 2 : b1.vecka - 2;
+  let besked = null;
+  await dra(page, brickValjare(b1), cellValjare(b1, mal1), {
+    medanDuDrar: async () => {
+      besked = await page.evaluate(() => {
+        const e = document.getElementById('dragbesked');
+        const siktad = document.querySelector('.bt-cell.siktad');
+        return {
+          text: e ? e.textContent : null,
+          kopia: !!document.querySelector('.bt-dragkopia'),
+          siktadVecka: siktad ? Number(siktad.dataset.vecka) : null
+        };
+      });
+    }
+  });
+  kontroll(besked && besked.kopia && besked.siktadVecka === mal1
+    && besked.text.includes('V. ' + mal1) && /av \d/.test(besked.text),
+    'medan brickan dras markeras målveckan och beskedet säger hur full den blir ('
+    + (besked && besked.text) + ')');
+
+  await vanta(page, () => !!document.querySelector('.flyttfraga'), 'frågan när brickan släpps');
+  const fraga = await page.evaluate(() => ({
+    val: [].map.call(document.querySelectorAll('.ff-val'), k => k.dataset.val),
+    vald: (document.querySelector('.ff-val.vald') || {}).dataset?.val || null,
+    utfall: [].map.call(document.querySelectorAll('.ff-val'), k => k.querySelector('.ff-utfall').textContent),
+    borta: !document.getElementById('dragbesked')
+  }));
+  kontroll(JSON.stringify(fraga.val) === JSON.stringify(['tillfalle', 'rondserie', 'besoksrytm'])
+    && fraga.vald === 'tillfalle' && fraga.borta,
+    'frågan har de tre valen i ordningen minst till mest ingripande, med "bara denna gång" '
+    + 'förvalt första gången, och beskedet är borta');
+  kontroll(fraga.utfall[0].includes('v. ' + mal1) && fraga.utfall[0].includes('v. ' + b1.ordinarie)
+    && fraga.utfall[1].includes('v.'),
+    'varje val säger vad det landar i, med veckorna utskrivna');
+  await bild(page, 'etapp5-flyttfraga');
+
+  // "Bara denna gång" ger en provisorisk flytt av just det tillfället, och inget annat
+  let forePosSteg = await historikpos(page);
+  await page.locator('.dlg-knappar button', { hasText: 'Flytta' }).click();
+  await stegKlartPos(page, forePosSteg, 'provisorisk flytt för hand');
+  const efterProv = await page.evaluate(arg => {
+    const P = DP.Plan, s = P.stateFor(arg.b.byggnad);
+    const rond = s.ronder.filter(r => r.id === arg.b.rond)[0];
+    const t = P.rutintillfallen(s, arg.b.byggnad)
+      .filter(x => x.rond === arg.b.rond && x.ordinarieVecka === arg.b.ordinarie)[0];
+    return {
+      vecka: t && t.vecka, ordinarie: t && t.ordinarieVecka, provisorisk: t && t.provisorisk,
+      rytmKvar: JSON.stringify(P.veckorForRond(rond, s)) === JSON.stringify(arg.b.veckor),
+      rondFsk: rond.forskjutning || 0, byggnadFsk: s.forskjutning || 0,
+      steg: P.historik().lista[P.historik().pos]
+    };
+  }, { b: b1 });
+  kontroll(efterProv.vecka === mal1 && efterProv.ordinarie === b1.ordinarie
+    && efterProv.provisorisk === true && efterProv.rytmKvar
+    && efterProv.rondFsk === fskFore.rond && efterProv.byggnadFsk === fskFore.byggnad,
+    '"bara denna gång" flyttar tillfället till v. ' + mal1 + ' och lämnar rytmen, '
+    + 'förskjutningarna (' + fskFore.byggnad + '/' + fskFore.rond
+    + ' v.) och den ordinarie veckan (v. ' + b1.ordinarie + ') orörda');
+  kontroll(await page.locator(brickValjare({ ...b1, vecka: mal1 }) + '.provisorisk').count() === 1,
+    'brickan ligger i målveckan med sin provisoriska markering');
+  await angra(page);
+  kontroll(await page.evaluate(arg => {
+    const P = DP.Plan;
+    const t = P.rutintillfallen(P.stateFor(arg.byggnad), arg.byggnad)
+      .filter(x => x.rond === arg.rond && x.ordinarieVecka === arg.ordinarie)[0];
+    return t && t.vecka === arg.vecka && !t.provisorisk;
+  }, b1) === true, 'ångra tar tillbaka den provisoriska flytten för hand');
+  await gorOm(page);
+
+  // ------------------------------------------------------------------
+  // "Hela rondserien" förskjuter rondserien, och ingen annan rond
+  // ------------------------------------------------------------------
+  const b2 = await valjBricka(page, k => !k.provisorisk && k.freq === 'manad' && k.antalRonder > 1);
+  const mal2 = b2.vecka + 1 <= 52 ? b2.vecka + 1 : b2.vecka - 1;
+  const foreRonder = await page.evaluate(bid => {
+    const P = DP.Plan, s = P.stateFor(bid);
+    const ut = { veckor: {}, byggnadFsk: s.forskjutning || 0 };
+    s.ronder.forEach(r => { ut.veckor[r.id] = P.veckorForRond(r, s); });
+    return ut;
+  }, b2.byggnad);
+  await dra(page, brickValjare(b2), cellValjare(b2, mal2));
+  await vanta(page, () => !!document.querySelector('.flyttfraga'), 'frågan igen');
+  forePosSteg = await historikpos(page);
+  await page.locator('.ff-val[data-val="rondserie"]').click();
+  await page.locator('.dlg-knappar button', { hasText: 'Flytta' }).click();
+  await stegKlartPos(page, forePosSteg, 'förskjöt rondserien');
+  const efterRond = await page.evaluate(arg => {
+    const P = DP.Plan, s = P.stateFor(arg.b.byggnad);
+    const rond = s.ronder.filter(r => r.id === arg.b.rond)[0];
+    const andrade = [], ororda = [];
+    s.ronder.forEach(r => {
+      const nu = JSON.stringify(P.veckorForRond(r, s));
+      (nu === JSON.stringify(arg.fore.veckor[r.id]) ? ororda : andrade).push(r.id);
+    });
+    return {
+      rondFsk: rond.forskjutning || 0, byggnadFsk: s.forskjutning || 0,
+      andrade, ororda, veckor: P.veckorForRond(rond, s),
+      steg: P.historik().lista[P.historik().pos]
+    };
+  }, { b: b2, fore: foreRonder });
+  kontroll(efterRond.rondFsk !== 0 && efterRond.byggnadFsk === foreRonder.byggnadFsk
+    && efterRond.andrade.length === 1 && efterRond.andrade[0] === b2.rond,
+    '"hela rondserien" förskjuter bara den ronden (' + b2.rond + ' ' + efterRond.rondFsk
+    + ' v.) och lämnar byggnadens besöksrytm, så de ' + efterRond.ororda.length
+    + ' övriga rondserierna ligger kvar');
+  kontroll(efterRond.veckor.indexOf(mal2) >= 0,
+    'rondseriens veckor går nu genom målveckan v. ' + mal2 + ' (' + efterRond.veckor.join(', ') + ')');
+  kontroll(/[Ff]örskjöt rondserien/.test(efterRond.steg),
+    'historikens text säger att en rondserie förskjutits ("' + efterRond.steg + '")');
+  await angra(page);
+  kontroll(await page.evaluate(arg => {
+    const P = DP.Plan, s = P.stateFor(arg.b.byggnad);
+    const rond = s.ronder.filter(r => r.id === arg.b.rond)[0];
+    return JSON.stringify(P.veckorForRond(rond, s)) === JSON.stringify(arg.fore.veckor[arg.b.rond]);
+  }, { b: b2, fore: foreRonder }) === true,
+    'ångra tar tillbaka rondseriens förskjutning');
+
+  // ------------------------------------------------------------------
+  // "Hela byggnadens besöksrytm" förskjuter alla byggnadens ronder
+  // ------------------------------------------------------------------
+  const b3 = await valjBricka(page, k => !k.provisorisk && k.freq === 'manad' && k.antalRonder > 1);
+  const mal3 = b3.vecka + 1 <= 52 ? b3.vecka + 1 : b3.vecka - 1;
+  const foreRonder3 = await page.evaluate(bid => {
+    const P = DP.Plan, s = P.stateFor(bid);
+    const ut = { veckor: {}, byggnadFsk: s.forskjutning || 0, bundna: [] };
+    s.ronder.forEach(r => {
+      ut.veckor[r.id] = P.veckorForRond(r, s);
+      // En halvårsrond med vald startmånad är bunden till sin månad (beslut 41) och rör sig
+      // inte av varje förskjutning. Den hör ändå till besöksrytmen – den är bara klampad.
+      if (r.freq.typ === 'halvar' && r.freq.startManad) { ut.bundna.push(r.id); }
+    });
+    return ut;
+  }, b3.byggnad);
+  await dra(page, brickValjare(b3), cellValjare(b3, mal3));
+  await vanta(page, () => !!document.querySelector('.flyttfraga'), 'frågan en tredje gång');
+  // Det senaste valet var "hela rondserien" och ska vara förvalt nu (berättelse 61)
+  kontroll(await page.evaluate(() => (document.querySelector('.ff-val.vald') || {}).dataset.val) === 'rondserie',
+    'det senaste valet är förvalt vid nästa flytt');
+  forePosSteg = await historikpos(page);
+  await page.locator('.ff-val[data-val="besoksrytm"]').click();
+  await page.locator('.dlg-knappar button', { hasText: 'Flytta' }).click();
+  await stegKlartPos(page, forePosSteg, 'förskjöt besöksrytmen');
+  const efterRytm = await page.evaluate(arg => {
+    const P = DP.Plan, s = P.stateFor(arg.b.byggnad);
+    const andrade = [];
+    s.ronder.forEach(r => {
+      if (JSON.stringify(P.veckorForRond(r, s)) !== JSON.stringify(arg.fore.veckor[r.id])) { andrade.push(r.id); }
+    });
+    return {
+      byggnadFsk: s.forskjutning || 0, andrade, antalRonder: s.ronder.length,
+      // Alla ronder följer besöksrytmen – att veckorna *syns* flytta är en annan sak, se
+      // nedan om de månadsbundna halvårsronderna.
+      allaFoljer: P.forskjutningStatus(arg.b.byggnad).ronder
+        .every(r => r.egen === 0 && r.total === (s.forskjutning || 0)),
+      steg: P.historik().lista[P.historik().pos],
+      // Markeringen som skiljer en permanent flytt från en provisorisk (berättelse 64)
+      status: P.forskjutningStatus(arg.b.byggnad)
+    };
+  }, { b: b3, fore: foreRonder3 });
+  // Besöksrytmen flyttar byggnadens alla rondserier. Veckorna syns flytta för alla utom de
+  // halvårsronder som är bundna till sin startmånad: de klampas inom månaden (beslut 41) och
+  // står still när förskjutningen skulle ta dem ut ur den. Förskjutningen gäller ändå dem –
+  // den sitter på byggnaden, inte på ronden – så kontrollen mäter de ronder som kan röra sig.
+  const borRora = efterRytm.antalRonder - foreRonder3.bundna.length;
+  kontroll(efterRytm.byggnadFsk !== foreRonder3.byggnadFsk
+    && efterRytm.andrade.length >= borRora && efterRytm.allaFoljer === true,
+    '"hela byggnadens besöksrytm" förskjuter byggnadens alla ' + efterRytm.antalRonder
+    + ' rondserier: ' + efterRytm.andrade.length + ' av ' + borRora
+    + ' som kan röra sig bytte veckor, och ingen rondserie har en egen förskjutning ('
+    + foreRonder3.byggnadFsk + ' → ' + efterRytm.byggnadFsk + ' v.)');
+  kontroll(efterRytm.status.byggnad === efterRytm.byggnadFsk
+    && /[Bb]esöksrytmen är förskjuten/.test(efterRytm.status.byggnadText || ''),
+    'förskjutningen har ett eget besked i klartext ("' + efterRytm.status.byggnadText + '")');
+  await angra(page);
+  kontroll(await page.evaluate(arg => (DP.Plan.stateFor(arg.bid).forskjutning || 0) === arg.fore,
+    { bid: b3.byggnad, fore: foreRonder3.byggnadFsk }) === true,
+    'ångra tar tillbaka besöksrytmens förskjutning (till ' + foreRonder3.byggnadFsk + ' v.)');
+  await gorOm(page);
+
+  // ------------------------------------------------------------------
+  // Permanent och provisoriskt syns olika, i båda tidsaxlarna (berättelse 64)
+  // ------------------------------------------------------------------
+  await page.evaluate(() => {
+    // Fäll ut utförarna, så att byggnadsraderna med förskjutningsmärket finns i tidsaxeln
+    document.querySelectorAll('.bt-fall').forEach(k => k.click());
+  });
+  await vanta(page, () => !!document.querySelector('.bt-under'), 'utfällda byggnadsrader');
+  const iBal = await page.evaluate(bid => ({
+    marken: document.querySelectorAll('.bt-fsk:not(.tom)').length,
+    forByggnaden: [].some.call(document.querySelectorAll('.bal-byggnad[data-byggnad="' + bid + '"] .bal-fsk'),
+      e => !e.hidden && /⇥/.test(e.textContent)),
+    provisoriska: document.querySelectorAll('.bt-bricka.provisorisk').length
+  }), b3.byggnad);
+  kontroll(iBal.marken > 0 && iBal.forByggnaden && iBal.provisoriska > 0,
+    'Balanseringens tidsaxel visar permanenta flyttar som ⇥ på raden och provisoriska som '
+    + 'markerade brickor – två olika markeringar för två olika saker ('
+    + iBal.marken + ' ⇥, ' + iBal.provisoriska + ' provisoriska)');
+  await bild(page, 'etapp5-flytt-for-hand');
+
+  // Nivå 2 ovanpå nivå 1, i samma byggnad: då bär besöksraden ett märke och rondens rad ett
+  // eget. Det är hela poängen med att märket ligger på den nivå flytten rör (beslut 68).
+  const b5 = (await dragbaraBrickor(page))
+    .filter(k => k.byggnad === b3.byggnad && k.freq === 'manad')[0];
+  const mal5 = b5.vecka + 1 <= 52 ? b5.vecka + 1 : b5.vecka - 1;
+  await dra(page, brickValjare(b5), cellValjare(b5, mal5));
+  await vanta(page, () => !!document.querySelector('.flyttfraga'), 'frågan för nivå 2');
+  forePosSteg = await historikpos(page);
+  await page.locator('.ff-val[data-val="rondserie"]').click();
+  await page.locator('.dlg-knappar button', { hasText: 'Flytta' }).click();
+  await stegKlartPos(page, forePosSteg, 'förskjöt en rondserie ovanpå besöksrytmen');
+
+  await page.evaluate(bid => { DP.Plan.vaxlaByggnad(bid); }, b3.byggnad);
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppen');
+  const iPlan = await page.evaluate(() => ({
+    besokFsk: (document.querySelector('#tidsaxel .ta-besok-etikett .ta-fsk') || {}).textContent || null,
+    // Rondraderna: etiketter som varken är besöksraden eller rubrikerna
+    rondFsk: [].filter.call(document.querySelectorAll('#tidsaxel .ta-etikett'),
+      e => !e.classList.contains('ta-besok-etikett') && e.querySelector('.ta-fsk'))
+      .map(e => e.querySelector('.ta-namn').textContent + ' ' + e.querySelector('.ta-fsk').textContent),
+    provisoriska: document.querySelectorAll('#tidsaxel .rt-mark.provisorisk').length,
+    utanFsk: document.querySelectorAll('#tidsaxel .rt-mark:not(.provisorisk)').length
+  }));
+  kontroll(iPlan.besokFsk && /⇥/.test(iPlan.besokFsk),
+    'planeringens tidsaxel visar besöksrytmens förskjutning som ⇥ på besöksraden ('
+    + iPlan.besokFsk + ')');
+  kontroll(iPlan.rondFsk.length === 1 && iPlan.rondFsk[0].includes('⇥'),
+    'rondseriens egen förskjutning står som ⇥ på just den rondens rad, och upprepas inte på '
+    + 'de övriga (' + iPlan.rondFsk.join(' | ') + ')');
+  kontroll(iPlan.provisoriska > 0 && iPlan.utanFsk > 0,
+    'de provisoriskt flyttade tillfällena är markerade för sig i planeringens tidsaxel ('
+    + iPlan.provisoriska + ' av ' + (iPlan.provisoriska + iPlan.utanFsk) + ' markörer) – '
+    + 'permanent märks på raden, provisoriskt på tillfället');
+  await bild(page, 'etapp5-forskjutning-i-planeringen');
+
+  // ------------------------------------------------------------------
+  // Stryka ett enskilt tillfälle för hand (berättelse 62)
+  // ------------------------------------------------------------------
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'balansering', 'Balansering öppen igen');
+  const b4 = await valjBricka(page, k => !k.provisorisk);
+  await page.locator(cellValjare(b4, b4.vecka)).click();
+  await vanta(page, () => !!document.querySelector('.bal-strykknapp'), 'veckolistan med strykknappar');
+  const radValjare = '.bal-tillfalle[data-byggnad="' + b4.byggnad + '"][data-rond="' + b4.rond
+    + '"][data-ordinarie="' + b4.ordinarie + '"]';
+  forePosSteg = await historikpos(page);
+  await page.locator(radValjare + ' .bal-strykknapp').click();
+  await stegKlartPos(page, forePosSteg, 'strök ett tillfälle för hand');
+  const struket = await page.evaluate(arg => {
+    const P = DP.Plan, s = P.stateFor(arg.byggnad);
+    const kvar = P.rutintillfallen(s, arg.byggnad)
+      .filter(t => t.rond === arg.rond && t.ordinarieVecka === arg.ordinarie).length;
+    const med = P.tillfallenMedStrukna(s, arg.byggnad)
+      .filter(t => t.rond === arg.rond && t.ordinarieVecka === arg.ordinarie)[0];
+    return { kvar, struken: med && med.struken, steg: P.historik().lista[P.historik().pos] };
+  }, b4);
+  kontroll(struket.kvar === 0 && struket.struken === true,
+    'ett tillfälle kan strykas för hand: det finns inte längre bland rutintillfällena, men '
+    + 'står kvar som struket');
+  kontroll(await page.locator(radValjare + '.struken').count() === 1
+    && (await page.locator(radValjare + ' .bal-strykknapp').innerText()).includes('Återställ'),
+    'den strukna raden står kvar i veckolistan med en knapp för att återställa');
+  await angra(page);
+  kontroll(await page.evaluate(arg => DP.Plan.rutintillfallen(DP.Plan.stateFor(arg.byggnad), arg.byggnad)
+    .filter(t => t.rond === arg.rond && t.ordinarieVecka === arg.ordinarie).length === 1, b4) === true,
+    'ångra tar tillbaka strykningen för hand');
+  await gorOm(page);
+
+  // Återställ utan att gå via ångra: ett ställningstagande ska gå att ta tillbaka för sig
+  forePosSteg = await historikpos(page);
+  await page.locator(radValjare + ' .bal-strykknapp').click();
+  await stegKlartPos(page, forePosSteg, 'återställde ett struket tillfälle');
+  kontroll(await page.evaluate(arg => {
+    const t = DP.Plan.rutintillfallen(DP.Plan.stateFor(arg.byggnad), arg.byggnad)
+      .filter(x => x.rond === arg.rond && x.ordinarieVecka === arg.ordinarie)[0];
+    return !!t && !t.struken;
+  }, b4) === true,
+    'ett struket tillfälle kan återställas för hand, utan att gå via ångra');
+
+  // ------------------------------------------------------------------
+  // En annan utförares rad är inget mål: balanseringen byter aldrig utförare (beslut 46)
+  // ------------------------------------------------------------------
+  const b6 = await valjBricka(page, k => !k.provisorisk);
+  const annanRad = await page.evaluate(arg => {
+    const rad = [].filter.call(document.querySelectorAll('.bt-cell:not(.bt-ucell)'),
+      c => c.dataset.utforare !== arg.utforare && Number(c.dataset.vecka) !== arg.vecka)[0];
+    return rad ? { utforare: rad.dataset.utforare, vecka: Number(rad.dataset.vecka) } : null;
+  }, b6);
+  const forePosAnnan = await historikpos(page);
+  let siktePaAnnan = null;
+  await dra(page, brickValjare(b6),
+    '.bt-cell:not(.bt-ucell)[data-utforare="' + annanRad.utforare + '"][data-vecka="' + annanRad.vecka + '"]', {
+      medanDuDrar: async () => {
+        siktePaAnnan = await page.evaluate(() => ({
+          siktad: document.querySelectorAll('.bt-cell.siktad').length,
+          besked: !!document.getElementById('dragbesked')
+        }));
+      }
+    });
+  kontroll(siktePaAnnan && siktePaAnnan.siktad === 0 && !siktePaAnnan.besked
+    && await page.locator('.flyttfraga').count() === 0
+    && await historikpos(page) === forePosAnnan,
+    'en annan utförares rad är inget mål: inget sikte, inget besked, ingen fråga och inget '
+    + 'steg i historiken (' + b6.utforare + ' v. ' + b6.vecka + ' → ' + annanRad.utforare
+    + ' v. ' + annanRad.vecka + ')');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testBalanseringRymsPaSkarmen(browser) {
   console.log('Etapp 5 – Balansering på 1920×1200');
   const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
@@ -2266,6 +2744,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testBalanseringensTidsaxel(browser);
     await testBalansera(browser);
     await testVeckorUtanTillsyn(browser);
+    await testFlyttForHand(browser);
     await testBalanseringRymsPaSkarmen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {

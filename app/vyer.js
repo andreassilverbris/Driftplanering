@@ -118,6 +118,11 @@
   var BYGGNADSRAD = 30;   // px per byggnadsrad när en utförare är utfälld
   var utfalld = {};     // utförar-id -> true när raden är fälld ut till en rad per byggnad
   var valdVecka = null; // { utforare, vecka } – veckan vars tillfällen visas i listan
+  // Den senast uträknade belastningen. Dragningen behöver den för att säga hur full målveckan
+  // blir, och hela vyn ritas om i ett svep varje gång något ändras – så den är alltid färsk.
+  // Att tråda den genom fyra lager av ritfunktioner fram till varje bricka hade bara gjort
+  // signaturerna otydligare utan att göra något säkrare.
+  var senasteBelastning = null;
 
   function ritaBalansering() {
     var sido = $('#balansering'), yta = $('#balansering-yta');
@@ -125,6 +130,7 @@
 
     var underlag = P.balanseringsUnderlag();
     var bel = DP.Balansering.belastning(underlag);
+    senasteBelastning = bel;
 
     ritaSidopanel(sido, underlag, bel);
     ritaYta(yta, underlag, bel);
@@ -153,6 +159,9 @@
       text.appendChild(el('span', 'bal-namn', b.namn));
       var omr = DP.omraden.filter(function (o) { return o.id === b.omrade; })[0];
       text.appendChild(el('span', 'bal-omrade', omr ? omr.namn : ''));
+      // Byggnadens permanenta förskjutningar står med i listan, inte bara på den utfällda
+      // raden i tidsaxeln: listan är där byggnaderna står oavsett om raden är utfälld.
+      if (med) { text.appendChild(forskjutningsrad(bid)); }
       rad.appendChild(text);
       if (med) {
         rad.appendChild(el('span', 'bal-med', '✓ räknas med'));
@@ -204,7 +213,10 @@
       'En <b>streckad</b> vecka har ingen tillsyn och skötsel, svaret på fråga 3 ovanför.',
       'En bricka med <b>⤺</b> är <b>provisoriskt flyttad</b> dit, en med <b>✂</b> <b>föreslås ' +
         'strykas</b>, och en <b>ihålig</b> är <b>struken</b>.',
-      'Klicka på en vecka för att se utförarens rutintillfällen med planerad tid.'
+      'Klicka på en vecka för att se utförarens rutintillfällen med planerad tid.',
+      '<b>Dra en bricka</b> till en annan vecka för att flytta tillfället för hand. Medan du ' +
+        'drar står det hur full målveckan blir, och när du släpper frågar verktyget om flytten ' +
+        'gäller <b>bara denna gång</b>, <b>hela rondserien</b> eller <b>hela besöksrytmen</b>.'
     ].forEach(function (t) { ul.appendChild(el('li', null, t)); });
     f.appendChild(ul);
     sido.appendChild(f);
@@ -213,9 +225,24 @@
     sido.appendChild(veckolista(bel));
 
     sido.appendChild(el('div', 'bal-status',
-      '<b>Flytt för hand</b> – att dra ett enskilt tillfälle till en annan vecka – byggs i nästa ' +
-      'steg. Begreppen – besöksrytm, rondserie, kapacitet, provisorisk flytt och stryka – finns i ' +
-      '<b>Ordlistan</b>.'));
+      'En <b>permanent</b> flytt – rondserien eller besöksrytmen – ändrar planeringen och syns ' +
+      'som en förskjuten rytm i båda tidsaxlarna. En <b>provisorisk</b> flytt gäller bara i år ' +
+      'och märks med <b>⤺</b>. Begreppen – besöksrytm, rondserie, kapacitet, provisorisk flytt ' +
+      'och stryka – finns i <b>Ordlistan</b>.'));
+  }
+
+  // Förskjutningarna i klartext under byggnadens namn. Tom nod när inget är förskjutet, så
+  // att listan inte växer av en flytt som inte gjorts.
+  function forskjutningsrad(bid) {
+    var fsk = P.forskjutningStatus(bid);
+    var delar = [];
+    if (fsk.byggnadText) { delar.push('⇥ ' + fsk.byggnadText); }
+    fsk.ronder.filter(function (r) { return r.egen; }).forEach(function (r) {
+      delar.push(P.rondNamn(r.rond) + ' ' + P.forskjutningMarke(r.egen));
+    });
+    var e = el('span', 'bal-fsk', delar.join(' · '));
+    if (!delar.length) { e.hidden = true; }
+    return e;
   }
 
   // Standardplanering åt alla byggnader som inte är klara, i ett enda historiksteg (beslut 39).
@@ -619,6 +646,250 @@
   }
 
   // ------------------------------------------------------------------
+  // Flytt för hand: dra en bricka till en annan vecka (beslut 34)
+  //
+  // Dragningen är byggd på musens egna händelser och inte på HTML5:s drag-and-drop. Skälet är
+  // beskedet som ska synas *under* dragningen: hur full målveckan blir om brickan släpps där
+  // (berättelse 59). HTML5-dragningen äger pekaren och ger ingen pålitlig plats att rita det på,
+  // och den går inte att följa i ett test på samma sätt som en musrörelse.
+  //
+  // Brickan ligger kvar där den ligger medan man drar – det dragna är en kopia som följer
+  // pekaren. Så ser planeraren hela tiden varifrån tillfället kommer, och ett avbrutet drag
+  // behöver inte lägga tillbaka något.
+  // ------------------------------------------------------------------
+  var DRAG_TROSKEL = 4;   // px innan ett tryck räknas som ett drag och inte som ett klick
+  var drag = null;        // { tillfalle, utforare, kopia, mal, startX, startY, igang }
+  // Det senaste valet är förvalt nästa gång (berättelse 61). Det lever i vyn och inte i
+  // planeringen: det är en vana hos den som arbetar, inte en uppgift om byggnaden, och ska
+  // därför inte följa med i historiken eller ångras.
+  var senasteValet = 'tillfalle';
+
+  // Brickan blir dragbar. Tillfället kommer ur belastningens cell och bär allt som behövs:
+  // byggnad, rond, ordinarie vecka och planerad tid – den sista för beskedet om målveckan.
+  // Belastningen läses ur `senasteBelastning` när den behövs och trådas inte hit: den gäller
+  // hela vyn, och en kopia per bricka hade bara kunnat bli gammal.
+  function gorDragbar(d, t, utforareId) {
+    if (t.struken) { return; }   // ett struket tillfälle ligger inte någonstans att flytta ifrån
+    d.classList.add('dragbar');
+    d.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) { return; }
+      e.preventDefault();
+      e.stopPropagation();
+      drag = {
+        tillfalle: t, utforare: utforareId,
+        startX: e.clientX, startY: e.clientY, igang: false, kopia: null
+      };
+    });
+  }
+
+  window.addEventListener('mousemove', function (e) {
+    if (!drag) { return; }
+    if (!drag.igang) {
+      if (Math.abs(e.clientX - drag.startX) < DRAG_TROSKEL
+        && Math.abs(e.clientY - drag.startY) < DRAG_TROSKEL) { return; }
+      drag.igang = true;
+      drag.kopia = dragkopia(drag.tillfalle);
+      document.body.classList.add('drar-bricka');
+    }
+    drag.kopia.style.left = e.clientX + 'px';
+    drag.kopia.style.top = e.clientY + 'px';
+    siktaPa(malVeckaUnder(e.clientX, e.clientY, drag.utforare));
+  });
+
+  window.addEventListener('mouseup', function (e) {
+    if (!drag) { return; }
+    var d = drag;
+    drag = null;
+    document.body.classList.remove('drar-bricka');
+    if (d.kopia) { d.kopia.remove(); }
+    if (!d.igang) { return; }   // ett tryck utan rörelse är ett klick på cellen, inte ett drag
+    var mal = malVeckaUnder(e.clientX, e.clientY, d.utforare);
+    siktaPa(null);
+    if (mal === null || mal === d.tillfalle.vecka) { return; }
+    fragaOmFlytt(d.tillfalle, mal, d.utforare);
+  });
+
+  function dragkopia(t) {
+    var k = el('div', 'bt-dragkopia');
+    var b = el('span', 'bt-bricka', null);
+    b.style.background = t.farg;
+    k.appendChild(b);
+    k.appendChild(el('span', 'bt-dragnamn', t.byggnadNamn + ' · ' + t.rondNamn));
+    document.body.appendChild(k);
+    return k;
+  }
+
+  // Veckan under pekaren, eller null utanför **den dragna utförarens** rader. Cellen bär både
+  // vecka och utförare i sin data, så uppslagningen behöver inte veta något om rutnätets
+  // geometri – men den måste se vems rad det är: balanseringen byter aldrig utförare
+  // (beslut 46), och ett släpp på en annan utförares rad är därför inget mål. Hade bara
+  // veckan lästs hade tillfället flyttats dit utan att vare sig sikte eller besked visats
+  // under dragningen – planeraren hade fått ett resultat hen inte sett komma.
+  // Utföraren är en parameter och inte en läsning av `drag`: släppet nollställer `drag` innan
+  // målet slås upp, så en uppslagning som litade på den globala hade släppt igenom vilken rad
+  // som helst – och just släppet är tillfället då en flytt faktiskt blir av.
+  function malVeckaUnder(x, y, utforareId) {
+    var nod = document.elementFromPoint(x, y);
+    while (nod && nod !== document.body) {
+      if (nod.classList && nod.classList.contains('bt-cell') && nod.dataset.vecka) {
+        return nod.dataset.utforare === utforareId ? Number(nod.dataset.vecka) : null;
+      }
+      nod = nod.parentNode;
+    }
+    return null;
+  }
+
+  // Beskedet under dragningen: målveckan markeras, och en etikett säger hur full den blir om
+  // brickan släpps där (berättelse 59). Det är hela skälet att dragningen är byggd för hand –
+  // en planerare ska slippa släppa först och ångra sedan.
+  function siktaPa(vecka) {
+    var tidigare = document.querySelectorAll('.bt-cell.siktad');
+    for (var i = 0; i < tidigare.length; i++) { tidigare[i].classList.remove('siktad'); }
+    var etikett = $('#dragbesked');
+    if (!drag || vecka === null) { if (etikett) { etikett.remove(); } return; }
+    var cell = balCell(drag.utforare, vecka);
+    if (!cell) { if (etikett) { etikett.remove(); } return; }
+    cell.classList.add('siktad');
+    if (!etikett) {
+      etikett = el('div', 'bt-dragbesked');
+      etikett.id = 'dragbesked';
+      document.body.appendChild(etikett);
+    }
+    etikett.innerHTML = dragbesked(drag, vecka);
+    var r = cell.getBoundingClientRect();
+    etikett.style.left = Math.max(8, Math.min(window.innerWidth - 260, r.left + r.width / 2 - 125)) + 'px';
+    etikett.style.top = Math.max(8, r.top - etikett.offsetHeight - 8) + 'px';
+  }
+
+  // Hur full målveckan blir: veckans nuvarande tid plus tillfällets, mot kapaciteten.
+  // Ingen avräkning behövs – målveckan är en annan än den brickan ligger i, så tillfällets
+  // tid finns ännu inte i cellen. Siktet släpper bara mål på utförarens egen rad, så raden
+  // är alltid den dragnas.
+  function dragbesked(d, vecka) {
+    var rad = senasteBelastning && senasteBelastning.rad(d.utforare);
+    var cell = rad && rad.veckor[vecka];
+    if (!cell) { return 'V. ' + vecka; }
+    var timmar = cell.timmar + d.tillfalle.timmar;
+    var antal = cell.antal + 1;
+    var kap = cell.kapacitetTimmar;
+    var over = timmar > kap;
+    return '<b>V. ' + vecka + '</b> blir <b class="' + (over ? 'bt-dbover' : '') + '">' +
+      DP.Balansering.timmarText(timmar) + ' av ' + DP.Balansering.timmarText(kap) + '</b> · ' +
+      antal + (antal === 1 ? ' tillfälle' : ' tillfällen') +
+      (over ? ' <span class="bt-dbover">över kapaciteten</span>' : '') +
+      (cell.utanTillsyn ? ' <span class="bt-dbmjuk">vecka utan tillsyn och skötsel</span>' : '');
+  }
+
+  // ---------------- Frågan när brickan släpps (berättelse 60 och 61) ----------------
+  //
+  // De tre svaren är de tre nivåerna i beslut 26, och dialogen säger för varje vad den
+  // *landar i*: vilka veckor rytmen hamnar i, och hur många tillfällen valet rör. Skillnaden
+  // mellan "bara denna gång" och "hela rondserien" är den svåraste i hela balanseringen, och
+  // den ska gå att se i svaret innan man väljer – inte upptäckas i tidsaxeln efteråt.
+  function fragaOmFlytt(t, mal, utforareId) {
+    var alt = P.flyttAlternativ(t.byggnad, t.rond, t.ordinarieVecka, mal);
+    if (!alt) { return; }
+    var nod = el('div', 'flyttfraga');
+    nod.appendChild(el('div', 'ff-topp', '<b>' + t.byggnadNamn + ' · ' + t.rondNamn + '</b>' +
+      '<span>' + (t.provisorisk
+        ? 'ligger i v. ' + t.vecka + ', ordinarie v. ' + t.ordinarieVecka
+        : 'ligger i v. ' + t.vecka) + ' · släppt i <b>v. ' + mal + '</b></span>'));
+
+    var valt = { id: null };
+    var kort = [];
+    VALEN.forEach(function (v) {
+      var data = alt[v.id];
+      var k = el('button', 'ff-val' + (data.tillaten ? '' : ' av'));
+      k.dataset.val = v.id;
+      k.appendChild(el('span', 'ff-rubrik', v.rubrik));
+      k.appendChild(el('span', 'ff-under', v.under));
+      k.appendChild(el('span', 'ff-utfall', v.utfall(alt, data, t)));
+      k.disabled = !data.tillaten;
+      k.addEventListener('click', function () { valj(v.id); });
+      kort.push(k);
+      nod.appendChild(k);
+    });
+    function valj(id) {
+      valt.id = id;
+      kort.forEach(function (k) { k.classList.toggle('vald', k.dataset.val === id); });
+    }
+    // Det senaste valet är förvalt, så att flera flyttar i rad går fort (berättelse 61). Är
+    // det valet avstängt just nu faller förvalet tillbaka på "bara denna gång", som alltid går.
+    valj(alt[senasteValet] && alt[senasteValet].tillaten ? senasteValet : 'tillfalle');
+
+    if (alt.sparr === 'startmanad') {
+      nod.appendChild(el('div', 'ff-sparr',
+        'Ronden går <b>varje halvår med vald startmånad</b>, och en halvårsrond får bara ' +
+        'förskjutas inom sin månad (beslut 41). V. ' + mal + ' ligger i en annan månad än ' +
+        'v. ' + alt.ordinarieVecka + ', så de permanenta valen är inte möjliga här. ' +
+        'Den provisoriska flytten går: den ändrar ingen planering, bara var tillfället ligger i år.'));
+    }
+
+    DP.Dialog.visa({
+      titel: 'Vad ska flytten gälla?',
+      nod: nod,
+      bredd: 600,
+      knappar: [
+        { text: 'Flytta', prim: true, gor: function () { utforFlytt(alt, valt.id); } },
+        { text: 'Avbryt' }
+      ]
+    });
+  }
+  // De tre valen och vad de landar i. `utfall` är texten som säger vad valet faktiskt gör –
+  // den räknas ur alternativen och inte ur gissningar om frekvensen.
+  var VALEN = [
+    {
+      id: 'tillfalle', rubrik: 'Bara denna gång', under: 'provisorisk flytt · planeringen rörs inte',
+      utfall: function (alt, data, t) {
+        return 'Tillfället ligger i <b>v. ' + alt.malVecka + '</b> i år. Ordinarie vecka är ' +
+          'fortfarande v. ' + alt.ordinarieVecka + ', så nästa år ligger det där igen.';
+      }
+    },
+    {
+      id: 'rondserie', rubrik: 'Hela rondserien', under: 'permanent · förskjuter den här ronden',
+      utfall: function (alt, data) { return permanentUtfall(alt, data, 'Rondserien'); }
+    },
+    {
+      id: 'besoksrytm', rubrik: 'Hela byggnadens besöksrytm', under: 'permanent · förskjuter alla ronder',
+      utfall: function (alt, data) {
+        return permanentUtfall(alt, data, 'Alla ' + data.antalRonder + ' rondserierna') +
+          ' Byggnaden fortsätter att besökas samlat.';
+      }
+    }
+  ];
+  // Vad en permanent flytt landar i. Det viktiga – och det som annars överraskar – är att
+  // förskjutningen räknas modulo intervallet (beslut 56): drar man längre än intervallet
+  // ligger rytmen likadant som ett kortare drag. Då hamnar inte det dragna tillfället i
+  // målveckan, och det ska stå här och inte upptäckas i tidsaxeln efteråt.
+  function permanentUtfall(alt, data, vad) {
+    if (!data.tillaten) { return 'Inte möjligt för den här ronden – se förklaringen nedan.'; }
+    if (data.delta === 0) { return vad + ' ligger redan så.'; }
+    var t = vad + ' flyttas <b>' + antalVeckorText(Math.abs(data.delta)) + ' ' +
+      (data.delta < 0 ? 'bakåt' : 'framåt') + '</b> till v. ' + veckorKort(data.veckor) + '.';
+    if (!data.traffar && data.nyVecka !== null) {
+      t += ' Det dragna tillfället hamnar i <b>v. ' + data.nyVecka + '</b> och inte i v. ' +
+        alt.malVecka + ': frekvensen står still, så rytmen räknas i hela intervall – ' +
+        'det är ett annat tillfälle i serien som hamnar i v. ' + alt.malVecka + '.';
+    }
+    return t;
+  }
+  // "3, 16, 29 och 42" eller "13 veckor från v. 3" – en uppräkning som inte svämmar över
+  function veckorKort(veckor) {
+    if (!veckor.length) { return '–' }
+    if (veckor.length <= 5) {
+      return veckor.length === 1 ? String(veckor[0])
+        : veckor.slice(0, -1).join(', ') + ' och ' + veckor[veckor.length - 1];
+    }
+    return veckor[0] + ', ' + veckor[1] + ', ' + veckor[2] + ' … ' + veckor[veckor.length - 1];
+  }
+  function utforFlytt(alt, valId) {
+    senasteValet = valId;
+    if (valId === 'rondserie') { P.flyttaRondserie(alt.byggnad, alt.rond, alt.ordinarieVecka, alt.malVecka); }
+    else if (valId === 'besoksrytm') { P.flyttaBesoksrytm(alt.byggnad, alt.rond, alt.ordinarieVecka, alt.malVecka); }
+    else { P.flyttaTillfalle(alt.byggnad, alt.rond, alt.ordinarieVecka, alt.malVecka); }
+  }
+
+  // ------------------------------------------------------------------
   // Animering: brickorna flyger till sina nya veckor
   //
   // Skillnaden kommer färdigräknad i `info.flyttade` (byggnad -> tillfällen som bytt vecka).
@@ -650,8 +921,13 @@
       });
     });
   }
+  // Utförarens cell för en vecka. De utfällda byggnadsradernas celler bär samma utförare och
+  // vecka i sin data, så uppslagningen måste utesluta dem (`bt-ucell`) – annars hade den
+  // ibland svarat med en byggnadsrad, och både animeringen och dragningens sikte hade pekat
+  // på en annan rad än den som bär belastningen.
   function balCell(utforareId, vecka) {
-    return document.querySelector('.bt-cell[data-utforare="' + utforareId + '"][data-vecka="' + vecka + '"]');
+    return document.querySelector('.bt-cell:not(.bt-ucell)[data-utforare="' + utforareId +
+      '"][data-vecka="' + vecka + '"]');
   }
 
   // ---------------- Veckolistan: "5 av 6" och tillfällena med planerad tid ----------------
@@ -697,6 +973,7 @@
         (t.foreslagen ? ' foreslagen' : '') + (t.struken ? ' struken' : ''));
       r.dataset.byggnad = t.byggnad;
       r.dataset.rond = t.rond;
+      r.dataset.ordinarie = String(t.ordinarieVecka);
       r.appendChild(fargprick(t.farg));
       var txt = el('div', 'bal-tnamn');
       txt.appendChild(el('span', 'bal-namn', t.byggnadNamn + ' · ' + t.rondNamn));
@@ -710,8 +987,22 @@
       txt.appendChild(el('span', 'bal-veckorad', veckor));
       r.appendChild(txt);
       // Ett struket tillfälle har ingen planerad tid att visa – det belastar ingen vecka.
-      // Vägen tillbaka är ångra, som för allt annat.
       r.appendChild(el('span', 'bal-tid', t.struken ? 'struket' : dagsdelText(t)));
+      // Stryka för hand, och vägen tillbaka (berättelse 62). Knappen ligger i veckolistan och
+      // inte på brickan: en bricka är 11 px och ska bära dragningen, och strykningen är ett
+      // beslut om ett namngivet tillfälle – det hör i listan där tillfället står med namn,
+      // vecka och planerad tid, så att planeraren ser vad hen tar bort.
+      var k = el('button', 'knapp sekundar liten-knapp bal-strykknapp',
+        t.struken ? 'Återställ' : '✂ Stryk');
+      k.title = t.struken
+        ? 'Lägg tillbaka ' + (t.namn || 'tillfället') + ' i v. ' + t.vecka
+        : 'Stryk ' + (t.namn || 'tillfället') + ' – det ska inte göras i år';
+      k.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (t.struken) { P.aterstallStruket(t.byggnad, t.rond, t.ordinarieVecka); }
+        else { P.strykTillfalle(t.byggnad, t.rond, t.ordinarieVecka); }
+      });
+      r.appendChild(k);
       ul.appendChild(r);
     });
     w.appendChild(ul);
@@ -902,6 +1193,10 @@
       var bl = el('div', 'bt-etikett bt-under');
       bl.appendChild(fargprick(b.farg));
       bl.appendChild(el('span', 'bt-bnamn', b.namn));
+      // En **permanent** flytt är en förskjutning, och den syns inte på någon enskild bricka –
+      // den syns som att hela rytmen ligger någon annanstans. Markeringen på byggnadsraden är
+      // det som säger det, och den är densamma som i planeringens tidsaxel (beslut 34).
+      bl.appendChild(forskjutningsmarke(b.id));
       grid.appendChild(bl);
       for (var vecka = 1; vecka <= n; vecka++) {
         // Veckan utan tillsyn och skötsel är redan uträknad per cell i belastningen –
@@ -912,11 +1207,26 @@
         ucell.dataset.vecka = String(vecka);
         rad.veckor[vecka].tillfallen
           .filter(function (t) { return t.byggnad === b.id; })
-          .forEach(function (t) { ucell.appendChild(bricka(t)); });
+          .forEach(function (t) { ucell.appendChild(bricka(t, rad.utforare)); });
         grid.appendChild(ucell);
       }
     });
   }
+  // Förskjutningsmärket: "⇥ +2 v." med hela beskedet i titeln. Beskedet formuleras i
+  // planeringen (`forskjutningStatus`), så att de två tidsaxlarna säger samma sak om samma
+  // flytt – en permanent flytt ska inte heta olika beroende på var man står.
+  function forskjutningsmarke(bid) {
+    var fsk = P.forskjutningStatus(bid);
+    var rondTexter = fsk.ronder.filter(function (r) { return r.egen; })
+      .map(function (r) { return P.rondNamn(r.rond) + ': ' + r.text; });
+    if (!fsk.byggnad && !rondTexter.length) { return el('span', 'bt-fsk tom', null); }
+    var total = fsk.byggnad;
+    var m = el('span', 'bt-fsk', total ? P.forskjutningMarke(total) : '⇥');
+    m.title = [fsk.byggnadText].concat(rondTexter).filter(Boolean).join('\n');
+    if (rondTexter.length) { m.classList.add('rond'); }
+    return m;
+  }
+
   // Byggnaderna en utförare har tillfällen i – raderna en utfälld utförare delas upp i
   function byggnaderFor(underlag, utforareId) {
     return underlag.byggnader.filter(function (b) {
@@ -948,11 +1258,11 @@
     fyll.style.height = Math.min(100, Math.round(cell.andel * 100)) + '%';
     k.appendChild(fyll);
     var brickor = el('div', 'bt-brickor');
-    cell.tillfallen.forEach(function (t) { brickor.appendChild(bricka(t)); });
+    cell.tillfallen.forEach(function (t) { brickor.appendChild(bricka(t, rad.utforare)); });
     // De strukna ligger sist, som spöken: de belastar ingenting men visar att planeraren
     // har tagit bort ett tillfälle som annars hade legat här.
     ((strukna && strukna[rad.utforare + ':' + cell.vecka]) || []).forEach(function (t) {
-      brickor.appendChild(bricka(t));
+      brickor.appendChild(bricka(t, rad.utforare));
     });
     k.appendChild(brickor);
     if (cell.manga) { k.appendChild(el('span', 'bt-ring', null)); }
@@ -969,7 +1279,7 @@
   // (biljett #16): ett **provisoriskt flyttat** tillfälle har en pil, ett **föreslaget** en
   // sax och ett **struket** är ett tomt spöke. Färgen är redan upptagen av byggnaden, och
   // den som läser tidsaxeln ska kunna se skillnaden utan att hålla en färgskala i huvudet.
-  function bricka(t) {
+  function bricka(t, utforareId) {
     var d = el('span', 'bt-bricka' + (t.provisorisk ? ' provisorisk' : '') +
       (t.foreslagen ? ' foreslagen' : '') + (t.struken ? ' struken' : ''));
     if (!t.struken) { d.style.background = t.farg; }
@@ -982,7 +1292,9 @@
     if (t.foreslagen) { extra += '\n✂ Föreslås strykas'; }
     if (t.struken) { extra += '\n✂ Struket'; }
     d.title = (t.namn || t.byggnadNamn + ' · ' + t.rondNamn) +
-      (t.struken ? '' : '\n' + dagsdelText(t)) + extra;
+      (t.struken ? '' : '\n' + dagsdelText(t)) + extra +
+      (t.struken ? '' : '\nDra till en annan vecka för att flytta');
+    if (utforareId) { gorDragbar(d, t, utforareId); }
     return d;
   }
 

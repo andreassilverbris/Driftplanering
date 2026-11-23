@@ -452,3 +452,72 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 .bal-kvar { margin-top: 9px; }
 .bal-kvarlankar { margin-top: 5px; gap: 10px; }
 .bal-kvarlankar .lank { font-size: 12px; padding: 0; color: #a33; }
+
+/* ---------- Flytt för hand: dragning, besked och frågan (beslut 34) ---------- */
+/* Brickan ska se ut att gå att ta i. Pekaren är det enda som säger det i 11 px – en
+ * dragsymbol hade inte fått plats, och en ram till hade krockat med de tre markeringarna
+ * för provisorisk, föreslagen och struken. */
+.bt-bricka.dragbar { cursor: grab; }
+body.drar-bricka { cursor: grabbing; user-select: none; }
+body.drar-bricka .bt-cell:hover { box-shadow: none; }
+/* Kopian som följer pekaren. Den ligger över allt och tar inga händelser: det är cellen under
+ * pekaren som ska svara, inte kopian. */
+.bt-dragkopia {
+  position: fixed; z-index: 90; pointer-events: none; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 5px;
+  background: #fff; border: 1px solid var(--linje); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(20,30,45,.22); font-size: 11px; white-space: nowrap;
+}
+.bt-dragnamn { font-weight: 600; }
+/* Målveckan medan man drar: en tydlig ram, så att det syns vilken kolumn som gäller när
+ * cellerna är 20 px breda */
+.bt-cell.siktad { box-shadow: inset 0 0 0 2px var(--accent) !important; z-index: 3; }
+/* Beskedet om hur full målveckan blir (berättelse 59). Det ligger ovanför cellen, där blicken
+ * redan är, och inte i en panel vid sidan – under en dragning hinner ingen titta åt sidan. */
+.bt-dragbesked {
+  position: fixed; z-index: 91; pointer-events: none; width: 250px; text-align: center;
+  padding: 5px 8px; background: #1f2833; color: #fff; border-radius: 6px;
+  font-size: 11px; line-height: 1.45; box-shadow: 0 4px 14px rgba(20,30,45,.3);
+}
+.bt-dragbesked b { color: #fff; }
+.bt-dragbesked .bt-dbover { color: #ff9f98; }
+.bt-dragbesked .bt-dbmjuk { color: #ffd88a; }
+
+/* Frågan när brickan släpps: ett kort per nivå, i ordningen minst till mest ingripande */
+.flyttfraga { display: flex; flex-direction: column; gap: 8px; }
+.ff-topp { font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.ff-topp span { color: var(--dov); font-size: 12px; }
+.ff-val {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left;
+  padding: 9px 11px; border: 1px solid var(--linje); border-radius: 8px; background: #fff;
+  font: inherit; cursor: pointer;
+}
+.ff-val:hover { border-color: var(--accent); }
+.ff-val.vald { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: #f5f8ff; }
+.ff-val.av { opacity: .55; cursor: not-allowed; background: #f7f8f9; }
+.ff-rubrik { font-weight: 600; font-size: 13px; }
+.ff-under { font-size: 11px; color: var(--svag); text-transform: uppercase; letter-spacing: .3px; }
+.ff-utfall { font-size: 12px; color: var(--dov); line-height: 1.5; }
+/* Varför ett val är avstängt, i klartext. En grå knapp utan skäl lär planeraren att verktyget
+ * ibland bara säger nej – och beslut 41 har ett skäl som är värt att förstå. */
+.ff-sparr {
+  font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 6px;
+  background: #fdf5e6; color: #6b5214; border: 1px solid #ecd9a8;
+}
+/* Strykknappen i veckolistan: sist på raden, så att namnet och tiden läses först */
+.bal-strykknapp { margin-left: 6px; flex: none; align-self: center; }
+/* Förskjutningsmärket: samma ⇥ i båda tidsaxlarna, så att en permanent flytt heter samma sak
+ * var man än står. Det är medvetet en annan symbol än ⤺, som betyder provisorisk: skillnaden
+ * mellan permanent och provisoriskt är den svåraste i balanseringen (beslut 26 och 34). */
+.ta-fsk, .bt-fsk {
+  font-size: 10px; font-weight: 700; color: #2d5580; background: #e8eff8;
+  border-radius: 4px; padding: 1px 3px; white-space: nowrap; flex: none;
+}
+/* Etiketten är 220 px och ska rymma namn, märke och antalet per år. Märket är smalt och
+ * kommer före antalet, så det är rondens namn som får ge vika – och ett avkortat namn går
+ * att läsa i radens titel, medan en förskjutning som inte syns inte går att läsa någonstans. */
+.ta-fsk { margin-left: 4px; margin-right: 0; }
+.bt-fsk { margin-left: auto; margin-right: 4px; }
+.bt-fsk.tom { background: none; }
+.bt-fsk.rond { background: #dfeaf7; box-shadow: inset 0 0 0 1px #9dbce0; }
+.bal-fsk { font-size: 10px; color: #2d5580; line-height: 1.4; }

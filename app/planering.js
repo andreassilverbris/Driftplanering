@@ -767,6 +767,10 @@
         var s = stateFor(bid), b = DP.byggnader[bid];
         return {
           id: bid, namn: b.namn, farg: b.farg, omrade: b.omrade,
+          // Byggnadens egen förskjutning (nivå 1) följer med, så att en permanent flytt går
+          // att *se* i Balanseringens tidsaxel och inte bara räkna ut ur var brickorna hamnat
+          // (beslut 34, berättelse 64).
+          forskjutning: s.forskjutning || 0,
           ronder: s.ronder.filter(function (r) { return freqKomplett(r.freq); }).map(function (r) {
             // `veckor` är rondseriens **ordinarie** veckor, alltså de rytmen ger. Nivå 3 –
             // provisoriska flyttar och strykningar – följer med som egna kartor nycklade på
@@ -1100,6 +1104,196 @@
     }, { strykning: true });
   }
 
+  // Vad som är förskjutet i en byggnad, i klartext. En **permanent** flytt är en förskjutning,
+  // och en förskjutning syns i tidsaxeln bara som att veckorna ligger någon annanstans – det
+  // går inte att se på en bricka att rytmen är flyttad. Därför svarar planeringen med beskedet
+  // i stället för att varje vy ska formulera sitt eget, och de två tidsaxlarna säger samma sak
+  // om samma flytt (beslut 34, berättelse 64).
+  //
+  // Provisoriska flyttar märks per bricka (⤺), permanenta per rad: skillnaden är vad de gäller,
+  // och markeringen ligger därför på den nivå flytten faktiskt rör.
+  // "⇥ +2 v." – märket vyerna sätter på raden. Det bor här och inte i vyerna av samma skäl som
+  // klartexten: beslut 68 kräver att en permanent flytt heter samma sak var man än står, och
+  // tre kopior av formen hade krävt tre redigeringar för att byta symbol.
+  function forskjutningMarke(veckor) {
+    return '⇥ ' + (veckor > 0 ? '+' : '−') + Math.abs(veckor) + ' v.';
+  }
+  function forskjutningStatus(bid) {
+    var s = stateFor(bid);
+    var bas = s.forskjutning || 0;
+    return {
+      byggnad: bas,
+      byggnadText: bas ? 'Besöksrytmen är förskjuten ' + deltaText(bas) : null,
+      ronder: s.ronder.map(function (r) {
+        var egen = r.forskjutning || 0;
+        return {
+          rond: r.id, egen: egen, total: rondForskjutning(r, s),
+          text: egen ? 'Rondserien är förskjuten ' + deltaText(egen) + ' utöver besöksrytmen'
+            : (bas ? 'Följer byggnadens besöksrytm, förskjuten ' + deltaText(bas) : null)
+        };
+      })
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Flytt för hand (beslut 34)
+  // ------------------------------------------------------------------
+  // Planeraren drar en bricka till en annan vecka och svarar på vad flytten ska gälla: bara
+  // det här tillfället, hela rondserien eller hela byggnadens besöksrytm. De tre svaren är de
+  // tre nivåerna i beslut 26, nådda från samma gest – och det är hela poängen: skillnaden
+  // mellan en provisorisk flytt och en permanent ska vara ett val planeraren möter och inte
+  // två skilda verktyg hen måste veta om i förväg.
+  //
+  // Ett drag är ett **avstånd**: tillfället låg i sin faktiska vecka och släpptes i en annan.
+  // Avståndet är det samma vad valet än blir, men vad det *betyder* skiljer sig:
+  //   bara denna gång  – avståndet läggs på tillfället (nivå 3), ordinarie vecka står still
+  //   hela rondserien  – avståndet läggs på rondens förskjutning (nivå 2)
+  //   besöksrytmen     – avståndet läggs på byggnadens förskjutning (nivå 1)
+  //
+  // De två permanenta räknas från **ordinarie** vecka och inte från den faktiska. En
+  // förskjutning flyttar rytmen, och rytmen är de ordinarie veckorna; drar planeraren ett
+  // provisoriskt flyttat tillfälle vidare och väljer "hela rondserien" är det rytmen som ska
+  // hamna i målveckan, inte rytmen plus den gamla provisoriska flytten en gång till.
+  function flyttDelta(s, rondId, ordinarieVecka, malVecka, permanent) {
+    var fran = permanent ? ordinarieVecka : faktiskVecka(s, rondId, ordinarieVecka);
+    return Math.round(Number(malVecka) || 0) - fran;
+  }
+
+  // Vad de tre valen skulle ge, som rena data – frågedialogen läser det här och behöver inte
+  // själv veta något om frekvenser, förskjutningar eller beslut 41. Att svaren räknas fram
+  // *före* valet är vad som gör det möjligt att säga vad en permanent flytt landar i, och att
+  // stänga av den när den inte är tillåten.
+  //
+  // `tillaten` är falskt för de permanenta när ronden är en halvårsrond med vald startmånad
+  // och målveckan ligger i en annan månad än tillfällets ordinarie (beslut 41): rytmen får
+  // flyttas inom månaden, inte ut ur den. Då finns bara "bara denna gång" kvar, och det är ett
+  // riktigt svar – en halvårsrond går att flytta provisoriskt vart som helst, det är bara
+  // planeringen som är bunden till månaden.
+  function flyttAlternativ(bid, rondId, ordinarieVecka, malVecka) {
+    var s = stateFor(bid);
+    var rond = s.ronder.filter(function (r) { return r.id === rondId; })[0];
+    if (!rond) { return null; }
+    var mal = Math.round(Number(malVecka) || 0);
+    var inomManad = !(frekvens(rond.freq.typ).startManad && rond.freq.startManad)
+      || manadForVecka(mal) === manadForVecka(ordinarieVecka);
+    return {
+      byggnad: bid, rond: rondId, rondNamn: rondNamn(rondId),
+      ordinarieVecka: ordinarieVecka, faktiskVecka: faktiskVecka(s, rondId, ordinarieVecka),
+      malVecka: mal,
+      // Varje val får sitt eget avstånd och sina egna veckor efteråt, så att dialogen kan
+      // säga vad valet landar i utan att räkna om något själv.
+      tillfalle: { delta: flyttDelta(s, rondId, ordinarieVecka, mal, false), tillaten: true },
+      rondserie: permanentAlternativ(s, rond, ordinarieVecka, mal, false, inomManad),
+      besoksrytm: permanentAlternativ(s, rond, ordinarieVecka, mal, true, inomManad),
+      // Skälet står med, så att dialogen kan förklara varför ett val är avstängt i stället
+      // för att bara visa en grå knapp (pedagogiken är det viktigaste i det här projektet).
+      sparr: inomManad ? null : 'startmanad'
+    };
+  }
+  // Ett permanent alternativ: avståndet, den nya förskjutningen och de veckor rytmen hamnar i.
+  //
+  // Förskjutningen räknas modulo intervallet (beslut 56), så ett drag längre än intervallet
+  // ger inte en rytm som ligger längre bort – den ligger likadant. Därför svarar `veckor` med
+  // vad rytmen *faktiskt* blir, och `traffar` säger om det dragna tillfället självt hamnar i
+  // målveckan. Drar planeraren en månadsrond fem veckor framåt landar rytmen en vecka framåt,
+  // och det är inte ett fel utan vad en frekvens betyder – men det ska stå i dialogen och inte
+  // upptäckas efteråt.
+  function permanentAlternativ(s, rond, ordinarieVecka, mal, byggnadsniva, inomManad) {
+    var delta = flyttDelta(s, rond.id, ordinarieVecka, mal, true);
+    var nuvarande = byggnadsniva ? (s.forskjutning || 0) : (rond.forskjutning || 0);
+    var prov = klona(s);
+    var provRond = prov.ronder.filter(function (r) { return r.id === rond.id; })[0];
+    if (byggnadsniva) { prov.forskjutning = nuvarande + delta; }
+    else { provRond.forskjutning = nuvarande + delta; }
+    var veckor = veckorForRond(provRond, prov);
+    // Vilken vecka det dragna tillfället hamnar i: tillfällena paras ihop på ordningsnummer
+    // precis som i parihop(), så det n:te före svarar mot det n:te efter.
+    var fore = veckorForRond(rond, s);
+    var i = fore.indexOf(ordinarieVecka);
+    var nyVecka = i >= 0 && i < veckor.length ? veckor[i] : null;
+    return {
+      delta: delta, forskjutning: nuvarande + delta, tillaten: inomManad,
+      veckorFore: fore, veckor: veckor, nyVecka: nyVecka, traffar: nyVecka === mal,
+      // Antalet rondserier valet rör: byggnadsnivån tar alla ronder med en komplett frekvens
+      antalRonder: byggnadsniva ? s.ronder.filter(function (r) { return freqKomplett(r.freq); }).length : 1
+    };
+  }
+
+  // Bara denna gång: ett eget historiksteg som bara rör tillfället (nivå 3). Ett tillfälle som
+  // dras tillbaka till sin ordinarie vecka är inte längre flyttat – posten tas bort i stället
+  // för att bli en flytt på noll veckor, så att brickan tappar sin markering av sig själv.
+  //
+  // Strykförslaget försvinner: det kom av var balanseringen lade tillfället, och planeraren
+  // har nu tagit ställning till just den veckan med handen. Att låta saxen sitta kvar på en
+  // vecka planeraren själv valt hade varit systemet som tjatade om sitt eget gamla förslag.
+  function flyttaTillfalle(bid, rondId, ordinarieVecka, malVecka) {
+    var mal = Math.round(Number(malVecka) || 0);
+    if (mal < 1 || mal > ANTAL_VECKOR) { return false; }
+    var nyckel = tillfalleNyckel(rondId, ordinarieVecka);
+    andraFlera('Flyttade ' + rutintillfalleNamn(rondId, faktiskVecka(stateFor(bid), rondId, ordinarieVecka), bid) +
+      ' till v. ' + mal + ' (bara denna gång)', function (a) {
+      var st = a.tillstand(bid);
+      if (!st) { return; }
+      if (mal === ordinarieVecka) { delete st.flyttade[nyckel]; }
+      else { st.flyttade[nyckel] = mal; }
+      if (st.strukna[nyckel] === 'foreslagen') { delete st.strukna[nyckel]; }
+    }, { handflytt: 'tillfalle' });
+    return true;
+  }
+
+  // Hela rondserien (nivå 2) och hela byggnadens besöksrytm (nivå 1): permanenta, och därför
+  // förskjutningar. Båda går genom sattRondForskjutning/sattForskjutning, som flyttar med sig
+  // de avvikande texterna och planerarens nivå 3 (beslut 56) – en flytt för hand ska inte
+  // kasta det som redan är bestämt om tillfällena.
+  function flyttaRondserie(bid, rondId, ordinarieVecka, malVecka) {
+    var alt = flyttAlternativ(bid, rondId, ordinarieVecka, malVecka);
+    if (!alt || !alt.rondserie.tillaten) { return false; }
+    andraFlera('Förskjöt rondserien ' + alt.rondNamn + ' i ' + DP.byggnader[bid].namn +
+      ' ' + deltaText(alt.rondserie.delta), function (a) {
+      var st = a.tillstand(bid);
+      if (st) { sattRondForskjutning(st, rondId, alt.rondserie.forskjutning); }
+    }, { handflytt: 'rondserie' });
+    return true;
+  }
+  function flyttaBesoksrytm(bid, rondId, ordinarieVecka, malVecka) {
+    var alt = flyttAlternativ(bid, rondId, ordinarieVecka, malVecka);
+    if (!alt || !alt.besoksrytm.tillaten) { return false; }
+    andraFlera('Förskjöt besöksrytmen för ' + DP.byggnader[bid].namn + ' ' +
+      deltaText(alt.besoksrytm.delta), function (a) {
+      var st = a.tillstand(bid);
+      if (st) { sattForskjutning(st, alt.besoksrytm.forskjutning); }
+    }, { handflytt: 'besoksrytm' });
+    return true;
+  }
+  // "2 veckor framåt" / "1 vecka bakåt" – historikens text ska gå att läsa i mediaspelaren
+  function deltaText(delta) {
+    var n = Math.abs(delta);
+    return n + (n === 1 ? ' vecka ' : ' veckor ') + (delta < 0 ? 'bakåt' : 'framåt');
+  }
+
+  // Stryka och återställa för hand: egna historiksteg, ett per tillfälle. En strykning för
+  // hand är ett eget ställningstagande och inte ett ja till ett förslag, så den går inte genom
+  // strykAllaForeslagna – men den ser likadan ut i tillståndet ('struken'), eftersom det är
+  // samma sak: tillfället ska inte göras i år.
+  function strykTillfalle(bid, rondId, ordinarieVecka) {
+    var nyckel = tillfalleNyckel(rondId, ordinarieVecka);
+    andraFlera('Strök ' + rutintillfalleNamn(rondId, faktiskVecka(stateFor(bid), rondId, ordinarieVecka), bid),
+      function (a) {
+        var st = a.tillstand(bid);
+        if (st) { st.strukna[nyckel] = 'struken'; }
+      }, { strykning: true });
+  }
+  // Vägen tillbaka utan att gå via ångra: ett struket tillfälle är ett ställningstagande, och
+  // planeraren ska kunna ta tillbaka just det utan att rulla bort allt som gjorts sedan dess.
+  function aterstallStruket(bid, rondId, ordinarieVecka) {
+    var nyckel = tillfalleNyckel(rondId, ordinarieVecka);
+    andraFlera('Återställde ' + rutintillfalleNamn(rondId, faktiskVecka(stateFor(bid), rondId, ordinarieVecka), bid),
+      function (a) {
+        var st = a.tillstand(bid);
+        if (st) { delete st.strukna[nyckel]; }
+      }, { strykning: true });
+  }
+
   // Status för huvudsteget Balansering: frågorna och om balanseringen är gjord. Grön bock
   // kräver att den är gjord – frågorna med förval räcker inte, för det är balanseringen som
   // är arbetet (beslut 37).
@@ -1151,6 +1345,10 @@
     sattAkerTill: sattAkerTill, sattKapacitet: sattKapacitet, godkannFraga: godkannFraga,
     tillampaBalansering: tillampaBalansering, balanseringStatus: balanseringStatus,
     foreslagnaStrykningar: foreslagnaStrykningar, strykAllaForeslagna: strykAllaForeslagna,
-    behallTillfalle: behallTillfalle
+    behallTillfalle: behallTillfalle,
+    flyttAlternativ: flyttAlternativ, flyttaTillfalle: flyttaTillfalle,
+    flyttaRondserie: flyttaRondserie, flyttaBesoksrytm: flyttaBesoksrytm,
+    strykTillfalle: strykTillfalle, aterstallStruket: aterstallStruket,
+    forskjutningStatus: forskjutningStatus, forskjutningMarke: forskjutningMarke
   };
 })();
