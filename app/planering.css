@@ -453,6 +453,21 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 .bal-kvarlankar { margin-top: 5px; gap: 10px; }
 .bal-kvarlankar .lank { font-size: 12px; padding: 0; color: #a33; }
 
+/* Markeringen när planeringen ändrats sedan balanseringen (beslut 40). Den har den varma
+ * tonen och inte den röda: ingenting är fel, men något behöver göras om. Den står ovanför
+ * knappen Balansera om, så att beskedet och handlingen ligger ihop. */
+.bal-andrad, .bal-bortstadad { margin-bottom: 9px; }
+.bal-andrad-rubrik { font-size: 12.5px; }
+.bal-andringar { display: flex; flex-direction: column; gap: 3px; margin: 7px 0 2px; }
+/* Samma form som förklaringens rader (.bal-frad) – färgprick, text, radavstånd */
+.bal-arad { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; }
+.bal-arad .bal-farg { margin-top: 4px; }
+/* En byggnad som slutat vara klar är den tyngsta ändringen – den räknas inte med alls */
+.bal-arad[data-typ="ej-klar"] .bal-atext { font-weight: 600; }
+.bal-atext { min-width: 0; }
+/* Notisen ärver rutans egen ton i stället för den dova grå */
+.bal-andrad .bal-notis, .bal-bortstadad .bal-notis { color: inherit; }
+
 /* ---------- Flytt för hand: dragning, besked och frågan (beslut 34) ---------- */
 /* Brickan ska se ut att gå att ta i. Pekaren är det enda som säger det i 11 px – en
  * dragsymbol hade inte fått plats, och en ram till hade krockat med de tre markeringarna

@@ -162,6 +162,20 @@
   function tomtGemensamt() {
     return {};
   }
+  // Nivå 3-arbete som städningen tog bort för att tillfället inte längre finns (beslut 40).
+  // Bokförs i det **gemensamma** tillståndet och inte i byggnadens, av två skäl: det ska
+  // redovisas i Balansering där ändringarna listas, och det ska följa historiken – ångrar
+  // planeraren frekvensändringen är flytten tillbaka, och då ska beskedet också vara borta.
+  //
+  // Bara det som städats bort **sedan balanseringen** bokförs. Innan planeraren har balanserat
+  // finns ingen flytt någon balansering satt och inget att redovisa mot, och ett besked om en
+  // flytt planeraren själv just gjorde ogjord hade bara varit buller.
+  function bokforBortstadade(gem, bid, bort) {
+    if (!gem.balanserad || !bort || !bort.length) { return; }
+    gem.bortstadade = (gem.bortstadade || []).concat(bort.map(function (b) {
+      return { byggnad: bid, rond: b.rond, ordinarieVecka: b.ordinarieVecka, sort: b.sort, varde: b.varde };
+    }));
+  }
   // Svaren i det gemensamma tillståndet, med förvalen när frågan inte är besvarad. Förvalet
   // är ett *svar* som gäller, inte ett tomrum: belastningen räknas på det från första stunden,
   // och frågan kan klickas igenom med ett klick när förvalet stämmer (beslut 37).
@@ -222,9 +236,11 @@
     var alla = klona(historik[pos].alla);
     var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
-    stada(ny);
+    var bort = stada(ny);
+    var gem = klona(historik[pos].gemensamt);
+    bokforBortstadade(gem, aktiv, bort);
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, gemensamt: klona(historik[pos].gemensamt), text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
+    historik.push({ alla: alla, gemensamt: gem, text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
     meddela(fore, ny, utokaInfo(info, [aktiv], allaFore));
   }
@@ -245,11 +261,15 @@
         rorda[id] = true;
         return alla[id];
       },
+      // Samma tillstånd att **läsa**, utan att byggnaden räknas som rörd av steget. Balanseringen
+      // behöver läsa alla byggnader för att ta sitt sammandrag, och en byggnad den inte flyttade
+      // ska inte ritas om eller animeras bara för att den lästes.
+      las: function (id) { return alla[id] || null; },
       gemensamt: gem
     };
     if (fn(andring) === false) { return; }
     var rordaIds = Object.keys(rorda);
-    rordaIds.forEach(function (id) { stada(alla[id]); });
+    rordaIds.forEach(function (id) { bokforBortstadade(gem, id, stada(alla[id])); });
     historik = historik.slice(0, pos + 1);
     historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
@@ -310,6 +330,7 @@
   });
 
   function rondNamn(id) { return (DP.ronder.filter(function (r) { return r.id === id; })[0] || {}).namn || id; }
+  function byggnadsNamn(id) { return (DP.byggnader[id] || {}).namn || id; }
   function utforare(id) { return UTFORARE.filter(function (u) { return u.id === id; })[0] || UTFORARE[0]; }
   function atgard(id) { return DP.atgarder.filter(function (a) { return a.id === id; })[0]; }
 
@@ -338,6 +359,11 @@
   // förskjutning, så ordinarie vecka står still och tillfället hittar alltid hem. Därför är både
   // flyttar och strykningar nycklade på ordinarie vecka.
   function tillfalleNyckel(rondId, ordinarieVecka) { return rondId + ':' + ordinarieVecka; }
+  // Vägen tillbaka ur nyckeln, så att formatet står på ett ställe och inte på två.
+  function delaTillfalleNyckel(nyckel) {
+    var delar = nyckel.split(':');
+    return { rond: delar[0], ordinarieVecka: Number(delar[1]) };
+  }
   function faktiskVecka(s, rondId, ordinarieVecka) {
     var f = s.flyttade && s.flyttade[tillfalleNyckel(rondId, ordinarieVecka)];
     return f === undefined || f === null ? ordinarieVecka : f;
@@ -709,15 +735,27 @@
   // (beslut 40). En rond som bytt frekvens eller försvunnit har inte längre de ordinarie
   // veckor nycklarna pekar på, och en flytt utan tillfälle hade legat kvar och slagit till
   // igen om frekvensen någon gång råkade ge samma vecka.
+  //
+  // Städningen **redovisas**: svaret är de tillfällen som togs bort, så att planeraren får veta
+  // att en provisorisk flytt eller en strykning försvann när frekvensen ändrades (beslut 40).
+  // Utan beskedet hade arbetet tystnat bort – tillfället finns inte längre, så det syns
+  // ingenstans i tidsaxeln att något var flyttat dit.
   function rensaNiva3(st) {
     var finns = {};
     st.ronder.forEach(function (r) {
       veckorForRond(r, st).forEach(function (v) { finns[tillfalleNyckel(r.id, v)] = true; });
     });
-    [st.flyttade, st.strukna].forEach(function (karta) {
-      if (!karta) { return; }
-      Object.keys(karta).forEach(function (n) { if (!finns[n]) { delete karta[n]; } });
+    var bort = [];
+    [{ karta: st.flyttade, sort: 'flyttad' }, { karta: st.strukna, sort: 'struken' }].forEach(function (k) {
+      if (!k.karta) { return; }
+      Object.keys(k.karta).forEach(function (n) {
+        if (finns[n]) { return; }
+        var t = delaTillfalleNyckel(n);
+        bort.push({ sort: k.sort, rond: t.rond, ordinarieVecka: t.ordinarieVecka, varde: k.karta[n] });
+        delete k.karta[n];
+      });
     });
+    return bort;
   }
 
   // Status per steg i Planering, för en valfri byggnad. Samma regler som frågeflödet visar:
@@ -737,11 +775,18 @@
   // En byggnad är klar för Balansering när alla sex stegen i Planering är klara (beslut 39).
   // Halvfärdiga byggnader balanseras inte: en planering utan tider eller kopplingar säger
   // inget om belastningen, och att räkna på den hade gett en falsk bild.
-  function byggnadKlar(bid) {
-    var k = stegStatus(null, bid);
+  //
+  // `s` är byggnadens planering och får utelämnas; då läses den ur historiken. Den går att
+  // skicka in, eftersom balanseringens sammandrag tas av de tillstånd som just skrivits och
+  // ännu inte ligger i historiken.
+  function byggnadKlar(bid, s) {
+    var k = stegStatus(s || null, bid);
     return [1, 2, 3, 4, 5, 6].every(function (n) { return k[n]; });
   }
-  function klaraByggnader() { return BYGGNADSORDNING.filter(byggnadKlar); }
+  // `las(bid)` är vägen till en byggnads planering, och får utelämnas som ovan.
+  function klaraByggnader(las) {
+    return BYGGNADSORDNING.filter(function (bid) { return byggnadKlar(bid, las && las(bid)); });
+  }
 
   // Underlaget till DP.Balansering: de klara byggnadernas rondserier med utförare, planerad
   // tid i timmar och de veckor tillfällena ligger i. Veckorna räknas här, med båda
@@ -902,12 +947,13 @@
   // Städning efter varje ändring av en byggnads planering: avvikande texter och planerade tider
   // som inte längre har något att höra till tas bort. Allt som ändrar ett tillstånd går genom
   // andra() eller andraFlera(), så det räcker att städa där.
+  // Svaret är de nivå 3-tillfällen städningen tog bort, så att de kan redovisas (beslut 40).
   function stada(st) {
     if (!st.flyttade) { st.flyttade = {}; }
     if (!st.strukna) { st.strukna = {}; }
     rensaTexter(st);
     rensaTider(st);
-    rensaNiva3(st);
+    return rensaNiva3(st);
   }
 
   // Vilka rutintillfällen flyttade till en annan vecka mellan två tillstånd? Används för att
@@ -1051,7 +1097,17 @@
         st.flyttade = klona(resultat.niva3[bid].flyttade || {});
         st.strukna = klona(resultat.niva3[bid].strukna || {});
       });
+      // Sammandraget av de förutsättningar balanseringen räknade på, så att en senare ändring
+      // går att upptäcka (beslut 40). Det tas **efter** att förskjutningarna och nivå 3 skrivits,
+      // men de rör inte sammandragets innehåll: det bär frekvenser, utförare och tider, och
+      // ingen av dem ändras av en balansering.
+      //
+      // Redovisningen av bortstädat nivå 3-arbete nollställs: det som städades bort före den
+      // här balanseringen hör till den förra, och balanseringen räknade just om nivå 3 från
+      // grunden.
+      a.gemensamt.bortstadade = [];
       a.gemensamt.balanserad = {
+        sammandrag: balanseringSammandrag(a.las, a.gemensamt),
         forskjutningar: klona(resultat.forskjutningar),
         rondForskjutningar: klona(resultat.rondForskjutningar),
         forklaring: klona(resultat.forklaring),
@@ -1294,11 +1350,167 @@
       }, { strykning: true });
   }
 
+  // ------------------------------------------------------------------
+  // Har planeringen ändrats sedan balanseringen? (beslut 40)
+  // ------------------------------------------------------------------
+  // Balanseringen räknade på en planering, och den planeringen kan ändras efteråt. Då ligger
+  // förskjutningarna kvar – arbetet ska inte gå förlorat – men de vilar på ett underlag som
+  // inte längre stämmer, och det ska sägas rakt ut. Inget räknas om av sig själv: planeraren
+  // trycker på Balansera om när hen vill.
+  //
+  // Jämförelsen görs mot ett **sammandrag** av underlaget som sparas vid balanseringen, inte
+  // mot underlaget självt. Underlaget bär veckorna, och veckorna ändrar balanseringen själv –
+  // en jämförelse mot dem hade sagt "planeringen har ändrats" direkt efter balanseringen. Det
+  // sammandraget bär är i stället de **förutsättningar** balanseringen räknade på, och som
+  // bara planeraren ändrar: vilka byggnader som var klara, per rond frekvensen, utföraren och
+  // den planerade tiden, och Balanseringens tre svar. Svaren hör dit lika mycket som ronderna:
+  // halveras en utförares kapacitet räckte den balansering som gjordes inte längre, även om
+  // ingen rond rörts.
+  //
+  // `las(bid)` är vägen till en byggnads planering och `gem` det gemensamma tillståndet. Båda
+  // går att skicka in, eftersom sammandraget vid balanseringen måste tas av det som just
+  // skrivits – inuti andraFlera() ligger det i kopiorna och inte i historiken, som stateFor()
+  // och gemensamt() läser.
+  function balanseringSammandrag(las, gem) {
+    las = las || stateFor;
+    gem = gem || gemensamt();
+    var ut = {
+      byggnader: {},
+      // Svaren som de **gäller**, inte som de är sparade: förvalet är ett svar (beslut 37),
+      // och att bekräfta det ska inte räknas som en ändring av underlaget.
+      kapacitet: svarKapacitet(gem),
+      veckorUtan: svarVeckorUtan(gem),
+      akerTill: svarAkerTill(gem).slice().sort()
+    };
+    klaraByggnader(las).forEach(function (bid) {
+      var s = las(bid);
+      var ronder = {};
+      s.ronder.filter(function (r) { return freqKomplett(r.freq); }).forEach(function (r) {
+        ronder[r.id] = {
+          freq: { typ: r.freq.typ, startManad: r.freq.startManad || null },
+          utforare: r.utforare,
+          timmar: tidTimmar(r.id, s, bid)
+        };
+      });
+      ut.byggnader[bid] = { ronder: ronder };
+    });
+    return ut;
+  }
+
+  // Vad som ändrats sedan balanseringen, i klartext. En rad per ändring, med byggnaden och en
+  // mening som säger vad som är annorlunda nu – "Kasern 1: Byggnad invändigt varje vecka i
+  // stället för varje månad". Texterna formuleras här och inte i vyn, av samma skäl som
+  // balanseringens egen förklaring (beslut 61): vad som ändrats vet den som jämför, och
+  // raderna ska gå att läsa i ett test utan DOM.
+  //
+  // Tomt svar betyder "inget har ändrats". Har ingen balansering gjorts finns inget att jämföra
+  // mot, och svaret är tomt då också.
+  function planeringAndringar() {
+    var gem = gemensamt();
+    var fore = gem.balanserad && gem.balanserad.sammandrag;
+    if (!fore) { return []; }
+    var nu = balanseringSammandrag();
+    var ut = [];
+    function lagg(bid, typ, text) { ut.push({ byggnad: bid, byggnadNamn: byggnadsNamn(bid), typ: typ, text: text }); }
+
+    // Byggnader som slutat vara klara räknas inte längre med i balanseringen, och den
+    // byggnadens förskjutning säger inget om belastningen – det är den tyngsta ändringen av
+    // alla, så den redovisas som en egen rad och ronderna i den räknas inte upp en gång till.
+    BYGGNADSORDNING.forEach(function (bid) {
+      var f = fore.byggnader[bid], n = nu.byggnader[bid];
+      if (f && !n) {
+        lagg(bid, 'ej-klar', byggnadsNamn(bid) + ' är inte längre klar i alla sex stegen och räknas inte med');
+      } else if (!f && n) {
+        lagg(bid, 'ny-klar', byggnadsNamn(bid) + ' är klar i alla sex stegen nu och räknas med');
+      } else if (f && n) {
+        jamforRonder(bid, f.ronder, n.ronder, lagg);
+      }
+    });
+
+    // Balanseringens tre svar. De hör inte till någon byggnad, så raderna har ingen färgprick.
+    jamforSvar(fore, nu, ut);
+
+    // Nivå 3-arbete städningen tog bort för att tillfället inte längre finns. Det bokfördes när
+    // det hände, eftersom det inte går att läsa ur ett tillstånd att något en gång stod där.
+    (gem.bortstadade || []).forEach(function (b) {
+      lagg(b.byggnad, 'bortstadad', byggnadsNamn(b.byggnad) + ': ' +
+        (b.sort === 'flyttad' ? 'den provisoriska flytten av ' : 'strykningen av ') +
+        rondNamn(b.rond) + ' v. ' + b.ordinarieVecka +
+        ' togs bort – tillfället finns inte längre efter ändringen');
+    });
+    return ut;
+  }
+
+  // Balanseringens tre svar: kapacitet per utförare, veckor utan tillsyn och skötsel, och
+  // områden man åker till. De är underlag lika mycket som ronderna – halveras en kapacitet
+  // räckte den balansering som gjordes inte längre, även om ingen rond rörts.
+  function jamforSvar(fore, nu, ut) {
+    function lagg(typ, text) { ut.push({ byggnad: null, byggnadNamn: null, typ: typ, text: text }); }
+    UTFORARE.forEach(function (u) {
+      var f = fore.kapacitet && fore.kapacitet[u.id], n = nu.kapacitet[u.id];
+      if (f !== undefined && f !== n) {
+        lagg('kapacitet', u.namn + ' har ' + dagText(n) + ' i veckan i stället för ' + dagText(f));
+      }
+    });
+    if (fore.veckorUtan && !sammaVeckor(fore.veckorUtan, nu.veckorUtan)) {
+      lagg('veckor-utan', 'Veckorna utan tillsyn och skötsel är ' + veckolistText(nu.veckorUtan) +
+        ' i stället för ' + veckolistText(fore.veckorUtan));
+    }
+    if (fore.akerTill && fore.akerTill.join(',') !== nu.akerTill.join(',')) {
+      lagg('omraden', 'Områdena man åker till är ' + omradeslistText(nu.akerTill) +
+        ' i stället för ' + omradeslistText(fore.akerTill));
+    }
+  }
+  function dagText(d) { return d + (d === 1 ? ' dag' : ' dagar'); }
+  function sammaVeckor(a, b) { return a.length === b.length && a.join(',') === b.join(','); }
+  function veckolistText(veckor) { return veckor.length ? 'v. ' + veckor.join(', ') : 'inga'; }
+  function omradeslistText(ids) {
+    return ids.length ? ids.map(function (id) {
+      return (DP.omraden.filter(function (o) { return o.id === id; })[0] || {}).namn || id;
+    }).join(', ') : 'inga';
+  }
+
+  // Ronderna i en byggnad: tillkomna, borttagna och ändrade. Jämförs på rond-id, så en rond som
+  // bytt frekvens är samma rond med en ny frekvens och inte en borttagen plus en tillkommen.
+  function jamforRonder(bid, fore, nu, lagg) {
+    var namn = byggnadsNamn(bid);
+    var ids = {};
+    Object.keys(fore).forEach(function (id) { ids[id] = true; });
+    Object.keys(nu).forEach(function (id) { ids[id] = true; });
+    Object.keys(ids).sort().forEach(function (id) {
+      var f = fore[id], n = nu[id];
+      if (f && !n) {
+        lagg(bid, 'rond-bort', namn + ': ' + rondNamn(id) + ' finns inte längre');
+      } else if (!f && n) {
+        lagg(bid, 'rond-ny', namn + ': ' + rondNamn(id) + ' är ny – ' +
+          freqText(n.freq, true).toLowerCase() + ', ' + utforare(n.utforare).namn);
+      } else {
+        if (!sammaFreq(f.freq, n.freq)) {
+          lagg(bid, 'frekvens', namn + ': ' + rondNamn(id) + ' ' + freqText(n.freq, true).toLowerCase() +
+            ' i stället för ' + freqText(f.freq, true).toLowerCase());
+        }
+        if (f.utforare !== n.utforare) {
+          lagg(bid, 'utforare', namn + ': ' + rondNamn(id) + ' utförs av ' + utforare(n.utforare).namn +
+            ' i stället för ' + utforare(f.utforare).namn);
+        }
+        if (f.timmar !== n.timmar) {
+          lagg(bid, 'tid', namn + ': ' + rondNamn(id) + ' är planerad till ' +
+            timText(n.timmar * 60) + ' i stället för ' + timText(f.timmar * 60));
+        }
+      }
+    });
+  }
+
   // Status för huvudsteget Balansering: frågorna och om balanseringen är gjord. Grön bock
   // kräver att den är gjord – frågorna med förval räcker inte, för det är balanseringen som
   // är arbetet (beslut 37).
+  // Skiljer en **förutsättning** balanseringen räknade på från ett besked om något som
+  // städades bort på vägen. Bara den förra gör balanseringen inaktuell.
+  function arForutsattning(a) { return a.typ !== 'bortstadad'; }
+
   function balanseringStatus() {
     var gem = gemensamt();
+    var andringar = planeringAndringar();
     return {
       omraden: !!gem.omradenBesvarad,
       kapacitet: !!gem.kapacitetBesvarad,
@@ -1308,7 +1520,23 @@
       // Förslagen räknas ur tillstånden och inte ur det sparade resultatet, så att listan
       // krymper när planeraren stryker eller behåller enskilda tillfällen.
       foreslagna: foreslagnaStrykningar(),
-      klar: !!gem.balanserad
+      // Planeringen har ändrats sedan balanseringen (beslut 40). Förskjutningarna ligger kvar,
+      // men de vilar på ett underlag som inte längre stämmer. `andrad` följer bara
+      // **förutsättningarna**: det är de som gör en ombalansering meningsfull.
+      andrad: andringar.some(arForutsattning),
+      andringar: andringar.filter(arForutsattning),
+      // Nivå 3-arbete som städats bort på vägen. Ett eget besked och inte en ändring:
+      // det säger att en flytt eller strykning försvann, inte att något behöver räknas om.
+      bortstadade: andringar.filter(function (a) { return !arForutsattning(a); }),
+      // Grön bock kräver att balanseringen är gjord **och fortfarande stämmer** med
+      // planeringen: en bock på ett föråldrat underlag hade påstått att arbetet är klart.
+      //
+      // Bortstädat nivå 3-arbete väger inte här. Det är ett **besked** om något som försvann,
+      // inte en förutsättning som skiljer: balanseringen räknade aldrig på den provisoriska
+      // flytten. Ändrar planeraren en frekvens fram och tillbaka igen är förutsättningarna
+      // exakt de balanseringen räknade på, och då ska bocken vara tillbaka – men beskedet om
+      // att flytten försvann på vägen ska stå kvar, för flytten är fortfarande borta.
+      klar: !!gem.balanserad && !andringar.some(arForutsattning)
     };
   }
 
@@ -1344,6 +1572,7 @@
     svarVeckorUtan: svarVeckorUtan, veckorUtanForval: veckorUtanForval, vaxlaVeckaUtan: vaxlaVeckaUtan,
     sattAkerTill: sattAkerTill, sattKapacitet: sattKapacitet, godkannFraga: godkannFraga,
     tillampaBalansering: tillampaBalansering, balanseringStatus: balanseringStatus,
+    balanseringSammandrag: balanseringSammandrag, planeringAndringar: planeringAndringar,
     foreslagnaStrykningar: foreslagnaStrykningar, strykAllaForeslagna: strykAllaForeslagna,
     behallTillfalle: behallTillfalle,
     flyttAlternativ: flyttAlternativ, flyttaTillfalle: flyttaTillfalle,

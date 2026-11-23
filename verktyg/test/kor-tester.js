@@ -2671,6 +2671,318 @@ async function testFlyttForHand(browser) {
   await page.close();
 }
 
+// Etapp 5: planeringen har ändrats sedan balanseringen (beslut 40, biljett #18).
+//
+// Balanseringen räknade på en planering, och den planeringen kan ändras efteråt. Då ska
+// förskjutningarna ligga kvar – arbetet ska inte gå förlorat – men steget ska säga att
+// underlaget inte längre stämmer, och ingenting får räknas om av sig själv.
+async function testPlaneringAndratsEfterBalansering(browser) {
+  console.log('Etapp 5 – planeringen har ändrats sedan balanseringen (beslut 40)');
+  const page = await balanseradSida(browser);
+
+  // ------------------------------------------------------------------
+  // Direkt efter balanseringen stämmer underlaget
+  // ------------------------------------------------------------------
+  const efter = await page.evaluate(() => {
+    const b = DP.Plan.balanseringStatus();
+    return { klar: b.klar, andrad: b.andrad, antal: b.andringar.length,
+             sammandrag: !!(b.resultat && b.resultat.sammandrag) };
+  });
+  kontroll(efter.sammandrag, 'balanseringen sparar ett sammandrag av underlaget');
+  kontroll(efter.klar && !efter.andrad && efter.antal === 0,
+    'direkt efter balanseringen är steget klart och ingenting är ändrat');
+  kontroll(await page.locator('.bal-andrad').count() === 0,
+    'ingen markering om ändrad planering direkt efter balanseringen');
+
+  // ------------------------------------------------------------------
+  // En ändrad frekvens: markeringen, listan – och förskjutningarna ligger kvar
+  // ------------------------------------------------------------------
+  const forskjutningFore = await page.evaluate(() => DP.Plan.stateFor('kasern1').forskjutning);
+  const frekvens = await page.evaluate(() => {
+    const P = DP.Plan;
+    P.vaxlaByggnad('kasern1');
+    P.andra('Byggnad invändigt varje vecka', s => {
+      s.ronder.filter(r => r.id === 'BI')[0].freq = { typ: 'vecka', startManad: null };
+    });
+    const b = P.balanseringStatus();
+    return { klar: b.klar, andrad: b.andrad, rader: b.andringar.map(a => ({ typ: a.typ, text: a.text })),
+             forskjutning: P.stateFor('kasern1').forskjutning,
+             // Balanseringens sparade resultat är orört: inget räknas om av sig själv
+             balanserad: b.balanserad, sparadFsk: b.resultat.forskjutningar.kasern1 };
+  });
+  kontroll(frekvens.andrad && !frekvens.klar,
+    'en ändrad frekvens gör steget ändrat och tar bort grön bock');
+  kontroll(frekvens.rader.length === 1 && frekvens.rader[0].typ === 'frekvens'
+    && frekvens.rader[0].text === 'Kasern 1: Byggnad invändigt varje vecka i stället för varje månad',
+    'ändringen står i listan i klartext: ' + JSON.stringify(frekvens.rader));
+  kontroll(frekvens.forskjutning === forskjutningFore && forskjutningFore > 0,
+    'förskjutningen ligger kvar efter ändringen (' + frekvens.forskjutning + ' v.)');
+  kontroll(frekvens.balanserad && frekvens.sparadFsk === forskjutningFore,
+    'balanseringen är fortfarande gjord och dess resultat är orört – inget räknas om automatiskt');
+
+  // Markeringen i vyn, ovanför knappen Balansera om
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => !!document.querySelector('.bal-andrad'), 'markeringen om ändrad planering');
+  const panel = await page.evaluate(() => {
+    const p = document.querySelector('.bal-andrad');
+    const knapp = document.getElementById('balansera-knapp');
+    return {
+      rubrik: p.querySelector('.bal-andrad-rubrik').innerText.trim(),
+      rader: Array.from(p.querySelectorAll('.bal-arad')).map(r => r.innerText.trim()),
+      typer: Array.from(p.querySelectorAll('.bal-arad')).map(r => r.dataset.typ),
+      // Beskedet ska stå ovanför handlingen, inte under den
+      foreKnappen: p.compareDocumentPosition(knapp) & Node.DOCUMENT_POSITION_FOLLOWING ? true : false,
+      knapptext: knapp.textContent
+    };
+  });
+  kontroll(panel.rubrik === 'Planeringen har ändrats sedan du balanserade – balansera om?',
+    'markeringen har biljettens text: "' + panel.rubrik + '"');
+  kontroll(panel.rader.length === 1 && panel.typer[0] === 'frekvens'
+    && /varje vecka i stället för varje månad/.test(panel.rader[0]),
+    'listan i panelen visar ändringen');
+  kontroll(panel.foreKnappen && panel.knapptext === 'Balansera om',
+    'markeringen står ovanför knappen Balansera om');
+
+  // Processlinjens bock är borta och undertexten säger varför
+  const linje = await page.evaluate(() => {
+    const k = document.querySelector('.pl-steg[data-steg="balansering"]');
+    return { klar: k.dataset.klar, under: k.querySelector('.pl-under').textContent,
+             bock: !!k.querySelector('.pl-bock') };
+  });
+  kontroll(linje.klar === 'nej' && !linje.bock,
+    'bocken för Balansering försvinner när planeringen har ändrats');
+  kontroll(/ändrats/.test(linje.under), 'undertexten säger att planeringen har ändrats: ' + linje.under);
+
+  // ------------------------------------------------------------------
+  // Ångra ändringen: bocken kommer tillbaka
+  // ------------------------------------------------------------------
+  await angra(page);
+  await vanta(page, () => !DP.Plan.balanseringStatus().andrad, 'ändringen ångrad');
+  const angrat = await page.evaluate(() => {
+    const k = document.querySelector('.pl-steg[data-steg="balansering"]');
+    return { klar: DP.Plan.balanseringStatus().klar, bock: k.dataset.klar,
+             panel: document.querySelectorAll('.bal-andrad').length };
+  });
+  kontroll(angrat.klar && angrat.bock === 'ja' && angrat.panel === 0,
+    'bocken kommer tillbaka när ändringen ångras, och markeringen försvinner');
+
+  // ------------------------------------------------------------------
+  // Utförare, planerad tid och en byggnad som slutar vara klar
+  // ------------------------------------------------------------------
+  const ovriga = await page.evaluate(() => {
+    const P = DP.Plan, ut = {};
+    const rader = () => P.balanseringStatus().andringar.map(a => ({ typ: a.typ, text: a.text }));
+    P.vaxlaByggnad('kasern1');
+
+    P.andra('Bytte utförare', s => { s.ronder.filter(r => r.id === 'BI')[0].utforare = 'bertil'; });
+    ut.utforare = rader();
+    P.angra();
+
+    P.andra('Halvdag i stället', s => { P.sattTid(s, 'BI', 'halvdag', P.tidForslag('BI', s, 'kasern1')); });
+    ut.tid = rader();
+    P.angra();
+
+    // Utan ronder är steg 2–6 inte klara, så byggnaden räknas inte med längre
+    P.andra('Tog bort alla ronder', s => { s.ronder = []; });
+    ut.ejKlar = rader();
+    ut.klaraUtan = P.klaraByggnader().length;
+    P.angra();
+    ut.efterAngra = rader().length;
+    return ut;
+  });
+  kontroll(ovriga.utforare.length === 1 && ovriga.utforare[0].typ === 'utforare'
+    && ovriga.utforare[0].text === 'Kasern 1: Byggnad invändigt utförs av Bertil Ek i stället för Anna Berg',
+    'en ändrad utförare listas: ' + JSON.stringify(ovriga.utforare));
+  kontroll(ovriga.tid.length === 1 && ovriga.tid[0].typ === 'tid'
+    && /planerad till 4 h i stället för 8 h/.test(ovriga.tid[0].text),
+    'en ändrad planerad tid listas: ' + JSON.stringify(ovriga.tid));
+  kontroll(ovriga.klaraUtan === 3
+    && ovriga.ejKlar.some(r => r.typ === 'ej-klar'
+      && r.text === 'Kasern 1 är inte längre klar i alla sex stegen och räknas inte med'),
+    'en byggnad som slutar vara klar listas som egen rad: ' + JSON.stringify(ovriga.ejKlar));
+  kontroll(ovriga.efterAngra === 0, 'allt är orört igen när ändringen ångras');
+
+  // ------------------------------------------------------------------
+  // En provisorisk flytt för ett tillfälle som försvinner redovisas
+  // ------------------------------------------------------------------
+  const niva3 = await page.evaluate(() => {
+    const P = DP.Plan;
+    P.vaxlaByggnad('kasern1');
+    // Flytta Byggnad utvändigt (kvartalsrond) provisoriskt en vecka bakåt …
+    const t = P.rutintillfallen(P.stateFor('kasern1'), 'kasern1').filter(x => x.rond === 'BU');
+    const sista = t[t.length - 1];
+    P.flyttaTillfalle('kasern1', 'BU', sista.ordinarieVecka, sista.ordinarieVecka - 1);
+    const foreAndring = P.balanseringStatus().bortstadade.length;
+    const kvarFore = Object.keys(P.stateFor('kasern1').flyttade).length;
+    // … och byt sedan frekvens så att den ordinarie veckan inte längre finns
+    P.andra('Byggnad utvändigt en gång om året', s => {
+      s.ronder.filter(r => r.id === 'BU')[0].freq = { typ: 'ar', startManad: null };
+    });
+    const b = P.balanseringStatus();
+    const ut = {
+      vecka: sista.ordinarieVecka, foreAndring, kvarFore,
+      bortstadade: b.bortstadade.map(a => a.text),
+      kvar: Object.keys(P.stateFor('kasern1').flyttade)
+    };
+    P.angra();
+    ut.efterAngra = P.balanseringStatus().bortstadade.length;
+    ut.flyttKvarEfterAngra = Object.keys(P.stateFor('kasern1').flyttade).length;
+    // Ta också tillbaka själva flytten, så att nästa kontroll börjar från en ren planering
+    P.angra();
+    return ut;
+  });
+  kontroll(niva3.foreAndring === 0 && niva3.kvarFore > 0,
+    'en provisorisk flytt i sig är ingen ändring av förutsättningarna – den ligger på nivå 3');
+  kontroll(niva3.bortstadade.length === 1
+    && niva3.bortstadade[0] === 'Kasern 1: den provisoriska flytten av Byggnad utvändigt v. '
+      + niva3.vecka + ' togs bort – tillfället finns inte längre efter ändringen',
+    'flytten för ett tillfälle som försvann redovisas i klartext: ' + JSON.stringify(niva3.bortstadade));
+  kontroll(niva3.kvar.indexOf('BU:' + niva3.vecka) === -1,
+    'den provisoriska flytten är borta ur planeringen');
+  kontroll(niva3.efterAngra === 0 && niva3.flyttKvarEfterAngra === niva3.kvarFore,
+    'ångra tar tillbaka både flytten och beskedet om att den togs bort');
+
+  // En **strykning** för ett tillfälle som försvinner redovisas på samma sätt, med sitt eget ord
+  const struken = await page.evaluate(() => {
+    const P = DP.Plan;
+    P.vaxlaByggnad('kasern1');
+    const t = P.rutintillfallen(P.stateFor('kasern1'), 'kasern1').filter(x => x.rond === 'BU');
+    const sista = t[t.length - 1];
+    P.strykTillfalle('kasern1', 'BU', sista.ordinarieVecka);
+    P.andra('Byggnad utvändigt en gång om året', s => {
+      s.ronder.filter(r => r.id === 'BU')[0].freq = { typ: 'ar', startManad: null };
+    });
+    const ut = { vecka: sista.ordinarieVecka,
+      texter: DP.Plan.balanseringStatus().bortstadade.map(a => a.text) };
+    P.angra(); P.angra();
+    return ut;
+  });
+  kontroll(struken.texter.length === 1
+    && struken.texter[0] === 'Kasern 1: strykningen av Byggnad utvändigt v. ' + struken.vecka
+      + ' togs bort – tillfället finns inte längre efter ändringen',
+    'en strykning för ett tillfälle som försvann redovisas med sitt eget ord: '
+      + JSON.stringify(struken.texter));
+
+  // ------------------------------------------------------------------
+  // Balanseringens tre svar är också underlag
+  // ------------------------------------------------------------------
+  // Halveras en utförares kapacitet räckte den balansering som gjordes inte längre, även om
+  // ingen rond rörts. Att bara bekräfta ett förval är däremot inget svar som ändrats.
+  const svar = await page.evaluate(() => {
+    const P = DP.Plan, ut = {};
+    const rader = () => P.balanseringStatus().andringar.map(a => ({ typ: a.typ, text: a.text }));
+    P.sattKapacitet('anna', 1); ut.kapacitet = rader(); P.angra();
+    P.vaxlaVeckaUtan(10); ut.veckorUtan = rader(); P.angra();
+    P.sattAkerTill([]); ut.omraden = rader(); P.angra();
+    P.godkannFraga('kapacitet'); ut.godkann = rader(); P.angra();
+    return ut;
+  });
+  kontroll(svar.kapacitet.length === 1 && svar.kapacitet[0].typ === 'kapacitet'
+    && svar.kapacitet[0].text === 'Anna Berg har 1 dag i veckan i stället för 3 dagar',
+    'en ändrad kapacitet listas: ' + JSON.stringify(svar.kapacitet));
+  kontroll(svar.veckorUtan.length === 1 && svar.veckorUtan[0].typ === 'veckor-utan'
+    && /v\. 10, 28, 29, 30, 31, 52 i stället för v\. 28, 29, 30, 31, 52/.test(svar.veckorUtan[0].text),
+    'ändrade veckor utan tillsyn och skötsel listas: ' + JSON.stringify(svar.veckorUtan));
+  kontroll(svar.omraden.length === 1 && svar.omraden[0].typ === 'omraden'
+    && svar.omraden[0].text === 'Områdena man åker till är inga i stället för Flygfältet',
+    'ändrade områden man åker till listas: ' + JSON.stringify(svar.omraden));
+  kontroll(svar.godkann.length === 0,
+    'att bekräfta ett förval är inget ändrat svar – förvalet gällde redan (beslut 37)');
+
+  // ------------------------------------------------------------------
+  // Ett bortstädat tillfälle ogiltigförklarar inte balanseringen
+  // ------------------------------------------------------------------
+  // Ändrar planeraren en frekvens fram och tillbaka igen är förutsättningarna exakt de
+  // balanseringen räknade på, så bocken ska vara tillbaka. Men flytten är fortfarande borta,
+  // och beskedet om att den försvann ska stå kvar.
+  const ensam = await page.evaluate(() => {
+    const P = DP.Plan;
+    P.vaxlaByggnad('kasern1');
+    const t = P.rutintillfallen(P.stateFor('kasern1'), 'kasern1').filter(x => x.rond === 'BU');
+    const sista = t[t.length - 1];
+    P.flyttaTillfalle('kasern1', 'BU', sista.ordinarieVecka, sista.ordinarieVecka - 1);
+    P.andra('Byggnad utvändigt en gång om året', s => {
+      s.ronder.filter(r => r.id === 'BU')[0].freq = { typ: 'ar', startManad: null };
+    });
+    const mitt = P.balanseringStatus();
+    P.andra('Byggnad utvändigt varje kvartal igen', s => {
+      s.ronder.filter(r => r.id === 'BU')[0].freq = { typ: 'kvartal', startManad: null };
+    });
+    const b = P.balanseringStatus();
+    const ut = {
+      mitt: { klar: mitt.klar, andringar: mitt.andringar.length, bortstadade: mitt.bortstadade.length },
+      klar: b.klar, andrad: b.andrad, andringar: b.andringar.length,
+      bortstadade: b.bortstadade.map(x => x.text)
+    };
+    P.angra(); P.angra(); P.angra();
+    return ut;
+  });
+  kontroll(ensam.mitt.klar === false && ensam.mitt.andringar === 1 && ensam.mitt.bortstadade === 1,
+    'under ändringen är både förutsättningen och det bortstädade redovisade');
+  kontroll(ensam.klar && !ensam.andrad && ensam.andringar === 0,
+    'bocken är tillbaka när förutsättningarna är desamma igen, trots det bortstädade');
+  kontroll(ensam.bortstadade.length === 1 && /togs bort/.test(ensam.bortstadade[0]),
+    'beskedet om den borttagna flytten står kvar – flytten är fortfarande borta');
+
+  // Den egna rutan för bortstädat, skild från "balansera om?"
+  await page.evaluate(() => {
+    const P = DP.Plan;
+    P.vaxlaByggnad('kasern1');
+    const t = P.rutintillfallen(P.stateFor('kasern1'), 'kasern1').filter(x => x.rond === 'BU');
+    const sista = t[t.length - 1];
+    P.flyttaTillfalle('kasern1', 'BU', sista.ordinarieVecka, sista.ordinarieVecka - 1);
+    P.andra('Byggnad utvändigt en gång om året', s => {
+      s.ronder.filter(r => r.id === 'BU')[0].freq = { typ: 'ar', startManad: null };
+    });
+    P.andra('Byggnad utvändigt varje kvartal igen', s => {
+      s.ronder.filter(r => r.id === 'BU')[0].freq = { typ: 'kvartal', startManad: null };
+    });
+  });
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => !!document.querySelector('.bal-bortstadad'), 'rutan för bortstädat');
+  const rutor = await page.evaluate(() => ({
+    bortstadad: document.querySelectorAll('.bal-bortstadad .bal-arad').length,
+    andrad: document.querySelectorAll('.bal-andrad').length,
+    bock: document.querySelector('.pl-steg[data-steg="balansering"]').dataset.klar
+  }));
+  kontroll(rutor.bortstadad === 1 && rutor.andrad === 0 && rutor.bock === 'ja',
+    'bortstädat står i en egen ruta, utan "balansera om?" och med bocken kvar');
+  await angra(page); await angra(page); await angra(page);
+  await vanta(page, () => DP.Plan.balanseringStatus().bortstadade.length === 0, 'allt återställt');
+
+  // ------------------------------------------------------------------
+  // Balansera om: ingenting händer utan att planeraren trycker
+  // ------------------------------------------------------------------
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  const forePos = await historikpos(page);
+  await page.evaluate(() => {
+    DP.Plan.vaxlaByggnad('kasern2');
+    DP.Plan.andra('Byggnad invändigt varannan vecka', s => {
+      s.ronder.filter(r => r.id === 'BI')[0].freq = { typ: 'varannan', startManad: null };
+    });
+  });
+  await vanta(page, () => DP.Plan.balanseringStatus().andrad, 'markeringen efter ändringen i Kasern 2');
+  const efterAndring = await historikpos(page);
+  kontroll(efterAndring === forePos + 1,
+    'ändringen är ett steg i historiken och ingen balansering sker av sig själv');
+
+  await page.locator('#balansera-knapp').click();
+  await vanta(page, () => !DP.Plan.balanseringStatus().andrad, 'ny balansering gjord');
+  const omBalanserat = await page.evaluate(() => {
+    const k = document.querySelector('.pl-steg[data-steg="balansering"]');
+    return { klar: DP.Plan.balanseringStatus().klar, bock: k.dataset.klar,
+             panel: document.querySelectorAll('.bal-andrad').length, pos: DP.Plan.historik().pos };
+  });
+  kontroll(omBalanserat.klar && omBalanserat.bock === 'ja' && omBalanserat.panel === 0,
+    'bocken kommer tillbaka efter en ny balansering');
+  kontroll(omBalanserat.pos === efterAndring + 1,
+    'den nya balanseringen är ett enda steg i historiken');
+
+  await bild(page, 'etapp5-planeringen-har-andrats');
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testBalanseringRymsPaSkarmen(browser) {
   console.log('Etapp 5 – Balansering på 1920×1200');
   const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
@@ -2745,6 +3057,7 @@ async function testFlerbyggnadSkiss(browser) {
     await testBalansera(browser);
     await testVeckorUtanTillsyn(browser);
     await testFlyttForHand(browser);
+    await testPlaneringAndratsEfterBalansering(browser);
     await testBalanseringRymsPaSkarmen(browser);
     await testFlerbyggnadSkiss(browser);
   } catch (e) {

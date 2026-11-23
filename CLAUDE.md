@@ -199,8 +199,32 @@ Skriptens ordning i `index.html` spelar roll:
   läsa av listan, eftersom ett riktigt svar kan vara tomt, så `veckorUtanBesvarad` avgör.
   `omradenBesvarad`, `kapacitetBesvarad` och `veckorUtanBesvarad` är själva ställningstagandet – att bekräfta
   förvalet är ett svar, inte ett tomrum (beslut 37). `balanseringStatus()` svarar på vad som är besvarat,
-  om balanseringen är gjord och vad den gav; `klar` kräver att den är gjord, och styr grön bock i
-  processlinjen.
+  om balanseringen är gjord och vad den gav; `klar` kräver att den är gjord **och fortfarande stämmer**, och
+  styr grön bock i processlinjen.
+- **Planeringen har ändrats sedan balanseringen (beslut 40):** balanseringen sparar ett **sammandrag** av
+  underlaget i `gem.balanserad.sammandrag` – per klar byggnad rondens frekvens, utförare och planerade tid,
+  plus Balanseringens tre svar (`kapacitet`, `veckorUtan`, `akerTill`), alltså de **förutsättningar** den
+  räknade på. Svaren hör dit lika mycket som ronderna: halveras en kapacitet räckte den balansering som
+  gjordes inte längre, även om ingen rond rörts. Svaren tas som de *gäller* (`svarKapacitet()` m.fl.), så att
+  bekräfta ett förval är ingen ändring (beslut 37). Veckorna är **inte** med: dem ändrar balanseringen själv,
+  så en jämförelse mot dem hade sagt "ändrat" direkt efteråt. `planeringAndringar()` jämför sammandraget mot
+  nuläget och svarar med en rad per ändring i klartext (`typ` `frekvens`, `utforare`, `tid`, `rond-ny`,
+  `rond-bort`, `ej-klar`, `ny-klar`, `kapacitet`, `veckor-utan`, `omraden`, `bortstadad`) – texterna
+  formuleras i planeringen och inte i vyn, av samma skäl som balanseringens egen förklaring (beslut 61).
+  **Inget räknas om av sig själv**: förskjutningarna och det sparade resultatet ligger orörda tills planeraren
+  trycker på *Balansera om*. `balanseringSammandrag(las, gem)` tar en tillståndsläsare och ett gemensamt
+  tillstånd, eftersom sammandraget vid balanseringen måste tas av det som just skrivits – inuti `andraFlera()`
+  ligger det i kopiorna och inte i historiken. Därför har ändringsobjektet `las(id)` vid sidan av
+  `tillstand(id)`: att *läsa* en byggnad ska inte märka den som rörd av steget.
+- **Bortstädat nivå 3-arbete redovisas för sig:** `rensaNiva3()` tar bort provisoriska flyttar och
+  strykningar för tillfällen som inte längre finns, och **svarar nu med vad den tog bort**.
+  `andra()`/`andraFlera()` bokför det i `gem.bortstadade` (bara när en balansering finns att redovisa mot).
+  Att det ligger i det gemensamma tillståndet gör att det följer historiken: ångras frekvensändringen är
+  flytten tillbaka, och beskedet med den. `balanseringStatus()` håller isär de två: `andringar` och `andrad`
+  bär **förutsättningarna** och styr "balansera om?" och grön bock, medan `bortstadade` är ett eget besked i
+  en egen ruta. En provisorisk flytt var aldrig något balanseringen räknade på, så den gör den inte
+  inaktuell – ändras en frekvens fram och tillbaka igen är bocken tillbaka, men beskedet om att flytten
+  försvann står kvar, för flytten är fortfarande borta.
 - `info.flyttade` (byggnad → tillfällen som bytt vecka) räknas i `utokaInfo()` ur tillstånden före och
   efter, för **varje** rörd byggnad. Lyssnaren får bara den aktiva byggnadens tillstånd, och Balanseringens
   tidsaxel visar alla på en gång. Eftersom `ga()` går samma väg gäller det även ångra och gör om:
@@ -229,15 +253,16 @@ steg 6, planerad tid med förslag, uträkning och ändrade förutsättningar (be
 processlinjen och ordlistan (beslut 54–55), förskjutningarna i planeringen (beslut 26, 41 och 56),
 Balanseringens tidsaxel med belastning per utförare (beslut 28, 31, 33, 39 och 47) samt **Balansera** med
 de två första frågorna, uträkningen, förklaringen i klartext och den kvarstående överbelastningen
-(beslut 36, 37, 38 och 46) samt **veckor utan tillsyn och skötsel** med provisoriska flyttar, förslag att
-stryka, *Stryk alla* och *behåll* (beslut 32, 45 och 64–66) byggda.
+(beslut 36, 37, 38 och 46), **veckor utan tillsyn och skötsel** med provisoriska flyttar, förslag att
+stryka, *Stryk alla* och *behåll* (beslut 32, 45 och 64–66), **flytt för hand** med dra och släpp, frågan
+om de tre nivåerna, beskedet om målveckans fyllnad, strykning för hand och de egna markeringarna för
+permanent och provisoriskt (beslut 34, 67 och 68) samt **markeringen när planeringen ändrats sedan
+balanseringen** med listan över ändringarna, redovisningen av bortstädat nivå 3-arbete och bocken som
+följer om balanseringen fortfarande stämmer (beslut 40) byggda.
 Standardplaneringen ger alla fyra byggnaderna grön bock i alla sex stegen, så de är klara för Balansering.
-samt **flytt för hand** med dra och släpp, frågan om de tre nivåerna, beskedet om målveckans fyllnad,
-strykning för hand och de egna markeringarna för permanent och provisoriskt (beslut 34, 67 och 68) byggda.
-**Nästa: etapp 5** – markeringen när planeringen ändrats sedan balanseringen (beslut 40). Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
+**Nästa: etapp 5** – skissen `flerbyggnad.html` tas bort och etappen avslutas (beslut 49). Utformningen är bestämd i beslut 23–49 i beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 
 Kända begränsningar:
-- Balansering markeras inte när planeringen ändrats sedan balanseringen (beslut 40).
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
   resultatet – de förskjutna veckorna och de provisoriska flyttarna – men går inte att dra i.
 - Balanseringens sökning är greedy per byggnad i byggnadsordning, inte uttömmande: den hittar ett bra läge,

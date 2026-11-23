@@ -116,3 +116,9 @@ Ett enskilt rutintillfälle flyttas till en annan vecka utan att planeringen än
 **Stryka**:
 Att ta bort ett enskilt rutintillfälle som annars skulle hamna nära nästa ordinarie tillfälle.
 _Föreslaget att strykas_ är inte struket: tillfället ligger kvar och räknas med tills planeraren säger ja.
+
+**Ändrad planering**:
+Att planeringen i en byggnad ändrats sedan balanseringen gjordes, så att balanseringen vilar på ett
+underlag som inte längre stämmer. Förskjutningarna ligger kvar och ingenting räknas om av sig själv:
+Balansering markeras, ändringarna listas, och planeraren balanserar om när hen vill.
+_Undvik_: Ogiltig balansering, föråldrad balansering

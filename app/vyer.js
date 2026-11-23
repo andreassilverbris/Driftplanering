@@ -52,6 +52,11 @@
   function balanseringUnder(h) {
     if (h.id !== 'balansering') { return h.under; }
     var bst = P.balanseringStatus();
+    // Planeringen har ändrats sedan balanseringen (beslut 40). Undertexten säger det i stället
+    // för att säga att belastningen är jämn: den var jämn, men på ett underlag som inte gäller.
+    if (bst.andrad) {
+      return 'planeringen har ändrats · balansera om?';
+    }
     if (bst.klar) {
       return bst.resultat.kvarstaende.length
         ? 'balanserad · överbelastning kvar'
@@ -482,6 +487,12 @@
   // ---- Knappen Balansera ----
   function balanseraKnapp(underlag, bst) {
     var w = el('div', 'bal-balansera');
+    // Har planeringen ändrats sedan balanseringen står beskedet **ovanför** knappen: frågan
+    // "balansera om?" och svaret ska ligga på samma ställe (beslut 40). Bortstädat nivå
+    // 3-arbete redovisas också, men i en egen lugnare ruta: det är ett besked om något som
+    // försvann, och inget som behöver balanseras om.
+    if (bst.andrad) { w.appendChild(andringspanel(bst)); }
+    if (bst.bortstadade.length) { w.appendChild(bortstadadpanel(bst.bortstadade)); }
     var rad = el('div', 'knapprad');
     var k = el('button', 'knapp primar', bst.balanserad ? 'Balansera om' : 'Balansera');
     k.id = 'balansera-knapp';
@@ -520,6 +531,54 @@
   function korBalansering(underlag) {
     var resultat = DP.Balansering.balansera(underlag);
     P.tillampaBalansering(resultat);
+  }
+
+  // ---- Markeringen när planeringen ändrats sedan balanseringen (beslut 40) ----
+  //
+  // Förskjutningarna ligger kvar: arbetet ska inte gå förlorat bara för att en frekvens
+  // ändrades. Men de vilar på ett underlag som inte längre stämmer, och det sägs rakt ut med
+  // en lista över vad som ändrats. Inget räknas om av sig själv – planeraren trycker på
+  // Balansera om när hen vill, och ångrar hon ändringen kommer bocken tillbaka.
+  function andringspanel(bst) {
+    var w = el('div', 'bal-varning mjuk bal-andrad');
+    w.appendChild(el('div', 'bal-andrad-rubrik',
+      '<b>Planeringen har ändrats sedan du balanserade – balansera om?</b>'));
+    w.appendChild(andringslista(bst.andringar));
+    w.appendChild(el('div', 'bal-notis',
+      'Förskjutningarna ligger kvar som de är – ingenting räknas om av sig själv. ' +
+      'Tryck på <b>Balansera om</b> för att räkna på den nya planeringen, eller ångra ' +
+      'ändringen för att komma tillbaka till den balansering du hade.'));
+    return w;
+  }
+
+  // Nivå 3-arbete städningen tog bort för att tillfället inte längre finns. Det redovisas
+  // för sig: en provisorisk flytt var aldrig något balanseringen räknade på, så den gör
+  // inte balanseringen inaktuell – men planeraren ska få veta att arbetet försvann, annars
+  // tystnar det bort utan spår (beslut 40).
+  function bortstadadpanel(rader) {
+    var w = el('div', 'bal-varning mjuk bal-bortstadad');
+    w.appendChild(el('div', 'bal-andrad-rubrik', '<b>Det här togs bort när planeringen ändrades</b>'));
+    w.appendChild(andringslista(rader));
+    w.appendChild(el('div', 'bal-notis',
+      'Tillfällena finns inte längre, så flyttarna hade ingenting att gälla. ' +
+      'Ångrar du ändringen kommer både tillfällena och flyttarna tillbaka.'));
+    return w;
+  }
+
+  // En rad per post, med byggnadens färgprick. Samma form som förklaringens rader, och
+  // delad av de två panelerna ovan.
+  function andringslista(rader) {
+    var lista = el('div', 'bal-andringar');
+    rader.forEach(function (a) {
+      var rad = el('div', 'bal-arad');
+      rad.dataset.typ = a.typ;
+      // Balanseringens tre svar hör inte till någon byggnad: ingen prick, inget byggnads-id
+      if (a.byggnad) { rad.dataset.byggnad = a.byggnad; }
+      if (DP.byggnader[a.byggnad]) { rad.appendChild(fargprick(DP.byggnader[a.byggnad].farg)); }
+      rad.appendChild(el('span', 'bal-atext', a.text));
+      lista.appendChild(rad);
+    });
+    return lista;
   }
 
   // ---- Panelen med förklaringen i klartext (beslut 36 och 46) ----
