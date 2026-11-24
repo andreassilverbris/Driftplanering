@@ -265,6 +265,11 @@ beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 **Nästa: etapp 6** – Utförande: markera ett rutintillfälle som utfört, registrera tid och jämföra med den
 planerade tiden (beslut 30, idé 6 och 8).
 
+**Grillat 2026-11-24: Byggnad som vägledd process** – skapa ny byggnad, läsa in plan, rum och installationer
+från en inläsningsfil med tre flikar, ändra byggnad och utbyte av installationer (beslut 69–104). Nästa steg
+där är en slit-och-släng-prototyp av inläsningsläget (beslut 102), sedan spec och biljetter. Mediaspelaren på
+en fast plats för alla huvudsteg (beslut 82) kan göras som egen biljett före det.
+
 Kända begränsningar:
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
   resultatet – de förskjutna veckorna och de provisoriska flyttarna – men går inte att dra i.

@@ -4,16 +4,41 @@ Begreppen för planering av tillsyn och skötsel: från byggnaden och dess insta
 till rutintillfällen som fördelas över året och balanseras för utförarna. Beslut och etapper finns i
 `docs/koncept-och-beslut.md`.
 
+## Systemet
+
+**Systemet**:
+Det vi bygger: verktyget för att planera tillsyn och skötsel.
+_Undvik_: Modellen (om verktyget)
+
+**Fastighetssystemet**:
+Det befintliga systemet där byggnader, plan, rum och installationer förvaltas i dag. Skrivs alltid ut, så att det inte blandas ihop med systemet.
+
+**Modellen**:
+3D-modellen av byggnaden, den som visas till höger.
+
 ## Byggnaden
 
 **Byggnad**:
 Ett hus som ska ha tillsyn och skötsel. Har plan, rum och installationer, och en byggnadstyp.
 
 **Byggnadstyp**:
-Den sortens byggnad det är (Garage, Kasern, Hangar …). Ger standardplaneringen och avgör vilka byggnader planering kan kopieras mellan.
+Den sortens byggnad det är (Garage, Kasern, Mindre logement, Hangar, Militärrestaurang, Utbildningsbyggnad, Panncentral). Ger planlösningens regel, utseendet, de vanliga rumstyperna och standardplaneringen, och avgör vilka byggnader planering kan kopieras mellan. En ny byggnad utgår alltid från en byggnadstyp.
+_Undvik_: Mall, startbyggnad
+
+**Mindre logement**:
+En mindre och enklare byggd variant av kasern: 10–20 rum på ett eller två plan, ofta med toalett i varje rum.
 
 **Plan, rum**:
-Byggnadens våningar och rum. Egna objekt med id och benämning; rumsnummer är plansiffra plus löpnummer.
+Byggnadens våningar och rum. Planen har en beteckning (oftast 01) och benämning. Rummet har ett rumsnummer som löper per plan (001, 002 …) och pekas därför ut med plan + rumsnummer, skrivet 01-001.
+
+**Rumstyp**:
+Vad rummet är till (korridor, trapphus, WC, logement …). Avgör var rummet hamnar i modellen. Det som inte känns igen är *övrigt rum*.
+
+**NTA, BRA, BTA**:
+Nettoarea, bruksarea och bruttoarea enligt SS 21054. NTA är golvytan innanför väggarna och det mått ett rum alltid har. BRA och BTA mäts egentligen per plan, men kan anges per rum så att de går att summera uppåt.
+
+**NTV**:
+Nettovolym enligt SS 21054: rummets volym innanför väggarna. NTV ÷ NTA ger rumshöjden.
 
 **Område**:
 En grupp byggnader som ligger så nära varandra att avståndet inte spelar någon roll för veckoplaneringen.
@@ -22,10 +47,43 @@ _Undvik_: Kluster, zon
 **Område man åker till**:
 Ett område som ligger så långt bort att man vill samla besöken där till samma vecka.
 
+## Inläsning
+
+**Inläsning**:
+Att föra in en byggnads plan, rum och installationer från en inläsningsfil. Det som är tydligt kommer in direkt, resten blir förslag eller hamnar som oplacerat tills planeraren tagit ställning.
+_Undvik_: Import
+
+**Inläsningsfil**:
+En Excel-fil med tre flikar: Plan, Rum och Installationer. Man fyller i de flikar man har. När den tas ut innehåller den det som redan är inläst.
+_Undvik_: Importfil, exportfil, mall
+
+**Ta ut**:
+Att få en inläsningsfil från systemet, tom för en ny byggnad eller ifylld för en befintlig.
+_Undvik_: Exportera
+
+**Förslag**:
+Det systemet tror, visat så att planeraren kan godta eller ändra det. Gäller lika vid inläsning, planerad tid och strykning: systemet föreslår, planeraren bestämmer.
+
+**Oplacerad**:
+Något inläst som systemet inte kan avgöra var det hör hemma, och som planeraren drar på plats.
+
+**Eget fält**:
+En uppgift i inläsningsfilen som systemet inte känner till. Sparas, visas och följer med ut, men används inte till något.
+
 ## Installationer och åtgärder
 
 **Signifikant installation**:
 En installation som registreras som individ (id med 8 siffror) och ska ha minst en kopplad åtgärd.
+
+**Utbyte**:
+Att en installations apparat byts mot en ny. Installationen, dess id och planering består; den gamla apparaten blir en utbytt version.
+
+**Utbytt version**:
+En apparat som suttit på en installations plats och bytts ut. Behålls som historik med installationens id och tillägget :1, :2 …
+_Undvik_: Gammal installation, borttagen installation
+
+**Rättelse**:
+Att uppgifterna om en installations nuvarande apparat ändras för att de var fel. Ingen ny version uppstår.
 
 **Övrig installation**:
 En installation som inte registreras som individ. Kontrolleras översiktligt genom *Kontroll byggnad invändigt*.

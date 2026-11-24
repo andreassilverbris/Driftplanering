@@ -12,6 +12,13 @@ Avgränsning tills vidare: myndighetsbesiktningar, radon och planerat underhåll
 En installation som besiktigas har ändå tillsyn och skötsel. Citrix, API och kommersiella
 frågor parkeras.
 
+**Grundhållning: enkelt från början, så att ingen vill specialanpassa det.** Fastighetssystem blir ofta
+specialanpassade efter varje kunds önskemål, eftersom de är svåra att förstå. Systemet ska vara så enkelt och
+intuitivt från första början att det inte behövs. Att klä på med fler funktioner är en sak, att anpassa
+systemet efter unika behov en annan. Det första gör vi, det andra ska inte behövas. Varje ny funktion prövas
+mot det: blir den lika lätt att förstå för en liten byggnad som för en stor, och känner man igen sig från
+andra delar av systemet?
+
 ## Begrepp
 
 Begreppen står i [`GLOSSARY.md`](../GLOSSARY.md) i roten av repot.
@@ -353,6 +360,157 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     (beslut 46), och ett släpp på en annan rad hade annars flyttat tillfället utan att vare
     sig sikte eller besked visats under dragningen – planeraren hade fått ett resultat hen
     inte sett komma.
+
+### Byggnad: inläsning, ny byggnad och ändra byggnad (grillning 2026-11-24)
+
+Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
+
+69. **Ett vägledande flöde för byggnaden, inte tre processer.** Huvudsteget Byggnad får ett flöde med
+    numrerade steg och grön bock, på samma sätt som Planering: *Byggnadstyp och namn → Plan → Rum →
+    Installationer*. *Skapa ny byggnad* startar flödet med en tom byggnad, *Ändra byggnad* med en befintlig.
+    Inläsningsfil och handpåläggning (lägga till, dra och släppa) är två sätt att fylla i **samma** steg,
+    inte två spår, och de går att blanda. Det ersätter beslut 42:s "ingen grön bock" när flödet finns.
+70. **En inläsningsfil med tre flikar: Plan, Rum och Installationer.** Ingenting upprepas: ett rum står en
+    gång, en installation anger sitt rum. Man fyller i de flikar man har och kan läsa in en i taget. När
+    filen tas ut innehåller den **det som redan är inläst**, så efter plan och rum återstår bara
+    Installationer. *Ändra byggnad via fil* är samma sak: ta ut, ändra, läs in. Byggnadens namn och typ
+    anges i flödets första steg, inte i filen. Excel-filen läses och skrivs med SheetJS i `vendor/`, som
+    fungerar från `file://` utan server.
+71. **Byggnaden lever i minnet som allt annat, men byggs för att kunna sparas.** I utbildningsversionen visas
+    avbrottet (man väntar på en ifylld fil) som en status i byggnadslistan, men det överlever inte en
+    omladdning. Filen bär plan, rum och installationer, så det som går förlorat är namn och typ. För att ett
+    riktigt system med databas inte ska bli en överraskning ska byggnadens plan, rum och installationer bli
+    **rena data i tillståndet** som ändras genom samma väg som planeringen (`DP.Plan.andra`), på samma sätt
+    som idé 5 redan förutsätter för planeringen. Då finns det en enda söm där ett adapterlager mot en
+    databas senare kopplas in.
+72. **Byggnadstypen är mallen.** Den ger planlösningens regel, utseendet, de vanliga rumstyperna och
+    standardplaneringen. Första omgången är sju typer: Garage, Kasern och Hangar (finns), samt Mindre
+    logement (en mindre, enklare kasern med 10–20 rum på ett eller två plan, ofta toalett i varje rum),
+    Militärrestaurang, Utbildningsbyggnad och Panncentral. Kategorier som "liten enkel / stor komplex"
+    används inte.
+73. **Inläsningen ligger i den gemensamma historiken.** Varje inläsning, varje accepterat förslag och varje
+    drag är ett steg som går att ångra och göra om med samma mediaspelare som i Planering. Ångrar man förbi
+    att byggnaden skapades försvinner den. Särskilda begränsningar kan läggas till senare.
+74. **Begreppen:** *systemet* är det vi bygger, *fastighetssystemet* skrivs alltid ut, *modellen* är bara
+    3D-modellen. *Inläsning*, *inläsningsfil* och *ta ut* i stället för import, importfil och exportera.
+    Se `GLOSSARY.md`.
+75. **Ordningen är grillning, prototyp och sedan spec.** Efter grillningen byggs en slit-och-släng-prototyp
+    av inläsningsläget i en fristående sida, med en påhittad Kasern 3. Först när vi känt på den skrivs spec
+    och biljetter.
+76. **Ett rum identifieras av plan + rumsnummer.** I verkligheten är rumsnumret löpande per plan (001, 002 …)
+    och planen har en egen beteckning (oftast 01, ibland P1 eller P01); de skrivs inte ihop. Därför har plan
+    och rum var sin beteckning, och ett rum pekas ut med båda – i rumsfliken och i installationsfliken.
+    Det visas kort som **01-001**. Garage, Kaserner och Hangar byter till samma numrering (de har i dag
+    1001 = plan 1, rum 1), så att man lär sig på det man möter.
+77. **Planens beteckning behålls som den står, och kopplingarna matchas förlåtande.** Fliken Plan är
+    fastighetssystemets id och ska kunna gå tillbaka dit, så systemet döper inte om. När Rum eller
+    Installationer pekar på ett plan eller rum: exakt träff är **klar**, träff efter att bokstäver och
+    inledande nollor tagits bort ("P1", "1", "Plan 1" → 01; "1" → 001) är ett **förslag** som godtas med
+    ett klick eller alla på en gång, och ingen träff är **oplacerad** och dras på plats för hand.
+78. **Rumsnumrens ordning blir rummens placering.** Rummen placeras i nummerordning medurs runt planet
+    enligt byggnadstypens regel (i en kasern längs korridoren, ena sidan och tillbaka längs den andra).
+    Följer verklighetens numrering inte regeln blir modellen schematisk, inte fel. Ordningen på ett plan
+    går att dra om; fri ritning finns inte.
+79. **Areor och volym per rum, summor uppåt** (SS 21054:2020). Per rum: **NTA** krävs och ger golvytan i
+    modellen; **NTV** (nettovolym) är valfri och ger rumshöjden som NTV ÷ NTA – annars gäller byggnadstypens
+    standardhöjd; **BRA** och **BTA** är valfria; *temperaturreglerad* lagras utan funktion. Per plan och
+    byggnad är NTA summan av rummen. BRA och BTA summeras från rummen om alla rum har dem, annars räknas de
+    fram ur modellen (BRA innanför ytterväggarna, BTA utanför) och märks *beräknad*. BTA per rum är
+    tveksamt enligt standarden (den mäts till ytterväggens utsida), men fastighetssystemet aggregerar areor
+    uppåt från rum, så fältet finns.
+80. **Rumstypen läses ur benämningen.** Ingen kolumn för rumstyp: systemet känner igen korridor, trapphus,
+    WC, logement osv. ur benämningen utifrån byggnadstypens vanliga rumstyper. Det okända blir ett förslag
+    *Övrigt rum* som ändras med ett klick. Rumstypen styr bara placeringen i modellen.
+81. **Fliken Installationer har bara signifikanta installationer.** Övriga installationer genereras ur
+    byggnadstyp och rumstyp, som i dag. Kolumner: Plan, Rum, Benämning, Beteckning, Fabrikat, Modell, Id,
+    Externt id. Tomt Id ger ett id från systemet. Installationstypen föreslås ur benämningen; en okänd typ
+    måste väljas ur listan innan steget blir grönt, eftersom typen avgör vilka åtgärder som går att koppla.
+    Systemet ska vara förberett för fler attribut (t.ex. kapacitet, beskrivning).
+82. **En mediaspelare på en fast plats för alla huvudsteg.** Den flyttar högst upp och är gemensam för
+    Byggnad, Planering och Balansering. Ångra-knappen i Balansering (beslut 63) tas bort: den fanns bara för
+    att mediaspelaren var dold där, och två knappar för samma sak väcker frågan vad skillnaden är.
+    Balanseringen är ett steg i historiken, så ◀ tar tillbaka hela. Egen biljett, oberoende av inläsningen,
+    och kan göras först.
+83. **Det inlästa är klart, förslag eller oplacerat.** Varje steg (Plan, Rum, Installationer) visar det
+    inlästa i tre grupper: *klart* ligger på plats, *förslag* är det systemet tror – godtas ett i taget
+    eller med *Godta alla* – och *oplacerat* är det systemet inte vet, som dras till rätt plan, rum eller
+    typ. Steget får grön bock när bara klart återstår. Ordet *förslag* betyder samma sak som vid planerad
+    tid och "föreslagen att strykas": systemet föreslår, planeraren bestämmer.
+84. **Planens ordning föreslås och kan dras om.** Fliken Plan har bara Plan (beteckningen) och Benämning.
+    Ordningen nedifrån och upp föreslås ur dem: siffror stigande, källare, "K" och negativa under 01, vind
+    och teknikplan överst. I steget Plan dras ordningen om.
+85. **Modellen växer fram steg för steg.** Efter Plan visas byggnadstypens standardstorlek som ett skal med
+    tomma bjälklag; när rummen kommer in växer skalet till rummens NTA, och sist dyker installationerna upp.
+    Knappar utan något att visa är utgråade, inte borttagna.
+86. **Att läsa in igen visar skillnaden mot det som finns.** Plan och rum matchas på beteckningen,
+    installationer på Id. Nytt läggs till som förslag, ändrat visas med före och efter, och det som
+    **saknas i filen tas aldrig bort av sig självt** – det blir ett förslag att ta bort, eftersom en rad som
+    fattas lika gärna kan vara glömd.
+87. **Flytta och ta bort en installation.** Flytta till ett annat rum är samma installation: kopplade
+    åtgärder och avvikande texter följer med. Ta bort tar bort kopplingarna. Ändrar det rondernas tid
+    markeras steg 6 som ändrad förutsättning, och Balansering markeras som ändrad planering – inget annat i
+    planeringen ändras av sig självt. Att **ersätta** en installation är en egen fråga (se nedan).
+88. **Från Byggnad till Planering via den befintliga snabbstarten.** Ingen planering skapas av sig själv; i
+    Planering möts man av snabbstarten med standardplaneringen eller kopiering. Planering går att öppna
+    innan Byggnad är klar, men steg 5 blir inte grönt utan installationer.
+89. **Okända kolumner blir egna fält.** En kolumn systemet inte känner till sparas som ett *eget fält* på
+    raden, visas i informationskortet och följer med ut när filen tas ut. Det är förberedelsen för fler
+    attribut (kapacitet, beskrivning …): ett eget fält kan senare bli ett attribut systemet förstår.
+90. **Inläsningsläget är standarden för alla inläsningar.** Mönstret *ta ut fil med flikar → läs in →
+    klart, förslag och oplacerat → dra och släpp → grön bock, allt i historiken* gäller också kommande
+    inläsningar (besiktningsplanering, besiktningsresultat, underhållsplanering, prislistor), så att man
+    känner igen sig. Koden görs gemensam först när den andra inläsningen byggs – ett ramverk för
+    inläsningar vi inte känner än brukar bli fel.
+91. **Ett utbyte gör den gamla apparaten till en utbytt version; installationen och id:t består.** Som i
+    fastighetssystemet: den nya apparaten får installationens id, och den gamla behålls som historik med
+    tillägget **:1** (nästa utbyte :2). Installationen är platsen och uppgiften och bär planeringen;
+    kopplingar och avvikande texter pekar på id:t och följer därför med utan att något flyttas. Den utbytta
+    versionen syns när man klickar på installationen. Det gäller lika för en kylmaskin och en
+    handbrandsläckare.
+92. **Ersätta många på en gång.** I *Ändra byggnad* markeras installationer en och en eller som "alla av
+    typen …" i byggnaden eller på ett plan, och *Ersätt* fyller i det gemensamma för de nya (fabrikat, modell,
+    installationsdatum). Hela utbytet är **ett** steg i historiken.
+93. **Utbyte och rättelse via fil.** Samma Id med **senare installationsdatum** är ett förslag om *utbyte*;
+    samma Id med ändrade uppgifter men samma datum är ett förslag om *rättelse* av samma version. Båda går att
+    vända. (Ersätter tanken på nytt Id för utbyte, eftersom id:t består enligt beslut 91.)
+94. **När den nya apparaten är av en annan typ** följer kopplingar till åtgärder som också gäller den nya
+    typen med; övriga följer inte med och syns som saknade i steg 5. Ändrad tid markeras i steg 6 och
+    Balansering markeras, som vid all ändring. Samma typ ger inga följder. Hellre att det mesta blir rätt och
+    resten är enkelt att justera än en massa om och men.
+95. **Installationsdatum per version.** Valfri kolumn i fliken Installationer. Den utbytta versionen får
+    utbytets datum som slutdatum. Datumet är upplysning och påverkar inte årets rutintillfällen.
+96. **Inläsningsfilen har bara nuvarande versioner.** Historiken stannar i systemet; annars växer filen med
+    varje utbyte och den som fyller i börjar ändra i historik.
+97. **En fråga efter varje utbyte.** *"Du har ersatt 20 handbrandsläckare. Ska de nya ha samma tillsyn som
+    förut?"* – **Ja, samma tillsyn** (förvalt) eller **Nej, visa dem i Planering**, som öppnar steg 5 med de
+    ersatta markerade. Har kopplingar fallit bort säger frågan det ("3 åtgärder följde inte med"). Frågan
+    är vägledning, inget lås. Besiktnings- och underhållsplanering får egna rader i samma fråga när de finns.
+98. **Steg 1 frågar om byggnadstyp, namn och område.** Balanseringen behöver området (beslut 28). Färgen i
+    tidsaxeln (beslut 47) väljer systemet ur en palett så att ingen annan byggnad har den; den går att ändra
+    men frågas inte.
+99. **De nya byggnadstyperna och deras standardplanering ligger i tabeller, inte i koden.** Planlösningens
+    regel, rumstyperna och standardplaneringen per typ (se tabellerna i grillningen 2026-11-24, ett första
+    utkast att justera) är data, liksom tidsschablonen redan är (beslut 43). Panncentralen får en ny rond,
+    **Värme**. I dag justeras tabellerna i datafilerna; ett administrationsgränssnitt är idé 11.
+100. **Ta bort byggnad** finns i *Ändra byggnad* och är ett steg i historiken. Planeringen försvinner med
+     byggnaden, och har den varit med i en balansering markeras Balansering som ändrad.
+101. **De fyra befintliga byggnaderna behåller sin handritade form.** Installationer kan flyttas, ersättas och
+     läggas till utan att formen ändras. Ändras *rummen* på ett plan ritas det planet om enligt byggnadstypens
+     regel, efter en varning som säger det.
+102. **Prototypen** innehåller en påhittad, avsiktligt rörig Kasern 3 i en inläsningsfil som går att ta ut,
+     ändra och läsa in; de fyra stegen med klart, förslag och oplacerat, *Godta alla* och dra och släpp;
+     modellen som växer fram i den riktiga 3D-vyn med kaserns regel; ångra och gör om. Inte Ändra byggnad,
+     utbyte, de nya typerna eller areasummorna. Filen ska gå att fylla i i **Numbers** på Mac och iPad,
+     eftersom Andreas inte har Excel: flikarna känns igen på sina kolumnrubriker och inte bara på namnet,
+     och tomma rader och tabellrubriker som Numbers lägger till hoppas över. Om biblioteket kan läsa
+     `.numbers` direkt prövas i prototypen.
+103. **Byggnadens namn är unikt.** Rutintillfällen namnges *Byggnad-Rond-ÅÅÅÅvVV*, så två byggnader med samma
+     namn hade gett tillfällen med samma namn. Steg 1 säger till direkt om namnet finns. Namnet går att byta i
+     *Ändra byggnad*, och tillfällena byter namn med det. Ett byggnads-id, med namnet som bara en benämning,
+     kan införas senare men behövs inte nu.
+104. **Byggnadstypen är låst efter steg 1.** Typen avgör planlösningens regel, utseendet och vilka byggnader
+     planering kan kopieras mellan. Vid fel typ skapar man en ny byggnad och läser in samma fil, som kan tas ut
+     med allt ifyllt.
 
 ## Förslag (bekräftade)
 

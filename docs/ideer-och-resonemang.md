@@ -124,7 +124,9 @@ Det som saknas är **vilka ronder** och **hur ofta**. Det kan definieras per byg
 
 ## 4. Inläsning av plan, rum och installationer – och en genererad 3D-modell
 
-**Status:** idé, inte påbörjad.
+**Status:** grillad 2026-11-24. Besluten står som 69–102 i `koncept-och-beslut.md` och går före det som
+står här, där de skiljer sig (t.ex. en fil med tre flikar, rum identifierade av plan + rumsnummer, NTV för
+rumshöjden och ett vägledande flöde i stället för en importvy). Texten nedan är kvar som bakgrund.
 
 ### Hur det fungerar i dag (i fastighetssystemet)
 
@@ -352,3 +354,23 @@ Det här är redan en **öppen fråga** i `koncept-och-beslut.md` ("Ska planerin
 från dagens vecka?"). Skissen svarade rullande, och det är vad en driftplanerare faktiskt arbetar i: man
 planerar inte om januari i oktober. Ett rullande fönster tvingar också fram att ISO-år har 52 eller 53
 veckor, vilket det fasta året slipper.
+
+---
+
+## 11. Administrationsgränssnitt för tabellerna
+
+**Status:** idé, inte påbörjad (från grillningen 2026-11-24, beslut 99).
+
+Byggnadstypernas planlösningsregler och rumstyper, standardplaneringen per typ och tidsschablonen
+(hur lång tid det tar att kontrollera olika installationer) ligger som tabeller i datafilerna. I dag
+justeras de där, i bakgrunden. Senare kan de få ett administrationsgränssnitt där en förvaltare ändrar
+dem utan att röra filerna – samma tanke som att standardplaneringen i ett riktigt system förvaltas
+centralt (idé 3).
+
+## 12. Flytta rondserier och rutintillfällen till en annan utförare
+
+**Status:** biljett #29 (`needs-triage`), ska grillas för sig.
+
+I Balansering ska man kunna flytta en rond eller ett rutintillfälle till en annan utförare, inte bara till
+en annan vecka. Det krockar med beslut 46 (balanseringen byter aldrig utförare) och med ordlistans
+definition av rutintillfälle, så det behöver en egen grillning.
