@@ -31,7 +31,9 @@
   //
   // Prenumerationen ligger här och inte i flode.js därför att telefon.js laddas först, så
   // nycklarna är flyttade innan flödets lyssnare ritar om telefonerna.
-  P.prenumerera(function (fore, efter) {
+  P.prenumerera(function (fore, efter, info) {
+    // Byggnadens data kan ha ändrats i steget; telefonens rums- och planindex kommer därifrån.
+    if (P.aktivFickNyData(info)) { indexera(); }
     var flytt = {};
     P.veckoSkillnad(fore, efter).forEach(function (f) { flytt[f.franNyckel] = f.nyckel; });
     oppna.forEach(function (o) { if (flytt[o.nyckel]) { o.nyckel = flytt[o.nyckel]; } });
@@ -66,7 +68,7 @@
 
   function installationsInfo(k) {
     if (k.inst === 'BYGGNAD') { return { namn: b.namn + ' (hela byggnaden)', plan: '–', rum: '–', inst: null }; }
-    var i = P.instIndex[k.inst];
+    var i = P.inst(k.inst);
     var r = rumIndex[i.rum], p = planIndex[r.plan];
     return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: r.nr + ' – ' + r.namn, inst: i };
   }

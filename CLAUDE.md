@@ -69,11 +69,11 @@ Skriptens ordning i `index.html` spelar roll:
 
 | Fil | Ansvar |
 |---|---|
-| `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan) |
+| `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan). Byggnaden är källa till starttillståndet, som Garage och Kasern |
 | `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering), `DP.omraden`, `DP.genereraOvriga()` |
 | `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
 | `data/ordlista.js` | `DP.ordlista`: begreppen i fyra grupper, det som ordlistedialogen visar |
-| `data/garage.js`, `data/kasern.js` | Garage, Kasern 1 och 2 i `DP.byggnader` |
+| `data/garage.js`, `data/kasern.js` | Garage, Kasern 1 och 2 i `DP.byggnader` – **källa till starttillståndet**, läses bara av `planering.js` (beslut 71) |
 | `app/planering.js` | `DP.Plan`: tillstånd per byggnad, frekvenser i veckor, rutintillfällen, åtgärdstexter i tre nivåer, planerad tid per rond, historik |
 | `app/flyg.js` | Animering: brickor som flyger till tidsaxel/modell |
 | `app/dialog.js` | `DP.Dialog`: dialogruta, jämförelse av texter (`onValj` förberett), textredigerare |
@@ -88,15 +88,36 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
 
 **Dataflödet:**
+- **Byggnaden själv är data i tillståndet (beslut 71 och 73, biljett #32).** Namn, typ, område, färg, plan,
+  rum och installationer ligger i historikens ögonblicksbilder tillsammans med planeringen, och läses med
+  `DP.Plan.byggnad(bid)` (den aktiva när `bid` saknas), `DP.Plan.byggnadsNamn(bid)` och `DP.Plan.inst(instId)`
+  för en signifikan installation i vilken byggnad som helst. **Ingen kod utanför `planering.js` läser
+  `DP.byggnader`** – datafilerna i `data/` är källan till *starttillståndet* och inget annat. Det är den
+  enda sömmen där ett adapterlager mot en databas senare kopplas in: då byts starttillståndet, inte läsarna.
+  Ändras byggnadens data går det genom `DP.Plan.andraByggnad(text, bid, fn, info)` (`fn` får byggnadens data
+  att mutera; `bid` tomt betyder den aktiva) eller `andraFlera`:s `byggnad(id)`, och blir ett steg i
+  historiken som allt annat – så ett ångra av en ändring av byggnaden återställer den.
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
-  (Balansering). `fn` får `{ tillstand: fn(id), gemensamt }` – `tillstand(id)` lämnar byggnadens planering
-  att mutera och markerar byggnaden som rörd av steget.
+  (Balansering). `fn` får `{ tillstand: fn(id), las: fn(id), byggnad: fn(id), lasByggnad: fn(id), gemensamt }` –
+  `tillstand(id)` lämnar byggnadens planering och `byggnad(id)` dess data att mutera, och markerar byggnaden
+  som rörd av steget.
   Steget hör inte till någon byggnad, så ångra och gör om byter inte aktiv byggnad.
 - Historiken sparar ögonblicksbilder av *alla* byggnaders tillstånd, det **gemensamma tillståndet**
   (`DP.Plan.gemensamt()`, inte per byggnad – Balanseringens svar ska ligga där) plus vilken byggnad steget
   gällde. `angra`/`gorOm`/`gaTill` växlar byggnad vid behov.
+- `info.byggnadsdata` (lista med byggnader vars **data** skiljer sig i steget) räknas i `utokaInfo()` på
+  samma sätt som `info.flyttade`, så den gäller även ångra och gör om. `DP.Plan.aktivFickNyData(info)` är
+  frågan varje vy ställer i sin lyssnare – den bor i planeringen och inte i vyerna, eftersom den vy som
+  glömmer formen ritar tyst gammal data. `ui.js` bygger då om modellen, plan-knapparna, byggnadsträdet,
+  väljaren och det öppna informationskortet (`byggOm`), och `flode.js` och `telefon.js` indexerar om sina
+  kopior av byggnaden innan de ritar.
+- **Modellen byggs om utan att planeraren flyttas.** `viewer.sattByggnad()` nollställer kamera,
+  plansynlighet, rumsläge och markering med flit – rätt när planeraren *byter* byggnad. Ändras samma
+  byggnads data används `viewer.byggOmByggnad()` i stället: den bevarar kameran, de släckta planen,
+  rumsläget och den markerade installationen (slagen upp på sitt id, eftersom objektet är nytt).
+  Döper planeraren om ett rum ska hon se namnet ändras, inte kastas ut till översiktsvyn.
 - `DP.Plan.prenumerera(fn(fore, efter, info))` – lyssnaren i `flode.js` ritar om allt och räknar ut skillnaden
   (tillagda/borttagna kopplingar, ändrade texter) för att animera. Animeringar fungerar därför även vid ångra.
   `info.byggnader` säger vilka byggnader steget ändrade (sparat i historiksteget, så ångra och gör om ger
@@ -240,11 +261,15 @@ förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med 
 `flyttade` (`'rond:ordinarieVecka'` → faktisk vecka) och `strukna` (samma nyckel → `'struken'` |
 `'foreslagen'`).
 
-**Byggnadsdata:** `plan` (nedifrån och upp, `elev`), `rum` (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`,
-valfri `hojd`), `installationer` (signifikanta med id/beteckning m.m. samt ej signifikanta), `stil`
-(tak platt/sadel, färger, fönster, dekor), `omrade` (id i `DP.omraden` – beslut 28) och `farg`
-(brickornas färg i Balanseringens tidsaxel, beslut 47). 3D-modellen räknas fram ur detta – en ny
-byggnad kräver bara en datafil.
+**Byggnadsdata** (i tillståndet, se Dataflödet): `namn`, `typ`, `plan` (nedifrån och upp, `elev`), `rum`
+(`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`, valfri `hojd`), `installationer` (signifikanta med
+id/beteckning m.m. samt ej signifikanta), `stil` (tak platt/sadel, färger, fönster, dekor), `omrade`
+(id i `DP.omraden` – beslut 28) och `farg` (brickornas färg i Balanseringens tidsaxel, beslut 47).
+3D-modellen räknas fram ur detta – en ny byggnad kräver bara en datafil.
+
+Identiteten är **id:t och inte objektreferensen** (beslut 2). Tillståndet klonas vid varje historiksteg,
+så samma installation är ett nytt objekt efter varje ändring och efter varje ångra: `viewer.objFor` är
+nycklad på installations-id, och `DP.Plan.inst()` bygger om sitt index när byggnadsdatan bytts.
 
 ## Status
 
@@ -272,7 +297,11 @@ ligger på grenen `prototyp-inlasning` och är utvärderad (beslut 105–112). S
 (`ready-for-human`); nästa steg är att skiva den med `to-tickets`. Första biljetten, **mediaspelaren på en
 fast plats för alla huvudsteg** (beslut 82, biljett #31), är byggd: spelaren bor i `app/spelare.js` och
 ritas högst upp i toppraden, så den syns i Byggnad, Planering och Balansering. Den egna knappen *Ångra
-balanseringen* (beslut 63) är borttagen.
+balanseringen* (beslut 63) är borttagen. Andra biljetten, **byggnaden som data i tillståndet** (beslut 71
+och 73, biljett #32), är byggd: byggnadens namn, typ, område, färg, plan, rum och installationer ligger i
+historikens ögonblicksbilder, ändras genom `DP.Plan.andraByggnad`, och ingen kod utanför `planering.js`
+läser `DP.byggnader`. För planeraren ser allt ut som förut; sömmen är förberedelsen för hela
+byggnadsflödet.
 
 Kända begränsningar:
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar

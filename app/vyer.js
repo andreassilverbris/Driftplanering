@@ -156,7 +156,7 @@
     grupp.appendChild(el('h3', null, 'Byggnader i balanseringen'));
     var lista = el('div', 'bal-byggnader');
     P.byggnadsordning.forEach(function (bid) {
-      var b = DP.byggnader[bid], med = !!klara[bid];
+      var b = P.byggnad(bid), med = !!klara[bid];
       var rad = el('div', 'bal-byggnad' + (med ? '' : ' grad'));
       rad.dataset.byggnad = bid;
       rad.appendChild(fargprick(b.farg));
@@ -254,7 +254,7 @@
   // Ett enda ångra tar därför bort planeringen i alla byggnader som fick den, och eftersom
   // steget inte hör till någon byggnad byter ångra inte aktiv byggnad.
   function standardForAlla(utan) {
-    var namn = utan.map(function (bid) { return DP.byggnader[bid].namn; });
+    var namn = utan.map(function (bid) { return P.byggnadsNamn(bid); });
     DP.Dialog.visa({
       titel: 'Standardplanering för alla',
       html: '<p>' + namn.join(', ') + ' får standardplanering för sin byggnadstyp: ronder, ' +
@@ -363,9 +363,9 @@
       txt.appendChild(el('span', 'bal-namn', o.namn));
       txt.appendChild(el('span', 'bal-omrade', o.beskrivning));
       // Byggnaderna i området, så att svaret går att se konsekvensen av
-      var iOmradet = P.byggnadsordning.filter(function (bid) { return DP.byggnader[bid].omrade === o.id; });
+      var iOmradet = P.byggnadsordning.filter(function (bid) { return P.byggnad(bid).omrade === o.id; });
       txt.appendChild(el('span', 'bal-obyggnader', iOmradet.map(function (bid) {
-        return DP.byggnader[bid].namn;
+        return P.byggnadsNamn(bid);
       }).join(', ') || 'inga byggnader'));
       rad.appendChild(txt);
       lista.appendChild(rad);
@@ -568,7 +568,7 @@
       rad.dataset.typ = a.typ;
       // Balanseringens tre svar hör inte till någon byggnad: ingen prick, inget byggnads-id
       if (a.byggnad) { rad.dataset.byggnad = a.byggnad; }
-      if (DP.byggnader[a.byggnad]) { rad.appendChild(fargprick(DP.byggnader[a.byggnad].farg)); }
+      if (P.byggnad(a.byggnad)) { rad.appendChild(fargprick(P.byggnad(a.byggnad).farg)); }
       rad.appendChild(el('span', 'bal-atext', a.text));
       lista.appendChild(rad);
     });
@@ -593,7 +593,7 @@
       var rad = el('div', 'bal-frad' + (r.typ === 'orord' ? ' orord' : '') +
         (r.typ === 'provisorisk' || r.typ === 'foreslagen-strykning' ? ' niva3' : ''));
       rad.dataset.typ = r.typ;
-      if (r.byggnad && DP.byggnader[r.byggnad]) { rad.appendChild(fargprick(DP.byggnader[r.byggnad].farg)); }
+      if (r.byggnad && P.byggnad(r.byggnad)) { rad.appendChild(fargprick(P.byggnad(r.byggnad).farg)); }
       rad.appendChild(el('span', 'bal-ftext', r.text));
       lista.appendChild(rad);
     });
@@ -628,7 +628,7 @@
       // Byggnaderna där utföraren har ronder – länken tar planeraren till steg 4 för den
       // byggnad överbelastningen faktiskt kommer ur, inte till en allmän lista.
       byggnaderForUtforare(k.utforare).forEach(function (bid) {
-        var b = DP.byggnader[bid];
+        var b = P.byggnad(bid);
         var l = el('button', 'lank bal-steg4lank', 'Byt utförare i ' + b.namn + ' →');
         l.dataset.byggnad = bid;
         l.title = 'Öppna Planering steg 4 (Vem utför ronderna?) för ' + b.namn;
@@ -680,7 +680,7 @@
       r.dataset.byggnad = t.byggnad;
       r.dataset.rond = t.rond;
       r.dataset.ordinarie = String(t.ordinarieVecka);
-      r.appendChild(fargprick(DP.byggnader[t.byggnad].farg));
+      r.appendChild(fargprick(P.byggnad(t.byggnad).farg));
       var txt = el('div', 'bal-tnamn');
       txt.appendChild(el('span', 'bal-namn', t.byggnadNamn + ' · ' + t.rondNamn));
       txt.appendChild(el('span', 'bal-omrade', 'v. ' + t.ordinarieVecka + ' → v. ' + t.vecka +
@@ -970,7 +970,7 @@
         kvar--;
         var m = DP.mitt(till);
         m.klar = function () { DP.puls(till); };
-        DP.flyg(DP.mitt(fran), [m], { text: '→', farg: DP.byggnader[bid].farg });
+        DP.flyg(DP.mitt(fran), [m], { text: '→', farg: P.byggnad(bid).farg });
       });
     });
   }
@@ -1358,7 +1358,7 @@
   function struknaPerCell() {
     var ut = {};
     P.klaraByggnader().forEach(function (bid) {
-      var s = P.stateFor(bid), b = DP.byggnader[bid];
+      var s = P.stateFor(bid), b = P.byggnad(bid);
       P.tillfallenMedStrukna(s, bid).forEach(function (t) {
         if (!t.struken) { return; }
         var n = t.utforare + ':' + t.vecka;

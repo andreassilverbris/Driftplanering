@@ -51,7 +51,11 @@
     this.rumIndex = {};
     this.planIndex = {};
     this.instObjekt = [];       // { inst, obj }
-    this.objFor = new Map();    // inst -> 3D-objekt
+    // Installations-**id** -> 3D-objekt, inte installationsobjektet som nyckel. Byggnadens
+    // data ligger i tillståndet och klonas vid varje historiksteg (beslut 71), så samma
+    // installation är ett nytt objekt efter varje ändring och efter varje ångra. Identiteten
+    // är id:t (beslut 2), och uppslaget måste följa den.
+    this.objFor = {};
     this.pickbara = [];
     this.planSynligt = {};
     this.aktuelltRum = null;
@@ -477,7 +481,7 @@
     obj.userData.grundFarg = farg;
     this.planGrupper[r.plan].inst.add(obj);
     this.instObjekt.push({ inst: inst, obj: obj, plan: r.plan });
-    this.objFor.set(inst, obj);
+    this.objFor[inst.id] = obj;
   };
 
   // Enkel geometri per typ. Objektets lokala +z pekar ut i rummet, origo vid golv/fäste.
@@ -751,6 +755,50 @@
     if (this.cb.planAndrat) { this.cb.planAndrat(this.planSynligt); }
   };
 
+  // Bygg om modellen på **samma** byggnads nya data, utan att flytta planeraren.
+  //
+  // `sattByggnad` är rätt när planeraren byter byggnad: då finns ingen vy att bevara, och allt
+  // nollställs med flit. Men byggnadens data ligger i tillståndet och ändras i egna
+  // historiksteg (beslut 71), och då står planeraren kvar vid sitt rum och sin installation.
+  // Döper hon om ett rum ska hon se namnet ändras – inte kastas ut till översiktsvyn med alla
+  // plan tända och markeringen borta. Det är själva poängen med att ändringen är ett steg som
+  // går att ångra: man ser vad man gjorde.
+  //
+  // Därför sparas det som är planerarens vy över ombyggnaden: kameran, vilka plan som syns,
+  // rumsläget och den markerade installationen. Allt annat byggs om från grunden ur datan.
+  Viewer.prototype.byggOmByggnad = function (byggnad) {
+    var kamera = this.camera.position.clone();
+    var mal = this.controls.target.clone();
+    var synliga = this.planSynligt;
+    var lage = this.lage;
+    var rumNr = this.aktuelltRum && this.aktuelltRum.nr;
+    var valdId = this.valdInst && this.valdInst.id;
+
+    this.sattByggnad(byggnad);
+
+    // Plan som finns kvar behåller sin synlighet; ett nytt plan börjar synligt.
+    var self = this;
+    Object.keys(synliga).forEach(function (id) {
+      if (self.planIndex[id]) { self.planSynligt[id] = synliga[id]; }
+    });
+    if (lage === 'rum' && this.rumIndex[rumNr]) {
+      // Rumsläget sätter sin egen kamera och plansynlighet, så det får gå före de sparade.
+      this.gaIn(rumNr);
+    } else {
+      this._uppdateraSynlighet();
+      this.camera.position.copy(kamera);
+      this.controls.target.copy(mal);
+      this.controls.update();
+    }
+    if (this.cb.planAndrat) { this.cb.planAndrat(this.planSynligt); }
+    // Installationen är ett nytt objekt efter ombyggnaden, så den slås upp på sitt id. Är den
+    // borta ur datan tar `valjInstallation` själv bort markeringen.
+    if (valdId) {
+      var ny = this.b.installationer.filter(function (i) { return i.id === valdId; })[0];
+      this.valjInstallation(ny || null, false);
+    }
+  };
+
   // Gå in i ett rum: stå i ögonhöjd och se dig omkring
   Viewer.prototype.gaIn = function (nr) {
     var r = this.rumIndex[nr];
@@ -793,9 +841,13 @@
   Viewer.prototype.valjInstallation = function (inst, flyg) {
     this.valdInst = inst;
     if (!inst) { this.markor.visible = false; return; }
+    var o = this.objFor[inst.id];
+    // Installationen kan vara borta ur byggnadens data, eller ligga i ett plan som ännu inte
+    // byggts. Då finns inget att markera.
+    if (!o) { this.valdInst = null; this.markor.visible = false; return; }
     var r = this.rumIndex[inst.rum];
     var pos = new T.Vector3();
-    var bb = new T.Box3().setFromObject(this.objFor.get(inst));
+    var bb = new T.Box3().setFromObject(o);
     bb.getCenter(pos);
     this.markor.userData.bas = new T.Vector3(pos.x, bb.max.y + 0.7, pos.z);
     this.markor.visible = true;
@@ -811,7 +863,8 @@
 
   Viewer.prototype._stegaMarkor = function (t) {
     if (!this.valdInst || !this.markor.userData.bas) { this.markor.visible = false; return; }
-    this.markor.visible = !!this.planSynligt[this.rumIndex[this.valdInst.rum].plan];
+    var vr = this.rumIndex[this.valdInst.rum];
+    this.markor.visible = !!(vr && this.planSynligt[vr.plan]);
     var b = this.markor.userData.bas;
     this.markor.position.set(b.x, b.y + Math.sin(t / 220) * 0.15, b.z);
     var skala = this.lage === 'rum' ? 0.5 : 1;
@@ -872,7 +925,7 @@
 
   // Installationens mittpunkt i skärmkoordinater (för animeringar)
   Viewer.prototype.skarmPos = function (inst) {
-    var o = this.objFor.get(inst);
+    var o = this.objFor[inst.id];
     if (!o) { return null; }
     var r = this.rumIndex[inst.rum];
     if (!this.planSynligt[r.plan]) { return null; }
@@ -889,7 +942,7 @@
     var self = this, nu = performance.now();
     var BLINK = farg || GRON;
     instLista.forEach(function (inst) {
-      var o = self.objFor.get(inst);
+      var o = self.objFor[inst.id];
       if (!o) { return; }
       var r = self.rumIndex[inst.rum];
       if (!self.planSynligt[r.plan]) { return; }

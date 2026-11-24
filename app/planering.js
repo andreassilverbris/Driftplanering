@@ -218,14 +218,27 @@
     BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
     return a;
   }
-  var historik = [{ alla: allaTomma(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
+  // Byggnaden själv – namn, typ, område, färg, plan, rum och installationer – är **data i
+  // tillståndet** och inget annat (beslut 71). Datafilerna i `data/` är källan till
+  // *starttillståndet*, inte den sanning appen läser under körning: ingen kod utanför den här
+  // filen rör `DP.byggnader`. Byggnadsdatan ligger i historikens ögonblicksbilder tillsammans
+  // med planeringen, så ett ångra av en ändring av byggnaden återställer den på samma väg som
+  // en ångrad frekvens (beslut 73). Det är också den enda sömmen där ett adapterlager mot en
+  // databas senare kopplas in: då byts starttillståndet, inte läsarna.
+  function startByggnader() {
+    var a = {};
+    BYGGNADSORDNING.forEach(function (id) { a[id] = klona(DP.byggnader[id]); });
+    return a;
+  }
+  var historik = [{ alla: allaTomma(), byggnader: startByggnader(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
   var pos = 0;
   var lyssnare = [], byteLyssnare = [];
 
   function state() { return historik[pos].alla[aktiv]; }
   function stateFor(id) { return historik[pos].alla[id || aktiv]; }
   function gemensamt() { return historik[pos].gemensamt; }
-  function B() { return DP.byggnader[aktiv]; }
+  // Byggnadens data i det aktuella historiksteget. Alla läsare går den här vägen.
+  function B(id) { return historik[pos].byggnader[id || aktiv] || null; }
   function meddela(fore, efter, info) {
     lyssnare.forEach(function (fn) { fn(fore, efter, info || {}); });
   }
@@ -233,16 +246,19 @@
   function andra(text, fn, info) {
     var fore = state();
     var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
     var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
     var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
     var bort = stada(ny);
     var gem = klona(historik[pos].gemensamt);
     bokforBortstadade(gem, aktiv, bort);
+    var namn = (byggnader[aktiv] || {}).namn || aktiv;
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, gemensamt: gem, text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
+    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
-    meddela(fore, ny, utokaInfo(info, [aktiv], allaFore));
+    meddela(fore, ny, utokaInfo(info, [aktiv], allaFore, byggnaderFore));
   }
 
   // Ändring som rör flera byggnader och/eller det gemensamma tillståndet, som ett enda steg i
@@ -251,7 +267,9 @@
   function andraFlera(text, fn, info) {
     var fore = state();
     var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
     var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
     var gem = klona(historik[pos].gemensamt);
     var rorda = {};
     var andring = {
@@ -265,15 +283,56 @@
       // behöver läsa alla byggnader för att ta sitt sammandrag, och en byggnad den inte flyttade
       // ska inte ritas om eller animeras bara för att den lästes.
       las: function (id) { return alla[id] || null; },
+      // Byggnadens egen data att mutera. Markerar byggnaden som rörd, precis som `tillstand`:
+      // ändras ett rumsnamn ska modellen och trädet ritas om.
+      byggnad: function (id) {
+        if (!byggnader[id]) { return null; }
+        rorda[id] = true;
+        return byggnader[id];
+      },
+      // Samma byggnadsdata att **läsa**, utan att byggnaden räknas som rörd.
+      lasByggnad: function (id) { return byggnader[id] || null; },
       gemensamt: gem
     };
     if (fn(andring) === false) { return; }
     var rordaIds = Object.keys(rorda);
-    rordaIds.forEach(function (id) { bokforBortstadade(gem, id, stada(alla[id])); });
+    rordaIds.forEach(function (id) { if (alla[id]) { bokforBortstadade(gem, id, stada(alla[id])); } });
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
+    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
-    meddela(fore, state(), utokaInfo(info, rordaIds, allaFore));
+    meddela(fore, state(), utokaInfo(info, rordaIds, allaFore, byggnaderFore));
+  }
+
+  // Ändrades den **aktiva** byggnadens data i steget? Frågan som varje vy som ritar ur
+  // byggnadsdatan ställer i sin lyssnare. Den bor här och inte i vyerna, därför att formen
+  // annars upprepas i varje vy, och den vy som glömmer den ritar tyst gammal data – ett fel
+  // ingen ser förrän någon tittar på modellen.
+  function aktivFickNyData(info) {
+    return !!(info && info.byggnadsdata && info.byggnadsdata.indexOf(aktiv) >= 0);
+  }
+
+  // Ändra en byggnads **data** – namn, område, färg, plan, rum eller installationer – som ett
+  // steg i historiken (beslut 71 och 73). Planeringen rörs inte, men byggnaden räknas som rörd
+  // av steget, så modellen, trädet och informationskortet ritas om.
+  //
+  // Steget hör till byggnaden, precis som `andra`: ångrar planeraren en ändring av Kasern 1
+  // medan hon står i Garaget ska hon se vad som återställs. Den aktiva byggnaden är förvalet,
+  // så det vanliga anropet lämnar id:t tomt.
+  function andraByggnad(text, bid, fn, info) {
+    var id = bid || aktiv;
+    if (!historik[pos].byggnader[id]) { return; }
+    var fore = state();
+    var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
+    var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
+    if (fn(byggnader[id]) === false) { return; }
+    var gem = klona(historik[pos].gemensamt);
+    historik = historik.slice(0, pos + 1);
+    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem,
+      text: byggnadsNamn(id) + ': ' + text, byggnad: id, rorda: [id] });
+    pos = historik.length - 1;
+    meddela(fore, state(), utokaInfo(info, [id], allaFore, byggnaderFore));
   }
 
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
@@ -283,7 +342,7 @@
   // aktiva byggnadens tillstånd före och efter – Balanseringens tidsaxel visar alla byggnader
   // på en gång. Och eftersom ga() går samma väg gäller det även ångra och gör om: flytten
   // animeras tillbaka av sig själv (beslut 36).
-  function utokaInfo(info, byggnader, alltFore) {
+  function utokaInfo(info, byggnader, alltFore, byggnaderFore) {
     var ut = info ? klonaInfo(info) : {};
     ut.byggnader = byggnader;
     if (alltFore) {
@@ -295,6 +354,17 @@
         if (vs.length) { flyttade[bid] = vs; }
       });
       ut.flyttade = flyttade;
+    }
+    // Vilka byggnaders **data** steget ändrade. Modellen, trädet och informationskortet ritas om
+    // ur byggnadsdatan, och de behöver bara byggas om när den faktiskt skiljer sig – en ändrad
+    // frekvens rör inte ett rum. Jämförelsen görs här och inte hos den som ändrar, av samma skäl
+    // som `flyttade`: då gäller den även ångra och gör om, som går samma väg genom `ga()`.
+    if (byggnaderFore) {
+      ut.byggnadsdata = BYGGNADSORDNING.filter(function (bid) {
+        return !lika(byggnaderFore[bid], historik[pos].byggnader[bid]);
+      });
+    } else {
+      ut.byggnadsdata = [];
     }
     return ut;
   }
@@ -311,12 +381,13 @@
     if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
     var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
     var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore));
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore, byggnaderFore));
   }
   function vaxlaByggnad(id) {
-    if (!DP.byggnader[id] || id === aktiv) { return; }
+    if (!historik[pos].byggnader[id] || id === aktiv) { return; }
     aktiv = id;
     byteLyssnare.forEach(function (fn) { fn(id); });
   }
@@ -324,20 +395,40 @@
   // ------------------------------------------------------------------
   // Härledda uppgifter
   // ------------------------------------------------------------------
-  var instIndex = {}; // alla byggnaders signifikanta installationer (id är unika)
-  BYGGNADSORDNING.forEach(function (id) {
-    DP.byggnader[id].installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
-  });
+  // Alla byggnaders signifikanta installationer, id -> installation (id:na är unika över
+  // byggnaderna). Härlett ur byggnadsdatan i det aktuella historiksteget och inte byggt en gång
+  // vid start: ändras en installation ska uppslagningen ge den ändrade. Indexet byggs om när
+  // byggnadsdatan skiljer sig från den det byggdes på, så ett uppslag kostar normalt ingenting.
+  var instIndex = {}, indexeratFor = null;
+  // Uppslag av en signifikant installation i vilken byggnad som helst. Den enda vägen dit:
+  // ingen läsare håller en egen karta över installationerna, eftersom den hade blivit gammal
+  // så fort byggnaden ändrades.
+  //
+  // Indexet byggs om när byggnadsdatan inte är den det byggdes på. Jämförelsen är på referens
+  // och inte på innehåll: `klona()` ger alltid ett nytt objekt, så ett nytt steg betyder nytt
+  // index och ett uppslag inom samma steg kostar ingenting.
+  function inst(id) {
+    if (indexeratFor !== historik[pos].byggnader) {
+      instIndex = {};
+      BYGGNADSORDNING.forEach(function (bid) {
+        var b = historik[pos].byggnader[bid];
+        if (!b) { return; }
+        b.installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
+      });
+      indexeratFor = historik[pos].byggnader;
+    }
+    return instIndex[id] || null;
+  }
 
   function rondNamn(id) { return (DP.ronder.filter(function (r) { return r.id === id; })[0] || {}).namn || id; }
-  function byggnadsNamn(id) { return (DP.byggnader[id] || {}).namn || id; }
+  function byggnadsNamn(id) { return (B(id) || {}).namn || id; }
   function utforare(id) { return UTFORARE.filter(function (u) { return u.id === id; })[0] || UTFORARE[0]; }
   function atgard(id) { return DP.atgarder.filter(function (a) { return a.id === id; })[0]; }
 
   // De härledda uppgifterna nedan gäller den aktiva byggnaden om inget byggnads-id anges.
   // Balanseringen räknar på alla byggnader samtidigt och skickar därför alltid med id:t.
   function rutintillfalleNamn(rondId, v, bid) {
-    return DP.byggnader[bid || aktiv].namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
+    return B(bid).namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
   }
 
   // Hela förskjutningen för en rond: byggnadens besöksrytm (nivå 1) plus rondens egen (nivå 2).
@@ -416,7 +507,7 @@
   function sorteradeAtgarder(lista) {
     return lista.slice().sort(function (x, y) {
       if (x.atgard !== y.atgard) { return x.atgard < y.atgard ? -1 : 1; }
-      var ix = instIndex[x.inst], iy = instIndex[y.inst];
+      var ix = inst(x.inst), iy = inst(y.inst);
       return (ix ? ix.nr : 0) - (iy ? iy.nr : 0);
     });
   }
@@ -426,7 +517,7 @@
   }
 
   function signifikanta(bid) {
-    return DP.byggnader[bid || aktiv].installationer.filter(function (i) { return i.signifikant; });
+    return B(bid).installationer.filter(function (i) { return i.signifikant; });
   }
 
   // De generella åtgärderna gäller byggnaden som helhet och kopplas till 'BYGGNAD'
@@ -479,7 +570,7 @@
     s = s || stateFor(bid);
     var schablon = DP.tidsschablon;
     var kopp = s.kopplingar.filter(function (k) { return k.rond === rondId; });
-    var nRum = DP.byggnader[bid || aktiv].rum.length;
+    var nRum = B(bid).rum.length;
     var minuter = 0;
     var perTyngd = { latt: 0, normal: 0, tung: 0 };
     var nInst = 0;
@@ -809,7 +900,7 @@
       veckorUtan: svarVeckorUtan(gem),
       akerTill: svarAkerTill(gem),
       byggnader: klaraByggnader().map(function (bid) {
-        var s = stateFor(bid), b = DP.byggnader[bid];
+        var s = stateFor(bid), b = B(bid);
         return {
           id: bid, namn: b.namn, farg: b.farg, omrade: b.omrade,
           // Byggnadens egen förskjutning (nivå 1) följer med, så att en permanent flytt går
@@ -1129,7 +1220,7 @@
       var s = stateFor(bid);
       tillfallenMedStrukna(s, bid).forEach(function (t) {
         if (t.foreslagen) {
-          ut.push({ byggnad: bid, byggnadNamn: DP.byggnader[bid].namn, rond: t.rond,
+          ut.push({ byggnad: bid, byggnadNamn: byggnadsNamn(bid), rond: t.rond,
             rondNamn: rondNamn(t.rond), ordinarieVecka: t.ordinarieVecka, vecka: t.vecka,
             namn: t.namn, utforare: t.utforare });
         }
@@ -1304,7 +1395,7 @@
   function flyttaRondserie(bid, rondId, ordinarieVecka, malVecka) {
     var alt = flyttAlternativ(bid, rondId, ordinarieVecka, malVecka);
     if (!alt || !alt.rondserie.tillaten) { return false; }
-    andraFlera('Förskjöt rondserien ' + alt.rondNamn + ' i ' + DP.byggnader[bid].namn +
+    andraFlera('Förskjöt rondserien ' + alt.rondNamn + ' i ' + byggnadsNamn(bid) +
       ' ' + deltaText(alt.rondserie.delta), function (a) {
       var st = a.tillstand(bid);
       if (st) { sattRondForskjutning(st, rondId, alt.rondserie.forskjutning); }
@@ -1314,7 +1405,7 @@
   function flyttaBesoksrytm(bid, rondId, ordinarieVecka, malVecka) {
     var alt = flyttAlternativ(bid, rondId, ordinarieVecka, malVecka);
     if (!alt || !alt.besoksrytm.tillaten) { return false; }
-    andraFlera('Förskjöt besöksrytmen för ' + DP.byggnader[bid].namn + ' ' +
+    andraFlera('Förskjöt besöksrytmen för ' + byggnadsNamn(bid) + ' ' +
       deltaText(alt.besoksrytm.delta), function (a) {
       var st = a.tillstand(bid);
       if (st) { sattForskjutning(st, alt.besoksrytm.forskjutning); }
@@ -1550,14 +1641,15 @@
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
     state: state, stateFor: stateFor, andra: andra, klona: klona,
-    byggnad: B, aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
+    byggnad: B, andraByggnad: andraByggnad, aktivFickNyData: aktivFickNyData,
+    aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
     gaTill: ga,
     historik: function () { return { lista: historik.map(function (h) { return h.text; }), pos: pos }; },
     prenumerera: function (fn) { lyssnare.push(fn); },
-    instIndex: instIndex, rondNamn: rondNamn, utforare: utforare, atgard: atgard,
+    inst: inst, rondNamn: rondNamn, byggnadsNamn: byggnadsNamn, utforare: utforare, atgard: atgard,
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
     tillfallenMedStrukna: tillfallenMedStrukna,
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,

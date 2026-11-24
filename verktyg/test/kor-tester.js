@@ -147,7 +147,7 @@ async function testPlaneringsflode(browser) {
   // bruttolistan med rondens **namn**, inte dess id. Rondnamnet slås upp i planeringen, och den
   // här kontrollen är det som håller uppslagningen på plats: visar kortet 'BS' i stället för
   // 'Brandskydd' har namnet tappats någonstans på vägen.
-  await page.evaluate(() => { DP.ui.visaInstKort(DP.Plan.instIndex['00000030']); return 1; });
+  await page.evaluate(() => { DP.ui.visaInstKort(DP.Plan.inst('00000030')); return 1; });
   const matchande = page.locator('#infokort .sektion', { hasText: 'Matchande åtgärd i bruttolistan' });
   kontroll(await matchande.count() === 1, 'informationskortet visar den matchande åtgärden');
   const forslagsrad = await matchande.locator('.a-rad').innerText();
@@ -179,7 +179,7 @@ async function testAtgardstexter(browser) {
   kontroll(await page.evaluate(() => Object.keys(DP.Plan.state().tillfalleTexter).length) === 1, 'avvikande text på rutintillfällesnivå');
   kontroll(await page.locator('.rt-mark .avvik-symbol').count() === 1, 'symbolen ✎ på ett rutintillfälle i tidsaxeln');
   // Informationskortet: installationsnivå med konflikt
-  await page.evaluate(() => { DP.ui.visaInstKort(DP.Plan.instIndex['00000030']); return 1; });
+  await page.evaluate(() => { DP.ui.visaInstKort(DP.Plan.inst('00000030')); return 1; });
   await page.locator('#infokort button', { hasText: 'Ändra åtgärdstext för HB01' }).click();
   const ta2 = page.locator('#infokort textarea');
   await ta2.fill((await ta2.inputValue()).replace('Att plomberingen är intakt', 'Att plomberingen är intakt och märkt'));
@@ -696,7 +696,7 @@ async function testTidFoljerMed(browser) {
     const r = await page.evaluate(() => {
       const s = DP.Plan.state(), ts = DP.Plan.tidStatus(s);
       return {
-        namn: DP.byggnader[DP.Plan.aktivId()].namn,
+        namn: DP.Plan.byggnad().namn,
         steg: DP.Plan.stegStatus(),
         klar: ts.klar,
         utan: ts.utan.length,
@@ -1583,7 +1583,7 @@ async function testBalanseringensTidsaxel(browser) {
     return Array.prototype.map.call(c.querySelectorAll('.bt-bricka'), b => b.dataset.byggnad + '=' + b.style.background);
   });
   const vantade = await page.evaluate(() => ({
-    kasern1: DP.byggnader.kasern1.farg, kasern2: DP.byggnader.kasern2.farg, hangar: DP.byggnader.hangar.farg
+    kasern1: DP.Plan.byggnad('kasern1').farg, kasern2: DP.Plan.byggnad('kasern2').farg, hangar: DP.Plan.byggnad('hangar').farg
   }));
   const rgb = h => { const n = parseInt(h.slice(1), 16); return 'rgb(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ')'; };
   kontroll(fargerIV1.length === 6
@@ -3233,6 +3233,161 @@ async function testBalanseringRymsPaSkarmen(browser) {
 // index.html. Vad som prövas här är att *allt är med och hänger ihop* när filen står för sig själv,
 // alltså att processlinjen, steg 5 och 6, de tre frågorna, Balansera, flytt för hand och
 // markeringen när planeringen ändrats fungerar utan nätverk och utan sidofiler.
+// Byggnaden som data i tillståndet (biljett #32, beslut 71 och 73). Byggnadens namn, rum och
+// installationer ligger i historikens ögonblicksbilder och ändras bara genom `DP.Plan`.
+// Kontrollen är inte att datan går att skriva – det är att **hela vägen ut** följer med:
+// modellen, byggnadsträdet och informationskortet ritas om ur den nya datan, och ett ångra
+// tar tillbaka både datan och det som visas. Ritas något av dem inte om är felet osynligt
+// tills någon tittar, och då står det fel namn på ett rum i modellen.
+// Rummets namn som det står i byggnadsträdet. Läses med textContent och inte innerText:
+// `byggTrad()` bygger trädet från grunden och stänger då planets dragspel, så noden är där men
+// inte synlig – och innerText ger tom sträng för det som inte syns.
+const tradRumNamn = (page, nr) => page.evaluate(n =>
+  document.querySelector('#trad .rum[data-rum="' + n + '"] .rum-namn').textContent, nr);
+
+async function testByggnadenSomData(browser) {
+  console.log('Byggnaden som data i tillståndet (beslut 71 och 73)');
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  // Byggnadsträdet och modellen bor i huvudsteget Byggnad, som är stängt från start.
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+
+  // Starttillståndet kommer ur datafilen, men läses ur planeringen.
+  const start = await page.evaluate(() => {
+    const b = DP.Plan.byggnad();
+    return { namn: b.namn, rumNamn: b.rum[0].namn, rumNr: b.rum[0].nr, antalRum: b.rum.length };
+  });
+  kontroll(start.antalRum > 0 && !!start.namn, 'byggnadens data läses ur planeringen (' +
+    start.namn + ', ' + start.antalRum + ' rum)');
+
+  // Ingen i appen får läsa byggnadsdata förbi planeringen. `DP.byggnader` finns kvar som källa
+  // till starttillståndet, så kontrollen är att ett *ändrat* starttillstånd inte syns: skriver
+  // någon läsare direkt ur datafilen hade namnet nedan slagit igenom i modellen och trädet.
+  await page.evaluate(() => { DP.byggnader.kasern1.namn = 'FÖRBI PLANERINGEN'; return 1; });
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().namn) === start.namn,
+    'en ändring direkt i datafilen syns inte – planeringen äger byggnadens data');
+  kontroll(!(await page.locator('#trad .sammanfattning').innerText()).includes('FÖRBI PLANERINGEN'),
+    'byggnadsträdet läser namnet ur planeringen');
+  await page.evaluate(n => { DP.byggnader.kasern1.namn = n; return 1; }, start.namn);
+
+  // Öppna rummets informationskort, så att omritningen av kortet går att se. Planets
+  // dragspel i trädet är stängt för alla plan utom 01, så det öppnas först.
+  await page.evaluate(nr => {
+    const rd = document.querySelector('#trad .rum[data-rum="' + nr + '"]');
+    rd.closest('details.plan').open = true;
+    return 1;
+  }, start.rumNr);
+  await page.locator('#trad .rum[data-rum="' + start.rumNr + '"] summary').click();
+  kontroll((await page.locator('#infokort').innerText()).includes(start.rumNamn),
+    'informationskortet visar rummets namn ur planeringen (' + start.rumNamn + ')');
+
+  // Ställ planeraren någonstans i modellen: ett släckt plan, en flyttad kamera och en markerad
+  // installation. Det är den vyn som ska stå kvar när byggnadens data ändras.
+  // Kameran flyger mjukt mellan vyer, så den måste ha landat innan läget läses – annars är
+  // det en animering och inte planerarens vy som jämförs.
+  await rorelsePaus(page);
+  const foreVyn = await page.evaluate(() => {
+    DP.viewer.valjInstallation(DP.Plan.signifikanta()[0], false);
+    return {
+      kamera: DP.viewer.camera.position.toArray().map(v => Math.round(v * 100) / 100),
+      slackta: Object.keys(DP.viewer.planSynligt).filter(id => !DP.viewer.planSynligt[id]),
+      vald: DP.viewer.valdInst && DP.viewer.valdInst.id
+    };
+  });
+  kontroll(foreVyn.slackta.length > 0 && !!foreVyn.vald,
+    'något plan är släckt och en installation markerad före ändringen (släckta: ' +
+    foreVyn.slackta.join(', ') + ', vald: ' + foreVyn.vald + ')');
+
+  // Ändringen: ett rums namn, genom planeringens egen väg. Ett steg i historiken som allt annat.
+  const fore = await historiklangd(page);
+  await page.evaluate(nr => {
+    DP.Plan.andraByggnad('Döpte om rummet', null, function (b) {
+      b.rum.filter(function (r) { return r.nr === nr; })[0].namn = 'Provrummet';
+    });
+    return 1;
+  }, start.rumNr);
+  await stegKlart(page, fore, 'ändrat rumsnamn');
+  kontroll(await page.evaluate(() => DP.Plan.historik().lista.slice(-1)[0]) === start.namn + ': Döpte om rummet',
+    'ändringen av byggnaden är ett eget steg i historiken, namngivet med byggnaden');
+
+  // Modellen: viewern bygger sitt rumsindex ur byggnadens data, så ett omritat index betyder
+  // att hela modellen byggts om på den nya datan.
+  kontroll(await page.evaluate(nr => DP.viewer.rumIndex[nr].namn, start.rumNr) === 'Provrummet',
+    'modellen är ombyggd på den nya datan');
+  // Och planeraren står kvar där hon stod. Ombyggnaden går via `byggOmByggnad` och inte
+  // `sattByggnad`: den senare nollställer kamera, plansynlighet och markering med flit, vilket
+  // är rätt vid ett byte av byggnad men hade kastat ut planeraren ur sin egen ändring.
+  const vyn = await page.evaluate(() => ({
+    kamera: DP.viewer.camera.position.toArray().map(v => Math.round(v * 100) / 100),
+    slackta: Object.keys(DP.viewer.planSynligt).filter(id => !DP.viewer.planSynligt[id]),
+    vald: DP.viewer.valdInst && DP.viewer.valdInst.id
+  }));
+  kontroll(JSON.stringify(vyn.kamera) === JSON.stringify(foreVyn.kamera),
+    'kameran står kvar efter ombyggnaden (' + vyn.kamera.join(', ') + ')');
+  kontroll(JSON.stringify(vyn.slackta) === JSON.stringify(foreVyn.slackta),
+    'de släckta planen är fortfarande släckta (' + (vyn.slackta.join(', ') || 'inga') + ')');
+  kontroll(vyn.vald === foreVyn.vald,
+    'den markerade installationen är fortfarande markerad (' + vyn.vald + ')');
+  kontroll(await tradRumNamn(page, start.rumNr) === 'Provrummet',
+    'byggnadsträdet visar det nya rumsnamnet');
+  kontroll((await page.locator('#infokort').innerText()).includes('Provrummet'),
+    'informationskortet visar det nya rumsnamnet utan att stängas');
+
+  // Ångra går samma väg genom historiken, så omritningen sker av sig själv (beslut 73).
+  await angra(page);
+  kontroll(await page.evaluate(nr => DP.Plan.byggnad().rum.filter(r => r.nr === nr)[0].namn, start.rumNr) === start.rumNamn,
+    'ångra återställer byggnadens data');
+  kontroll(await page.evaluate(nr => DP.viewer.rumIndex[nr].namn, start.rumNr) === start.rumNamn,
+    'ångra bygger om modellen på den återställda datan');
+  kontroll(await tradRumNamn(page, start.rumNr) === start.rumNamn,
+    'ångra ritar om byggnadsträdet');
+  kontroll((await page.locator('#infokort').innerText()).includes(start.rumNamn),
+    'ångra ritar om informationskortet');
+
+  // Planeringen rörs inte av en ändring av byggnaden, och byggnadens data rörs inte av
+  // planeringen: de två är skilda delar av samma steg.
+  await page.evaluate(() => { DP.Plan.andra('Satte besöksfrekvens', function (s) { s.bas = { typ: 'manad' }; }); return 1; });
+  kontroll(await page.evaluate(nr => DP.Plan.byggnad().rum.filter(r => r.nr === nr)[0].namn, start.rumNr) === start.rumNamn,
+    'en ändring av planeringen rör inte byggnadens data');
+
+  // Byggnadens namn: ändras det ska byggnadsväljaren och rutintillfällenas namn följa med, för
+  // namnet är det som skiljer två byggnaders rutintillfällen åt (beslut 103).
+  const foreNamn = await historikpos(page);
+  await page.evaluate(() => { DP.Plan.andraByggnad('Bytte namn', null, function (b) { b.namn = 'Kasern 9'; }); return 1; });
+  await stegKlartPos(page, foreNamn, 'nytt byggnadsnamn');
+  kontroll((await page.locator('#byggnad').innerText()).includes('Kasern 9'), 'byggnadsväljaren visar det nya namnet');
+  kontroll((await page.evaluate(() => DP.Plan.rutintillfalleNamn('BS', 5))).startsWith('Kasern9-'),
+    'rutintillfällets namn följer byggnadens nya namn');
+  await angra(page);
+  kontroll((await page.locator('#byggnad').innerText()).includes(start.namn), 'ångra ger byggnadsväljaren det gamla namnet');
+
+  // En installation: uppslaget i planeringen ska ge den ändrade versionen, inte en kopia
+  // indexet höll från start.
+  const instId = await page.evaluate(() => DP.Plan.signifikanta()[0].id);
+  // Efter ångran skriver nästa steg över det som låg framför, så historiken blir inte längre –
+  // positionen är det som går fram.
+  const foreInst = await historikpos(page);
+  await page.evaluate(id => {
+    DP.Plan.andraByggnad('Bytte fabrikat', null, function (b) {
+      b.installationer.filter(function (i) { return i.id === id; })[0].fabrikat = 'Provfabrikat';
+    });
+    return 1;
+  }, instId);
+  await stegKlartPos(page, foreInst, 'ändrat fabrikat');
+  kontroll(await page.evaluate(id => DP.Plan.inst(id).fabrikat, instId) === 'Provfabrikat',
+    'uppslaget av en installation ger den ändrade versionen');
+  await page.evaluate(id => { DP.ui.visaInstKort(DP.Plan.inst(id)); return 1; }, instId);
+  kontroll((await page.locator('#infokort').innerText()).includes('Provfabrikat'),
+    'informationskortet visar installationens nya fabrikat');
+  await angra(page);
+  kontroll(await page.evaluate(id => DP.Plan.inst(id).fabrikat, instId) !== 'Provfabrikat',
+    'ångra återställer installationen');
+
+  await bild(page, 'byggnad-som-data');
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFristaendeFil(browser) {
   console.log('Etapp 5 – den fristående filen');
   // Filen byggs om först, så att testet prövar den kod som ligger i repot och inte en gammal
@@ -3419,6 +3574,7 @@ async function testFristaendeFil(browser) {
     await testFlyttForHand(browser);
     await testPlaneringAndratsEfterBalansering(browser);
     await testBalanseringRymsPaSkarmen(browser);
+    await testByggnadenSomData(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

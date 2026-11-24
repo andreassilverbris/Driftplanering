@@ -649,14 +649,14 @@
         typ.motivering));
     }
     // Kopiering erbjuds från byggnader av samma typ som har en planering
-    var kallor = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ && P.stateFor(id).ronder.length; });
+    var kallor = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && P.byggnad(id).typ === b.typ && P.stateFor(id).ronder.length; });
     kallor.forEach(function (id) {
-      rad.appendChild(knapp('Kopiera från ' + DP.byggnader[id].namn, 'knapp sekundar liten-knapp', function (kn) { kopieraFran(id, DP.mitt(kn)); }));
+      rad.appendChild(knapp('Kopiera från ' + P.byggnadsNamn(id), 'knapp sekundar liten-knapp', function (kn) { kopieraFran(id, DP.mitt(kn)); }));
     });
     w.appendChild(rad);
-    var sammaTyp = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ; });
+    var sammaTyp = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && P.byggnad(id).typ === b.typ; });
     if (!kallor.length && sammaTyp.length) {
-      w.appendChild(el('div', 'liten-text', 'När ' + sammaTyp.map(function (id) { return DP.byggnader[id].namn; }).join(', ') + ' har en planering kan du kopiera den hit.'));
+      w.appendChild(el('div', 'liten-text', 'När ' + sammaTyp.map(function (id) { return P.byggnadsNamn(id); }).join(', ') + ' har en planering kan du kopiera den hit.'));
     }
     return w;
   }
@@ -668,7 +668,7 @@
   // flera byggnader i ett enda historiksteg (beslut 39). Därför tar den byggnads-id:t och läser
   // installationerna därifrån i stället för modulens `signifikanta`.
   function skrivStandard(st, bid) {
-    var bb = DP.byggnader[bid], typ = DP.byggnadstyper[bb.typ];
+    var bb = P.byggnad(bid), typ = DP.byggnadstyper[bb.typ];
     if (!typ) { return false; }
     var sig = bb.installationer.filter(function (i) { return i.signifikant; });
     var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
@@ -718,13 +718,13 @@
 
   // Kopiera planering från en annan byggnad. Installationer matchas på typ och beteckning.
   function kopieraFran(kallId, kalla) {
-    var kb = DP.byggnader[kallId], ks = P.stateFor(kallId), s = P.state();
+    var kb = P.byggnad(kallId), ks = P.stateFor(kallId), s = P.state();
     var malMap = {};
     signifikanta.forEach(function (i) { malMap[i.typ + '|' + i.beteckning] = i.id; });
     var idMap = { BYGGNAD: 'BYGGNAD' }, traffar = [], saknas = [];
     ks.kopplingar.forEach(function (k) {
       if (k.inst === 'BYGGNAD') { traffar.push({ atgard: k.atgard, inst: 'BYGGNAD', rond: k.rond }); return; }
-      var ki = P.instIndex[k.inst], mid = malMap[ki.typ + '|' + ki.beteckning];
+      var ki = P.inst(k.inst), mid = malMap[ki.typ + '|' + ki.beteckning];
       if (mid) { idMap[k.inst] = mid; traffar.push({ atgard: k.atgard, inst: mid, rond: k.rond }); }
       else { saknas.push({ inst: ki, atgard: P.atgard(k.atgard) }); }
     });
@@ -805,6 +805,10 @@
   function nyckel(k) { return k.atgard + '|' + k.inst + '|' + k.rond; }
 
   P.prenumerera(function (fore, efter, info) {
+    // Ändrades byggnadens data i steget är `b` och `signifikanta` från det förra steget
+    // (tillståndet klonas vid varje steg), så de indexeras om innan något ritas. Gäller även
+    // ångra och gör om, som går samma väg (beslut 73).
+    if (P.aktivFickNyData(info)) { indexera(); }
     rita();
     DP.Tidsaxel.rita();
     DP.Telefon.rita();
@@ -847,7 +851,7 @@
     if (ts.nycklar.length && !tillagda.length) {
       var markorer = ts.nycklar.map(function (n) { return document.querySelector('.rt-mark[data-nyckel="' + n + '"]'); }).filter(Boolean);
       DP.flyg(kalla, markorer.map(function (m) { var p = DP.mitt(m); p.klar = function () { DP.puls(m); }; return p; }), { text: '✎', farg: '#22b45a' });
-      var ti = ts.inst.map(function (id) { return P.instIndex[id]; }).filter(Boolean);
+      var ti = ts.inst.map(function (id) { return P.inst(id); }).filter(Boolean);
       var m3 = ti.map(function (i) { return DP.viewer.skarmPos(i); }).filter(Boolean);
       var t3 = m3.length ? DP.flyg(kalla, m3, { text: '', farg: '#22b45a', max: 30 }) : 0;
       setTimeout(function () { DP.viewer.blinka(ti, 1600); }, Math.min(Math.max(t3, 300), 1100));
@@ -855,7 +859,7 @@
 
     if (borttagna.length) {
       DP.viewer.sattKopplade(set);
-      var bi = borttagna.map(function (k) { return P.instIndex[k.inst]; }).filter(Boolean);
+      var bi = borttagna.map(function (k) { return P.inst(k.inst); }).filter(Boolean);
       DP.viewer.blinka(bi, 1200, 0xd64541);
       rondGrupper(borttagna).forEach(function (rond) {
         [].forEach.call(document.querySelectorAll('.rt-mark[data-nyckel^="' + rond + ':"]'), function (m) { DP.puls(m, 'puls-rod'); });
@@ -876,7 +880,7 @@
     });
 
     // 2) Till installationerna i modellen
-    var inst = tillagda.map(function (k) { return P.instIndex[k.inst]; }).filter(Boolean);
+    var inst = tillagda.map(function (k) { return P.inst(k.inst); }).filter(Boolean);
     var vy = DP.mitt(document.getElementById('vy3d'));
     var mal3d = inst.map(function (i) { return DP.viewer.skarmPos(i); }).filter(Boolean);
     if (!mal3d.length) { mal3d = [vy]; }

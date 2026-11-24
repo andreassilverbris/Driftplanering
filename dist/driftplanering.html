@@ -3779,14 +3779,27 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
     return a;
   }
-  var historik = [{ alla: allaTomma(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
+  // Byggnaden själv – namn, typ, område, färg, plan, rum och installationer – är **data i
+  // tillståndet** och inget annat (beslut 71). Datafilerna i `data/` är källan till
+  // *starttillståndet*, inte den sanning appen läser under körning: ingen kod utanför den här
+  // filen rör `DP.byggnader`. Byggnadsdatan ligger i historikens ögonblicksbilder tillsammans
+  // med planeringen, så ett ångra av en ändring av byggnaden återställer den på samma väg som
+  // en ångrad frekvens (beslut 73). Det är också den enda sömmen där ett adapterlager mot en
+  // databas senare kopplas in: då byts starttillståndet, inte läsarna.
+  function startByggnader() {
+    var a = {};
+    BYGGNADSORDNING.forEach(function (id) { a[id] = klona(DP.byggnader[id]); });
+    return a;
+  }
+  var historik = [{ alla: allaTomma(), byggnader: startByggnader(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
   var pos = 0;
   var lyssnare = [], byteLyssnare = [];
 
   function state() { return historik[pos].alla[aktiv]; }
   function stateFor(id) { return historik[pos].alla[id || aktiv]; }
   function gemensamt() { return historik[pos].gemensamt; }
-  function B() { return DP.byggnader[aktiv]; }
+  // Byggnadens data i det aktuella historiksteget. Alla läsare går den här vägen.
+  function B(id) { return historik[pos].byggnader[id || aktiv] || null; }
   function meddela(fore, efter, info) {
     lyssnare.forEach(function (fn) { fn(fore, efter, info || {}); });
   }
@@ -3794,16 +3807,19 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function andra(text, fn, info) {
     var fore = state();
     var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
     var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
     var ny = alla[aktiv];
     if (fn(ny) === false) { return; }
     var bort = stada(ny);
     var gem = klona(historik[pos].gemensamt);
     bokforBortstadade(gem, aktiv, bort);
+    var namn = (byggnader[aktiv] || {}).namn || aktiv;
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, gemensamt: gem, text: B().namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
+    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
-    meddela(fore, ny, utokaInfo(info, [aktiv], allaFore));
+    meddela(fore, ny, utokaInfo(info, [aktiv], allaFore, byggnaderFore));
   }
 
   // Ändring som rör flera byggnader och/eller det gemensamma tillståndet, som ett enda steg i
@@ -3812,7 +3828,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function andraFlera(text, fn, info) {
     var fore = state();
     var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
     var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
     var gem = klona(historik[pos].gemensamt);
     var rorda = {};
     var andring = {
@@ -3826,15 +3844,56 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       // behöver läsa alla byggnader för att ta sitt sammandrag, och en byggnad den inte flyttade
       // ska inte ritas om eller animeras bara för att den lästes.
       las: function (id) { return alla[id] || null; },
+      // Byggnadens egen data att mutera. Markerar byggnaden som rörd, precis som `tillstand`:
+      // ändras ett rumsnamn ska modellen och trädet ritas om.
+      byggnad: function (id) {
+        if (!byggnader[id]) { return null; }
+        rorda[id] = true;
+        return byggnader[id];
+      },
+      // Samma byggnadsdata att **läsa**, utan att byggnaden räknas som rörd.
+      lasByggnad: function (id) { return byggnader[id] || null; },
       gemensamt: gem
     };
     if (fn(andring) === false) { return; }
     var rordaIds = Object.keys(rorda);
-    rordaIds.forEach(function (id) { bokforBortstadade(gem, id, stada(alla[id])); });
+    rordaIds.forEach(function (id) { if (alla[id]) { bokforBortstadade(gem, id, stada(alla[id])); } });
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
+    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
-    meddela(fore, state(), utokaInfo(info, rordaIds, allaFore));
+    meddela(fore, state(), utokaInfo(info, rordaIds, allaFore, byggnaderFore));
+  }
+
+  // Ändrades den **aktiva** byggnadens data i steget? Frågan som varje vy som ritar ur
+  // byggnadsdatan ställer i sin lyssnare. Den bor här och inte i vyerna, därför att formen
+  // annars upprepas i varje vy, och den vy som glömmer den ritar tyst gammal data – ett fel
+  // ingen ser förrän någon tittar på modellen.
+  function aktivFickNyData(info) {
+    return !!(info && info.byggnadsdata && info.byggnadsdata.indexOf(aktiv) >= 0);
+  }
+
+  // Ändra en byggnads **data** – namn, område, färg, plan, rum eller installationer – som ett
+  // steg i historiken (beslut 71 och 73). Planeringen rörs inte, men byggnaden räknas som rörd
+  // av steget, så modellen, trädet och informationskortet ritas om.
+  //
+  // Steget hör till byggnaden, precis som `andra`: ångrar planeraren en ändring av Kasern 1
+  // medan hon står i Garaget ska hon se vad som återställs. Den aktiva byggnaden är förvalet,
+  // så det vanliga anropet lämnar id:t tomt.
+  function andraByggnad(text, bid, fn, info) {
+    var id = bid || aktiv;
+    if (!historik[pos].byggnader[id]) { return; }
+    var fore = state();
+    var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
+    var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
+    if (fn(byggnader[id]) === false) { return; }
+    var gem = klona(historik[pos].gemensamt);
+    historik = historik.slice(0, pos + 1);
+    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem,
+      text: byggnadsNamn(id) + ': ' + text, byggnad: id, rorda: [id] });
+    pos = historik.length - 1;
+    meddela(fore, state(), utokaInfo(info, [id], allaFore, byggnaderFore));
   }
 
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
@@ -3844,7 +3903,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // aktiva byggnadens tillstånd före och efter – Balanseringens tidsaxel visar alla byggnader
   // på en gång. Och eftersom ga() går samma väg gäller det även ångra och gör om: flytten
   // animeras tillbaka av sig själv (beslut 36).
-  function utokaInfo(info, byggnader, alltFore) {
+  function utokaInfo(info, byggnader, alltFore, byggnaderFore) {
     var ut = info ? klonaInfo(info) : {};
     ut.byggnader = byggnader;
     if (alltFore) {
@@ -3856,6 +3915,17 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
         if (vs.length) { flyttade[bid] = vs; }
       });
       ut.flyttade = flyttade;
+    }
+    // Vilka byggnaders **data** steget ändrade. Modellen, trädet och informationskortet ritas om
+    // ur byggnadsdatan, och de behöver bara byggas om när den faktiskt skiljer sig – en ändrad
+    // frekvens rör inte ett rum. Jämförelsen görs här och inte hos den som ändrar, av samma skäl
+    // som `flyttade`: då gäller den även ångra och gör om, som går samma väg genom `ga()`.
+    if (byggnaderFore) {
+      ut.byggnadsdata = BYGGNADSORDNING.filter(function (bid) {
+        return !lika(byggnaderFore[bid], historik[pos].byggnader[bid]);
+      });
+    } else {
+      ut.byggnadsdata = [];
     }
     return ut;
   }
@@ -3872,12 +3942,13 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
     var fore = state();
     var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
     var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore));
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore, byggnaderFore));
   }
   function vaxlaByggnad(id) {
-    if (!DP.byggnader[id] || id === aktiv) { return; }
+    if (!historik[pos].byggnader[id] || id === aktiv) { return; }
     aktiv = id;
     byteLyssnare.forEach(function (fn) { fn(id); });
   }
@@ -3885,20 +3956,40 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // ------------------------------------------------------------------
   // Härledda uppgifter
   // ------------------------------------------------------------------
-  var instIndex = {}; // alla byggnaders signifikanta installationer (id är unika)
-  BYGGNADSORDNING.forEach(function (id) {
-    DP.byggnader[id].installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
-  });
+  // Alla byggnaders signifikanta installationer, id -> installation (id:na är unika över
+  // byggnaderna). Härlett ur byggnadsdatan i det aktuella historiksteget och inte byggt en gång
+  // vid start: ändras en installation ska uppslagningen ge den ändrade. Indexet byggs om när
+  // byggnadsdatan skiljer sig från den det byggdes på, så ett uppslag kostar normalt ingenting.
+  var instIndex = {}, indexeratFor = null;
+  // Uppslag av en signifikant installation i vilken byggnad som helst. Den enda vägen dit:
+  // ingen läsare håller en egen karta över installationerna, eftersom den hade blivit gammal
+  // så fort byggnaden ändrades.
+  //
+  // Indexet byggs om när byggnadsdatan inte är den det byggdes på. Jämförelsen är på referens
+  // och inte på innehåll: `klona()` ger alltid ett nytt objekt, så ett nytt steg betyder nytt
+  // index och ett uppslag inom samma steg kostar ingenting.
+  function inst(id) {
+    if (indexeratFor !== historik[pos].byggnader) {
+      instIndex = {};
+      BYGGNADSORDNING.forEach(function (bid) {
+        var b = historik[pos].byggnader[bid];
+        if (!b) { return; }
+        b.installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
+      });
+      indexeratFor = historik[pos].byggnader;
+    }
+    return instIndex[id] || null;
+  }
 
   function rondNamn(id) { return (DP.ronder.filter(function (r) { return r.id === id; })[0] || {}).namn || id; }
-  function byggnadsNamn(id) { return (DP.byggnader[id] || {}).namn || id; }
+  function byggnadsNamn(id) { return (B(id) || {}).namn || id; }
   function utforare(id) { return UTFORARE.filter(function (u) { return u.id === id; })[0] || UTFORARE[0]; }
   function atgard(id) { return DP.atgarder.filter(function (a) { return a.id === id; })[0]; }
 
   // De härledda uppgifterna nedan gäller den aktiva byggnaden om inget byggnads-id anges.
   // Balanseringen räknar på alla byggnader samtidigt och skickar därför alltid med id:t.
   function rutintillfalleNamn(rondId, v, bid) {
-    return DP.byggnader[bid || aktiv].namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
+    return B(bid).namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
   }
 
   // Hela förskjutningen för en rond: byggnadens besöksrytm (nivå 1) plus rondens egen (nivå 2).
@@ -3977,7 +4068,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function sorteradeAtgarder(lista) {
     return lista.slice().sort(function (x, y) {
       if (x.atgard !== y.atgard) { return x.atgard < y.atgard ? -1 : 1; }
-      var ix = instIndex[x.inst], iy = instIndex[y.inst];
+      var ix = inst(x.inst), iy = inst(y.inst);
       return (ix ? ix.nr : 0) - (iy ? iy.nr : 0);
     });
   }
@@ -3987,7 +4078,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   }
 
   function signifikanta(bid) {
-    return DP.byggnader[bid || aktiv].installationer.filter(function (i) { return i.signifikant; });
+    return B(bid).installationer.filter(function (i) { return i.signifikant; });
   }
 
   // De generella åtgärderna gäller byggnaden som helhet och kopplas till 'BYGGNAD'
@@ -4040,7 +4131,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     s = s || stateFor(bid);
     var schablon = DP.tidsschablon;
     var kopp = s.kopplingar.filter(function (k) { return k.rond === rondId; });
-    var nRum = DP.byggnader[bid || aktiv].rum.length;
+    var nRum = B(bid).rum.length;
     var minuter = 0;
     var perTyngd = { latt: 0, normal: 0, tung: 0 };
     var nInst = 0;
@@ -4370,7 +4461,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       veckorUtan: svarVeckorUtan(gem),
       akerTill: svarAkerTill(gem),
       byggnader: klaraByggnader().map(function (bid) {
-        var s = stateFor(bid), b = DP.byggnader[bid];
+        var s = stateFor(bid), b = B(bid);
         return {
           id: bid, namn: b.namn, farg: b.farg, omrade: b.omrade,
           // Byggnadens egen förskjutning (nivå 1) följer med, så att en permanent flytt går
@@ -4690,7 +4781,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       var s = stateFor(bid);
       tillfallenMedStrukna(s, bid).forEach(function (t) {
         if (t.foreslagen) {
-          ut.push({ byggnad: bid, byggnadNamn: DP.byggnader[bid].namn, rond: t.rond,
+          ut.push({ byggnad: bid, byggnadNamn: byggnadsNamn(bid), rond: t.rond,
             rondNamn: rondNamn(t.rond), ordinarieVecka: t.ordinarieVecka, vecka: t.vecka,
             namn: t.namn, utforare: t.utforare });
         }
@@ -4865,7 +4956,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function flyttaRondserie(bid, rondId, ordinarieVecka, malVecka) {
     var alt = flyttAlternativ(bid, rondId, ordinarieVecka, malVecka);
     if (!alt || !alt.rondserie.tillaten) { return false; }
-    andraFlera('Förskjöt rondserien ' + alt.rondNamn + ' i ' + DP.byggnader[bid].namn +
+    andraFlera('Förskjöt rondserien ' + alt.rondNamn + ' i ' + byggnadsNamn(bid) +
       ' ' + deltaText(alt.rondserie.delta), function (a) {
       var st = a.tillstand(bid);
       if (st) { sattRondForskjutning(st, rondId, alt.rondserie.forskjutning); }
@@ -4875,7 +4966,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function flyttaBesoksrytm(bid, rondId, ordinarieVecka, malVecka) {
     var alt = flyttAlternativ(bid, rondId, ordinarieVecka, malVecka);
     if (!alt || !alt.besoksrytm.tillaten) { return false; }
-    andraFlera('Förskjöt besöksrytmen för ' + DP.byggnader[bid].namn + ' ' +
+    andraFlera('Förskjöt besöksrytmen för ' + byggnadsNamn(bid) + ' ' +
       deltaText(alt.besoksrytm.delta), function (a) {
       var st = a.tillstand(bid);
       if (st) { sattForskjutning(st, alt.besoksrytm.forskjutning); }
@@ -5111,14 +5202,15 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     frekvens: frekvens, veckorFor: veckorFor, freqText: freqText, sammaFreq: sammaFreq, freqKomplett: freqKomplett,
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
     state: state, stateFor: stateFor, andra: andra, klona: klona,
-    byggnad: B, aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
+    byggnad: B, andraByggnad: andraByggnad, aktivFickNyData: aktivFickNyData,
+    aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
     gaTill: ga,
     historik: function () { return { lista: historik.map(function (h) { return h.text; }), pos: pos }; },
     prenumerera: function (fn) { lyssnare.push(fn); },
-    instIndex: instIndex, rondNamn: rondNamn, utforare: utforare, atgard: atgard,
+    inst: inst, rondNamn: rondNamn, byggnadsNamn: byggnadsNamn, utforare: utforare, atgard: atgard,
     rutintillfallen: rutintillfallen, rutintillfalleNamn: rutintillfalleNamn, sorteradeAtgarder: sorteradeAtgarder,
     tillfallenMedStrukna: tillfallenMedStrukna,
     kopplingarForInst: kopplingarForInst, besoksveckor: besoksveckor,
@@ -5395,7 +5487,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     this.rumIndex = {};
     this.planIndex = {};
     this.instObjekt = [];       // { inst, obj }
-    this.objFor = new Map();    // inst -> 3D-objekt
+    // Installations-**id** -> 3D-objekt, inte installationsobjektet som nyckel. Byggnadens
+    // data ligger i tillståndet och klonas vid varje historiksteg (beslut 71), så samma
+    // installation är ett nytt objekt efter varje ändring och efter varje ångra. Identiteten
+    // är id:t (beslut 2), och uppslaget måste följa den.
+    this.objFor = {};
     this.pickbara = [];
     this.planSynligt = {};
     this.aktuelltRum = null;
@@ -5821,7 +5917,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     obj.userData.grundFarg = farg;
     this.planGrupper[r.plan].inst.add(obj);
     this.instObjekt.push({ inst: inst, obj: obj, plan: r.plan });
-    this.objFor.set(inst, obj);
+    this.objFor[inst.id] = obj;
   };
 
   // Enkel geometri per typ. Objektets lokala +z pekar ut i rummet, origo vid golv/fäste.
@@ -6095,6 +6191,50 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (this.cb.planAndrat) { this.cb.planAndrat(this.planSynligt); }
   };
 
+  // Bygg om modellen på **samma** byggnads nya data, utan att flytta planeraren.
+  //
+  // `sattByggnad` är rätt när planeraren byter byggnad: då finns ingen vy att bevara, och allt
+  // nollställs med flit. Men byggnadens data ligger i tillståndet och ändras i egna
+  // historiksteg (beslut 71), och då står planeraren kvar vid sitt rum och sin installation.
+  // Döper hon om ett rum ska hon se namnet ändras – inte kastas ut till översiktsvyn med alla
+  // plan tända och markeringen borta. Det är själva poängen med att ändringen är ett steg som
+  // går att ångra: man ser vad man gjorde.
+  //
+  // Därför sparas det som är planerarens vy över ombyggnaden: kameran, vilka plan som syns,
+  // rumsläget och den markerade installationen. Allt annat byggs om från grunden ur datan.
+  Viewer.prototype.byggOmByggnad = function (byggnad) {
+    var kamera = this.camera.position.clone();
+    var mal = this.controls.target.clone();
+    var synliga = this.planSynligt;
+    var lage = this.lage;
+    var rumNr = this.aktuelltRum && this.aktuelltRum.nr;
+    var valdId = this.valdInst && this.valdInst.id;
+
+    this.sattByggnad(byggnad);
+
+    // Plan som finns kvar behåller sin synlighet; ett nytt plan börjar synligt.
+    var self = this;
+    Object.keys(synliga).forEach(function (id) {
+      if (self.planIndex[id]) { self.planSynligt[id] = synliga[id]; }
+    });
+    if (lage === 'rum' && this.rumIndex[rumNr]) {
+      // Rumsläget sätter sin egen kamera och plansynlighet, så det får gå före de sparade.
+      this.gaIn(rumNr);
+    } else {
+      this._uppdateraSynlighet();
+      this.camera.position.copy(kamera);
+      this.controls.target.copy(mal);
+      this.controls.update();
+    }
+    if (this.cb.planAndrat) { this.cb.planAndrat(this.planSynligt); }
+    // Installationen är ett nytt objekt efter ombyggnaden, så den slås upp på sitt id. Är den
+    // borta ur datan tar `valjInstallation` själv bort markeringen.
+    if (valdId) {
+      var ny = this.b.installationer.filter(function (i) { return i.id === valdId; })[0];
+      this.valjInstallation(ny || null, false);
+    }
+  };
+
   // Gå in i ett rum: stå i ögonhöjd och se dig omkring
   Viewer.prototype.gaIn = function (nr) {
     var r = this.rumIndex[nr];
@@ -6137,9 +6277,13 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   Viewer.prototype.valjInstallation = function (inst, flyg) {
     this.valdInst = inst;
     if (!inst) { this.markor.visible = false; return; }
+    var o = this.objFor[inst.id];
+    // Installationen kan vara borta ur byggnadens data, eller ligga i ett plan som ännu inte
+    // byggts. Då finns inget att markera.
+    if (!o) { this.valdInst = null; this.markor.visible = false; return; }
     var r = this.rumIndex[inst.rum];
     var pos = new T.Vector3();
-    var bb = new T.Box3().setFromObject(this.objFor.get(inst));
+    var bb = new T.Box3().setFromObject(o);
     bb.getCenter(pos);
     this.markor.userData.bas = new T.Vector3(pos.x, bb.max.y + 0.7, pos.z);
     this.markor.visible = true;
@@ -6155,7 +6299,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   Viewer.prototype._stegaMarkor = function (t) {
     if (!this.valdInst || !this.markor.userData.bas) { this.markor.visible = false; return; }
-    this.markor.visible = !!this.planSynligt[this.rumIndex[this.valdInst.rum].plan];
+    var vr = this.rumIndex[this.valdInst.rum];
+    this.markor.visible = !!(vr && this.planSynligt[vr.plan]);
     var b = this.markor.userData.bas;
     this.markor.position.set(b.x, b.y + Math.sin(t / 220) * 0.15, b.z);
     var skala = this.lage === 'rum' ? 0.5 : 1;
@@ -6216,7 +6361,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   // Installationens mittpunkt i skärmkoordinater (för animeringar)
   Viewer.prototype.skarmPos = function (inst) {
-    var o = this.objFor.get(inst);
+    var o = this.objFor[inst.id];
     if (!o) { return null; }
     var r = this.rumIndex[inst.rum];
     if (!this.planSynligt[r.plan]) { return null; }
@@ -6233,7 +6378,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var self = this, nu = performance.now();
     var BLINK = farg || GRON;
     instLista.forEach(function (inst) {
-      var o = self.objFor.get(inst);
+      var o = self.objFor[inst.id];
       if (!o) { return; }
       var r = self.rumIndex[inst.rum];
       if (!self.planSynligt[r.plan]) { return; }
@@ -6436,22 +6581,57 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   // Val av byggnad i sidhuvudet
   var valj = $('#byggnad');
-  valj.innerHTML = '';
-  DP.Plan.byggnadsordning.forEach(function (id) {
-    var o = el('option', null, DP.byggnader[id].namn);
-    o.value = id;
-    valj.appendChild(o);
-  });
-  valj.value = DP.Plan.aktivId();
+  function byggValjare() {
+    valj.innerHTML = '';
+    DP.Plan.byggnadsordning.forEach(function (id) {
+      var o = el('option', null, DP.Plan.byggnadsNamn(id));
+      o.value = id;
+      valj.appendChild(o);
+    });
+    valj.value = DP.Plan.aktivId();
+  }
+  byggValjare();
   valj.addEventListener('change', function () { DP.Plan.vaxlaByggnad(valj.value); });
   DP.Plan.prenumereraByte(function (id) {
     valj.value = id;
+    byggOm(true);
+  });
+  // Bygg om allt som kommer ur byggnadens data: modellen, plan-knapparna, trädet och
+  // byggnadsnamnen i väljaren. Används både när planeraren byter byggnad och när byggnadens
+  // data ändrats i ett steg (beslut 71) – samma arbete, och vid ett byte också en rensning av
+  // det som pekade på den förra byggnaden.
+  //
+  // `tomKort` skiljer de två: vid ett byte finns inget att visa kvar, men när byggnaden
+  // ändrats står planeraren fortfarande vid samma rum eller installation och kortet ska
+  // stanna öppet – på det nya objektet, eftersom tillståndet är klonat vid varje steg.
+  function byggOm(tomKort) {
+    var visades = visas;
     indexera();
-    viewer.sattByggnad(b);
+    // Vid ett byte nollställs vyn med flit; vid en dataändring står planeraren kvar vid sitt
+    // rum och sin installation och ska se just det hon ändrade.
+    if (tomKort) { viewer.sattByggnad(b); } else { viewer.byggOmByggnad(b); }
     byggPlanKnappar();
     byggTrad();
-    kort.hidden = true; visas = null; redigerar = null;
+    byggValjare();
     $('#tips').hidden = true;
+    if (tomKort || !visades) {
+      kort.hidden = true; visas = null; redigerar = null;
+      return;
+    }
+    // Objektet kortet visade hör till det förra steget. Hitta samma rum eller installation i
+    // den nya datan – den kan ha ändrats, och det är just ändringen som ska synas.
+    if (visades.inst) {
+      var i = b.installationer.filter(function (x) { return x.id === visades.inst.id; })[0];
+      if (i) { visaInstKort(i); } else { kort.hidden = true; visas = null; redigerar = null; }
+    } else if (visades.rum) {
+      var r = rumIndex[visades.rum.nr];
+      if (r) { visaRumKort(r); } else { kort.hidden = true; visas = null; redigerar = null; }
+    }
+  }
+  // Byggnadens data ändrades i ett steg – även vid ångra och gör om, eftersom de går samma väg
+  // (beslut 73). Bara den aktiva byggnaden har en modell och ett träd på skärmen.
+  DP.Plan.prenumerera(function (fore, efter, info) {
+    if (DP.Plan.aktivFickNyData(info)) { byggOm(false); }
   });
   function uppdateraPlanKnappar() {
     [].forEach.call(planKnappar.children, function (k) { k.classList.toggle('pa', !!viewer.planSynligt[k.dataset.plan]); });
@@ -6789,10 +6969,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   var DP = window.DP, P = DP.Plan, D = DP.Dialog;
   function instNamn(instId) {
     if (instId === 'BYGGNAD') { return P.byggnad().namn + ' (hela byggnaden)'; }
-    var i = P.instIndex[instId];
+    var i = P.inst(instId);
     return i.beteckning + ' ' + i.benamning;
   }
-  function kortNamn(instId) { return instId === 'BYGGNAD' ? P.byggnad().namn : P.instIndex[instId].beteckning; }
+  function kortNamn(instId) { return instId === 'BYGGNAD' ? P.byggnad().namn : P.inst(instId).beteckning; }
 
   function veckoChips(lista) {
     return '<div class="vchips">' + lista.map(function (t) { return '<span class="vchip">' + t + '</span>'; }).join('') + '</div>';
@@ -7213,7 +7393,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   //
   // Prenumerationen ligger här och inte i flode.js därför att telefon.js laddas först, så
   // nycklarna är flyttade innan flödets lyssnare ritar om telefonerna.
-  P.prenumerera(function (fore, efter) {
+  P.prenumerera(function (fore, efter, info) {
+    // Byggnadens data kan ha ändrats i steget; telefonens rums- och planindex kommer därifrån.
+    if (P.aktivFickNyData(info)) { indexera(); }
     var flytt = {};
     P.veckoSkillnad(fore, efter).forEach(function (f) { flytt[f.franNyckel] = f.nyckel; });
     oppna.forEach(function (o) { if (flytt[o.nyckel]) { o.nyckel = flytt[o.nyckel]; } });
@@ -7248,7 +7430,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   function installationsInfo(k) {
     if (k.inst === 'BYGGNAD') { return { namn: b.namn + ' (hela byggnaden)', plan: '–', rum: '–', inst: null }; }
-    var i = P.instIndex[k.inst];
+    var i = P.inst(k.inst);
     var r = rumIndex[i.rum], p = planIndex[r.plan];
     return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: r.nr + ' – ' + r.namn, inst: i };
   }
@@ -8090,14 +8272,14 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
         typ.motivering));
     }
     // Kopiering erbjuds från byggnader av samma typ som har en planering
-    var kallor = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ && P.stateFor(id).ronder.length; });
+    var kallor = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && P.byggnad(id).typ === b.typ && P.stateFor(id).ronder.length; });
     kallor.forEach(function (id) {
-      rad.appendChild(knapp('Kopiera från ' + DP.byggnader[id].namn, 'knapp sekundar liten-knapp', function (kn) { kopieraFran(id, DP.mitt(kn)); }));
+      rad.appendChild(knapp('Kopiera från ' + P.byggnadsNamn(id), 'knapp sekundar liten-knapp', function (kn) { kopieraFran(id, DP.mitt(kn)); }));
     });
     w.appendChild(rad);
-    var sammaTyp = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && DP.byggnader[id].typ === b.typ; });
+    var sammaTyp = P.byggnadsordning.filter(function (id) { return id !== P.aktivId() && P.byggnad(id).typ === b.typ; });
     if (!kallor.length && sammaTyp.length) {
-      w.appendChild(el('div', 'liten-text', 'När ' + sammaTyp.map(function (id) { return DP.byggnader[id].namn; }).join(', ') + ' har en planering kan du kopiera den hit.'));
+      w.appendChild(el('div', 'liten-text', 'När ' + sammaTyp.map(function (id) { return P.byggnadsNamn(id); }).join(', ') + ' har en planering kan du kopiera den hit.'));
     }
     return w;
   }
@@ -8109,7 +8291,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // flera byggnader i ett enda historiksteg (beslut 39). Därför tar den byggnads-id:t och läser
   // installationerna därifrån i stället för modulens `signifikanta`.
   function skrivStandard(st, bid) {
-    var bb = DP.byggnader[bid], typ = DP.byggnadstyper[bb.typ];
+    var bb = P.byggnad(bid), typ = DP.byggnadstyper[bb.typ];
     if (!typ) { return false; }
     var sig = bb.installationer.filter(function (i) { return i.signifikant; });
     var bas = { typ: typ.standard.bas.typ, startManad: typ.standard.bas.startManad || null };
@@ -8159,13 +8341,13 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   // Kopiera planering från en annan byggnad. Installationer matchas på typ och beteckning.
   function kopieraFran(kallId, kalla) {
-    var kb = DP.byggnader[kallId], ks = P.stateFor(kallId), s = P.state();
+    var kb = P.byggnad(kallId), ks = P.stateFor(kallId), s = P.state();
     var malMap = {};
     signifikanta.forEach(function (i) { malMap[i.typ + '|' + i.beteckning] = i.id; });
     var idMap = { BYGGNAD: 'BYGGNAD' }, traffar = [], saknas = [];
     ks.kopplingar.forEach(function (k) {
       if (k.inst === 'BYGGNAD') { traffar.push({ atgard: k.atgard, inst: 'BYGGNAD', rond: k.rond }); return; }
-      var ki = P.instIndex[k.inst], mid = malMap[ki.typ + '|' + ki.beteckning];
+      var ki = P.inst(k.inst), mid = malMap[ki.typ + '|' + ki.beteckning];
       if (mid) { idMap[k.inst] = mid; traffar.push({ atgard: k.atgard, inst: mid, rond: k.rond }); }
       else { saknas.push({ inst: ki, atgard: P.atgard(k.atgard) }); }
     });
@@ -8246,6 +8428,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function nyckel(k) { return k.atgard + '|' + k.inst + '|' + k.rond; }
 
   P.prenumerera(function (fore, efter, info) {
+    // Ändrades byggnadens data i steget är `b` och `signifikanta` från det förra steget
+    // (tillståndet klonas vid varje steg), så de indexeras om innan något ritas. Gäller även
+    // ångra och gör om, som går samma väg (beslut 73).
+    if (P.aktivFickNyData(info)) { indexera(); }
     rita();
     DP.Tidsaxel.rita();
     DP.Telefon.rita();
@@ -8288,7 +8474,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (ts.nycklar.length && !tillagda.length) {
       var markorer = ts.nycklar.map(function (n) { return document.querySelector('.rt-mark[data-nyckel="' + n + '"]'); }).filter(Boolean);
       DP.flyg(kalla, markorer.map(function (m) { var p = DP.mitt(m); p.klar = function () { DP.puls(m); }; return p; }), { text: '✎', farg: '#22b45a' });
-      var ti = ts.inst.map(function (id) { return P.instIndex[id]; }).filter(Boolean);
+      var ti = ts.inst.map(function (id) { return P.inst(id); }).filter(Boolean);
       var m3 = ti.map(function (i) { return DP.viewer.skarmPos(i); }).filter(Boolean);
       var t3 = m3.length ? DP.flyg(kalla, m3, { text: '', farg: '#22b45a', max: 30 }) : 0;
       setTimeout(function () { DP.viewer.blinka(ti, 1600); }, Math.min(Math.max(t3, 300), 1100));
@@ -8296,7 +8482,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
     if (borttagna.length) {
       DP.viewer.sattKopplade(set);
-      var bi = borttagna.map(function (k) { return P.instIndex[k.inst]; }).filter(Boolean);
+      var bi = borttagna.map(function (k) { return P.inst(k.inst); }).filter(Boolean);
       DP.viewer.blinka(bi, 1200, 0xd64541);
       rondGrupper(borttagna).forEach(function (rond) {
         [].forEach.call(document.querySelectorAll('.rt-mark[data-nyckel^="' + rond + ':"]'), function (m) { DP.puls(m, 'puls-rod'); });
@@ -8317,7 +8503,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     });
 
     // 2) Till installationerna i modellen
-    var inst = tillagda.map(function (k) { return P.instIndex[k.inst]; }).filter(Boolean);
+    var inst = tillagda.map(function (k) { return P.inst(k.inst); }).filter(Boolean);
     var vy = DP.mitt(document.getElementById('vy3d'));
     var mal3d = inst.map(function (i) { return DP.viewer.skarmPos(i); }).filter(Boolean);
     if (!mal3d.length) { mal3d = [vy]; }
@@ -8515,7 +8701,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     grupp.appendChild(el('h3', null, 'Byggnader i balanseringen'));
     var lista = el('div', 'bal-byggnader');
     P.byggnadsordning.forEach(function (bid) {
-      var b = DP.byggnader[bid], med = !!klara[bid];
+      var b = P.byggnad(bid), med = !!klara[bid];
       var rad = el('div', 'bal-byggnad' + (med ? '' : ' grad'));
       rad.dataset.byggnad = bid;
       rad.appendChild(fargprick(b.farg));
@@ -8613,7 +8799,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // Ett enda ångra tar därför bort planeringen i alla byggnader som fick den, och eftersom
   // steget inte hör till någon byggnad byter ångra inte aktiv byggnad.
   function standardForAlla(utan) {
-    var namn = utan.map(function (bid) { return DP.byggnader[bid].namn; });
+    var namn = utan.map(function (bid) { return P.byggnadsNamn(bid); });
     DP.Dialog.visa({
       titel: 'Standardplanering för alla',
       html: '<p>' + namn.join(', ') + ' får standardplanering för sin byggnadstyp: ronder, ' +
@@ -8722,9 +8908,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       txt.appendChild(el('span', 'bal-namn', o.namn));
       txt.appendChild(el('span', 'bal-omrade', o.beskrivning));
       // Byggnaderna i området, så att svaret går att se konsekvensen av
-      var iOmradet = P.byggnadsordning.filter(function (bid) { return DP.byggnader[bid].omrade === o.id; });
+      var iOmradet = P.byggnadsordning.filter(function (bid) { return P.byggnad(bid).omrade === o.id; });
       txt.appendChild(el('span', 'bal-obyggnader', iOmradet.map(function (bid) {
-        return DP.byggnader[bid].namn;
+        return P.byggnadsNamn(bid);
       }).join(', ') || 'inga byggnader'));
       rad.appendChild(txt);
       lista.appendChild(rad);
@@ -8927,7 +9113,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       rad.dataset.typ = a.typ;
       // Balanseringens tre svar hör inte till någon byggnad: ingen prick, inget byggnads-id
       if (a.byggnad) { rad.dataset.byggnad = a.byggnad; }
-      if (DP.byggnader[a.byggnad]) { rad.appendChild(fargprick(DP.byggnader[a.byggnad].farg)); }
+      if (P.byggnad(a.byggnad)) { rad.appendChild(fargprick(P.byggnad(a.byggnad).farg)); }
       rad.appendChild(el('span', 'bal-atext', a.text));
       lista.appendChild(rad);
     });
@@ -8952,7 +9138,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       var rad = el('div', 'bal-frad' + (r.typ === 'orord' ? ' orord' : '') +
         (r.typ === 'provisorisk' || r.typ === 'foreslagen-strykning' ? ' niva3' : ''));
       rad.dataset.typ = r.typ;
-      if (r.byggnad && DP.byggnader[r.byggnad]) { rad.appendChild(fargprick(DP.byggnader[r.byggnad].farg)); }
+      if (r.byggnad && P.byggnad(r.byggnad)) { rad.appendChild(fargprick(P.byggnad(r.byggnad).farg)); }
       rad.appendChild(el('span', 'bal-ftext', r.text));
       lista.appendChild(rad);
     });
@@ -8987,7 +9173,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       // Byggnaderna där utföraren har ronder – länken tar planeraren till steg 4 för den
       // byggnad överbelastningen faktiskt kommer ur, inte till en allmän lista.
       byggnaderForUtforare(k.utforare).forEach(function (bid) {
-        var b = DP.byggnader[bid];
+        var b = P.byggnad(bid);
         var l = el('button', 'lank bal-steg4lank', 'Byt utförare i ' + b.namn + ' →');
         l.dataset.byggnad = bid;
         l.title = 'Öppna Planering steg 4 (Vem utför ronderna?) för ' + b.namn;
@@ -9039,7 +9225,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       r.dataset.byggnad = t.byggnad;
       r.dataset.rond = t.rond;
       r.dataset.ordinarie = String(t.ordinarieVecka);
-      r.appendChild(fargprick(DP.byggnader[t.byggnad].farg));
+      r.appendChild(fargprick(P.byggnad(t.byggnad).farg));
       var txt = el('div', 'bal-tnamn');
       txt.appendChild(el('span', 'bal-namn', t.byggnadNamn + ' · ' + t.rondNamn));
       txt.appendChild(el('span', 'bal-omrade', 'v. ' + t.ordinarieVecka + ' → v. ' + t.vecka +
@@ -9329,7 +9515,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
         kvar--;
         var m = DP.mitt(till);
         m.klar = function () { DP.puls(till); };
-        DP.flyg(DP.mitt(fran), [m], { text: '→', farg: DP.byggnader[bid].farg });
+        DP.flyg(DP.mitt(fran), [m], { text: '→', farg: P.byggnad(bid).farg });
       });
     });
   }
@@ -9717,7 +9903,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function struknaPerCell() {
     var ut = {};
     P.klaraByggnader().forEach(function (bid) {
-      var s = P.stateFor(bid), b = DP.byggnader[bid];
+      var s = P.stateFor(bid), b = P.byggnad(bid);
       P.tillfallenMedStrukna(s, bid).forEach(function (t) {
         if (!t.struken) { return; }
         var n = t.utforare + ':' + t.vecka;

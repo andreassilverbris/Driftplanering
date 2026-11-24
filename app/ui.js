@@ -88,22 +88,57 @@
 
   // Val av byggnad i sidhuvudet
   var valj = $('#byggnad');
-  valj.innerHTML = '';
-  DP.Plan.byggnadsordning.forEach(function (id) {
-    var o = el('option', null, DP.byggnader[id].namn);
-    o.value = id;
-    valj.appendChild(o);
-  });
-  valj.value = DP.Plan.aktivId();
+  function byggValjare() {
+    valj.innerHTML = '';
+    DP.Plan.byggnadsordning.forEach(function (id) {
+      var o = el('option', null, DP.Plan.byggnadsNamn(id));
+      o.value = id;
+      valj.appendChild(o);
+    });
+    valj.value = DP.Plan.aktivId();
+  }
+  byggValjare();
   valj.addEventListener('change', function () { DP.Plan.vaxlaByggnad(valj.value); });
   DP.Plan.prenumereraByte(function (id) {
     valj.value = id;
+    byggOm(true);
+  });
+  // Bygg om allt som kommer ur byggnadens data: modellen, plan-knapparna, trädet och
+  // byggnadsnamnen i väljaren. Används både när planeraren byter byggnad och när byggnadens
+  // data ändrats i ett steg (beslut 71) – samma arbete, och vid ett byte också en rensning av
+  // det som pekade på den förra byggnaden.
+  //
+  // `tomKort` skiljer de två: vid ett byte finns inget att visa kvar, men när byggnaden
+  // ändrats står planeraren fortfarande vid samma rum eller installation och kortet ska
+  // stanna öppet – på det nya objektet, eftersom tillståndet är klonat vid varje steg.
+  function byggOm(tomKort) {
+    var visades = visas;
     indexera();
-    viewer.sattByggnad(b);
+    // Vid ett byte nollställs vyn med flit; vid en dataändring står planeraren kvar vid sitt
+    // rum och sin installation och ska se just det hon ändrade.
+    if (tomKort) { viewer.sattByggnad(b); } else { viewer.byggOmByggnad(b); }
     byggPlanKnappar();
     byggTrad();
-    kort.hidden = true; visas = null; redigerar = null;
+    byggValjare();
     $('#tips').hidden = true;
+    if (tomKort || !visades) {
+      kort.hidden = true; visas = null; redigerar = null;
+      return;
+    }
+    // Objektet kortet visade hör till det förra steget. Hitta samma rum eller installation i
+    // den nya datan – den kan ha ändrats, och det är just ändringen som ska synas.
+    if (visades.inst) {
+      var i = b.installationer.filter(function (x) { return x.id === visades.inst.id; })[0];
+      if (i) { visaInstKort(i); } else { kort.hidden = true; visas = null; redigerar = null; }
+    } else if (visades.rum) {
+      var r = rumIndex[visades.rum.nr];
+      if (r) { visaRumKort(r); } else { kort.hidden = true; visas = null; redigerar = null; }
+    }
+  }
+  // Byggnadens data ändrades i ett steg – även vid ångra och gör om, eftersom de går samma väg
+  // (beslut 73). Bara den aktiva byggnaden har en modell och ett träd på skärmen.
+  DP.Plan.prenumerera(function (fore, efter, info) {
+    if (DP.Plan.aktivFickNyData(info)) { byggOm(false); }
   });
   function uppdateraPlanKnappar() {
     [].forEach.call(planKnappar.children, function (k) { k.classList.toggle('pa', !!viewer.planSynligt[k.dataset.plan]); });
