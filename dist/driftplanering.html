@@ -32,6 +32,15 @@ button { font: inherit; cursor: pointer; }
 .byggval { color: var(--dov); display: flex; gap: 8px; align-items: center; }
 .byggval select { font: inherit; padding: 4px 8px; border: 1px solid var(--linje); border-radius: 6px; background: #fff; }
 
+/* Mediaspelaren: fast plats högst upp, gemensam för alla tre huvudsteg (beslut 82).
+ * Den ligger i toppraden som redan fanns, så den kostar ingen höjd av huvudvyn. */
+.spelare { margin-left: auto; display: flex; align-items: center; gap: 3px; background: #2b3340; border-radius: 10px; padding: 3px 4px; color: #fff; }
+.sp-knapp { width: 30px; height: 28px; border: 0; background: none; color: #fff; border-radius: 6px; font-size: 13px; }
+.sp-knapp:hover:not(:disabled) { background: rgba(255,255,255,.15); }
+.sp-knapp:disabled { opacity: .3; cursor: default; }
+.sp-text { width: 330px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+.sp-steg { color: #9fb3d1; margin-right: 8px; font-variant-numeric: tabular-nums; }
+
 .layout { display: flex; height: calc(100% - 52px); }
 .sidopanel {
   width: 400px; flex: none; background: var(--panel); border-right: 1px solid var(--linje);
@@ -463,13 +472,6 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 @keyframes puls { 0% { box-shadow: 0 0 0 0 rgba(34,180,90,.9); transform: scale(1.4); } 60% { box-shadow: 0 0 0 10px rgba(34,180,90,0); transform: scale(1); } 100% { box-shadow: none; } }
 @keyframes pulsrod { 0% { box-shadow: 0 0 0 0 rgba(214,69,65,.9); transform: scale(1.3); } 60% { box-shadow: 0 0 0 10px rgba(214,69,65,0); transform: scale(1); } 100% { box-shadow: none; } }
 
-.spelare { display: flex; align-items: center; gap: 3px; background: #2b3340; border-radius: 10px; padding: 3px 4px; color: #fff; }
-.sp-knapp { width: 30px; height: 28px; border: 0; background: none; color: #fff; border-radius: 6px; font-size: 13px; }
-.sp-knapp:hover:not(:disabled) { background: rgba(255,255,255,.15); }
-.sp-knapp:disabled { opacity: .3; cursor: default; }
-.sp-text { width: 330px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
-.sp-steg { color: #9fb3d1; margin-right: 8px; font-variant-numeric: tabular-nums; }
-
 /* ---------- Telefoner ---------- */
 .telefoner { position: absolute; left: 12px; top: 62px; bottom: 52px; display: flex; gap: 14px; pointer-events: none; align-items: flex-start; }
 .telefon-wrap { position: relative; pointer-events: auto; height: min(600px, 100%); aspect-ratio: 9 / 19.5; animation: in .35s ease-out; }
@@ -707,6 +709,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     <label class="byggval">Byggnad
       <select id="byggnad"></select>
     </label>
+    <!-- Mediaspelaren har en fast plats högst upp och är gemensam för alla tre huvudsteg
+         (beslut 82). Den ritas av app/spelare.js. -->
+    <div id="spelare" class="spelare"></div>
   </header>
 
   <div class="layout">
@@ -6940,7 +6945,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   <script>
 /*
  * Tidsaxeln: en rad per rond med rutintillfällen per vecka, plus en rad med besöken i byggnaden.
- * Innehåller också mediaspelaren för att stega bakåt och framåt i historiken.
+ *
+ * Mediaspelaren satt tidigare i huvudet här. Den bor numera högst upp i toppraden, gemensam
+ * för alla tre huvudsteg (beslut 82, `app/spelare.js`).
  */
 (function () {
   'use strict';
@@ -6968,7 +6975,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var s = P.state();
     rot.innerHTML = '';
 
-    // Huvud: rubrik, zoom och spelare
+    // Huvud: rubrik och zoom
     var huvud = el('div', 'ta-huvud');
     var rub = el('div', 'ta-rubrik');
     rub.innerHTML = '<b>Tidsaxel ' + P.AR + '</b> <span>rutintillfällen som planeringen skapar · klicka på ett tillfälle för att se det i telefonen</span>';
@@ -6980,7 +6987,6 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       z.appendChild(k);
     });
     huvud.appendChild(z);
-    huvud.appendChild(spelare());
     rot.appendChild(huvud);
 
     var n = antalVeckor();
@@ -7100,10 +7106,46 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     return k;
   }
 
-  // Mediaspelare för historiken
-  function spelare() {
+  function markorEl(nyckel) { return rot.querySelector('.rt-mark[data-nyckel="' + nyckel + '"]'); }
+  // Cellen för en rond och en vecka, med eller utan tillfälle i sig
+  function cellEl(rond, vecka) {
+    return rot.querySelector('.ta-cell[data-rond="' + rond + '"][data-vecka="' + vecka + '"]');
+  }
+
+  DP.Tidsaxel = { rita: rita, markorEl: markorEl, cellEl: cellEl };
+})();
+
+</script>
+  <script>
+/*
+ * Mediaspelaren: ångra, gör om och vägen till vilket steg som helst i historiken.
+ *
+ * Den satt tidigare i Planeringens tidsaxel, och var därför dold i Byggnad när tidsaxeln
+ * rullades undan och helt borta i Balansering. Nu har den en fast plats högst upp i
+ * toppraden, gemensam för alla tre huvudsteg (beslut 82): planeraren backar och spolar fram
+ * på samma ställe oavsett var i processen hen står. Balanseringen är ett enda steg i
+ * historiken, så ◀ tar tillbaka hela – och den egna knappen *Ångra balanseringen*
+ * (beslut 63) behövs inte längre när spelaren syns där löftet gäller.
+ *
+ * Historiken är gemensam för alla byggnader, så spelaren är det också: den ritas om av varje
+ * ändring och av varje byggnadsbyte, men innehållet beror bara på historiken.
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP, P = DP.Plan;
+  var rot = document.getElementById('spelare');
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (text !== undefined && text !== null) { e.textContent = text; }
+    return e;
+  }
+
+  function rita() {
     var h = P.historik();
-    var w = el('div', 'spelare');
+    rot.innerHTML = '';
     function knapp(symbol, titel, aktiv, gor) {
       var k = el('button', 'sp-knapp', symbol);
       k.title = titel;
@@ -7111,31 +7153,29 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       k.addEventListener('click', function () { gor(k); });
       return k;
     }
-    w.appendChild(knapp('⏮', 'Till början', h.pos > 0, function (k) { P.gaTill(0, { historik: true, kalla: DP.mitt(k) }); }));
-    w.appendChild(knapp('◀', 'Ångra (Ctrl+Z)', h.pos > 0, function (k) { P.angra({ historik: true, kalla: DP.mitt(k) }); }));
+    rot.appendChild(knapp('⏮', 'Till början', h.pos > 0, function (k) { P.gaTill(0, { historik: true, kalla: DP.mitt(k) }); }));
+    rot.appendChild(knapp('◀', 'Ångra (Ctrl+Z)', h.pos > 0, function (k) { P.angra({ historik: true, kalla: DP.mitt(k) }); }));
     var txt = el('div', 'sp-text');
     var steg = h.pos === 0 ? 'Start' : h.lista[h.pos];
     txt.innerHTML = '<span class="sp-steg">Steg ' + h.pos + ' / ' + (h.lista.length - 1) + '</span>' + steg;
     txt.title = steg;
-    w.appendChild(txt);
-    w.appendChild(knapp('▶', 'Gör om (Ctrl+Y)', h.pos < h.lista.length - 1, function (k) { P.gorOm({ historik: true, kalla: DP.mitt(k) }); }));
-    w.appendChild(knapp('⏭', 'Till senaste', h.pos < h.lista.length - 1, function (k) { P.gaTill(h.lista.length - 1, { historik: true, kalla: DP.mitt(k) }); }));
-    return w;
+    rot.appendChild(txt);
+    rot.appendChild(knapp('▶', 'Gör om (Ctrl+Y)', h.pos < h.lista.length - 1, function (k) { P.gorOm({ historik: true, kalla: DP.mitt(k) }); }));
+    rot.appendChild(knapp('⏭', 'Till senaste', h.pos < h.lista.length - 1, function (k) { P.gaTill(h.lista.length - 1, { historik: true, kalla: DP.mitt(k) }); }));
   }
 
-  function markorEl(nyckel) { return rot.querySelector('.rt-mark[data-nyckel="' + nyckel + '"]'); }
-  // Cellen för en rond och en vecka, med eller utan tillfälle i sig
-  function cellEl(rond, vecka) {
-    return rot.querySelector('.ta-cell[data-rond="' + rond + '"][data-vecka="' + vecka + '"]');
-  }
-
+  // Tangentbordet gäller överallt och hör till spelaren, inte till någon vy
   window.addEventListener('keydown', function (e) {
     if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); P.angra({ historik: true }); }
     if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); P.gorOm({ historik: true }); }
   });
 
-  DP.Tidsaxel = { rita: rita, markorEl: markorEl, cellEl: cellEl };
+  // Spelaren ritar sig själv ur historiken och behöver ingen ingång utifrån: varje ändring
+  // och varje byggnadsbyte går redan genom prenumerationerna. Därför ingen export till DP.
+  P.prenumerera(function () { rita(); });
+  P.prenumereraByte(function () { rita(); });
+  rita();
 })();
 
 </script>
@@ -8824,15 +8864,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       k.addEventListener('click', function () { korBalansering(underlag); });
     }
     rad.appendChild(k);
-    // Mediaspelaren hör till Planeringens tidsaxel och är dold här, men löftet att ett enda
-    // ångra tar tillbaka hela balanseringen är tomt om vägen dit inte syns där man står.
-    if (bst.balanserad) {
-      var ang = el('button', 'knapp sekundar', 'Ångra balanseringen');
-      ang.id = 'bal-angra';
-      ang.title = 'Tar tillbaka alla förskjutningar på en gång (Ctrl+Z)';
-      ang.addEventListener('click', function () { P.angra({ historik: true, kalla: DP.mitt(ang) }); });
-      rad.appendChild(ang);
-    }
+    // Ingen egen ångra-knapp här: mediaspelaren högst upp syns i alla huvudsteg, och ett
+    // enda ◀ där tar tillbaka hela balanseringen. Två knappar för samma sak hade väckt
+    // frågan vad skillnaden är (beslut 82, som ersätter beslut 63).
     w.appendChild(rad);
     w.appendChild(el('div', 'bal-notis', underlag.byggnader.length
       ? 'Balanseringen förskjuter besöksrytmerna och vid behov enskilda rondserier. ' +

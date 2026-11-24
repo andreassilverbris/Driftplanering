@@ -505,15 +505,9 @@
       k.addEventListener('click', function () { korBalansering(underlag); });
     }
     rad.appendChild(k);
-    // Mediaspelaren hör till Planeringens tidsaxel och är dold här, men löftet att ett enda
-    // ångra tar tillbaka hela balanseringen är tomt om vägen dit inte syns där man står.
-    if (bst.balanserad) {
-      var ang = el('button', 'knapp sekundar', 'Ångra balanseringen');
-      ang.id = 'bal-angra';
-      ang.title = 'Tar tillbaka alla förskjutningar på en gång (Ctrl+Z)';
-      ang.addEventListener('click', function () { P.angra({ historik: true, kalla: DP.mitt(ang) }); });
-      rad.appendChild(ang);
-    }
+    // Ingen egen ångra-knapp här: mediaspelaren högst upp syns i alla huvudsteg, och ett
+    // enda ◀ där tar tillbaka hela balanseringen. Två knappar för samma sak hade väckt
+    // frågan vad skillnaden är (beslut 82, som ersätter beslut 63).
     w.appendChild(rad);
     w.appendChild(el('div', 'bal-notis', underlag.byggnader.length
       ? 'Balanseringen förskjuter besöksrytmerna och vid behov enskilda rondserier. ' +

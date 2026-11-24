@@ -25,6 +25,15 @@ button { font: inherit; cursor: pointer; }
 .byggval { color: var(--dov); display: flex; gap: 8px; align-items: center; }
 .byggval select { font: inherit; padding: 4px 8px; border: 1px solid var(--linje); border-radius: 6px; background: #fff; }
 
+/* Mediaspelaren: fast plats högst upp, gemensam för alla tre huvudsteg (beslut 82).
+ * Den ligger i toppraden som redan fanns, så den kostar ingen höjd av huvudvyn. */
+.spelare { margin-left: auto; display: flex; align-items: center; gap: 3px; background: #2b3340; border-radius: 10px; padding: 3px 4px; color: #fff; }
+.sp-knapp { width: 30px; height: 28px; border: 0; background: none; color: #fff; border-radius: 6px; font-size: 13px; }
+.sp-knapp:hover:not(:disabled) { background: rgba(255,255,255,.15); }
+.sp-knapp:disabled { opacity: .3; cursor: default; }
+.sp-text { width: 330px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+.sp-steg { color: #9fb3d1; margin-right: 8px; font-variant-numeric: tabular-nums; }
+
 .layout { display: flex; height: calc(100% - 52px); }
 .sidopanel {
   width: 400px; flex: none; background: var(--panel); border-right: 1px solid var(--linje);

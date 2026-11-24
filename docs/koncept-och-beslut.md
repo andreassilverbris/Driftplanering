@@ -257,6 +257,8 @@ Beslut 23–29 togs i grillningen inför etapp 5 (2026-11-22):
     Planeringens tidsaxel och är dold i Balansering, så löftet att ett enda ångra tar tillbaka hela
     balanseringen hade varit osynligt där det gäller. En knapp bredvid *Balansera om* gör samma sak
     som Ctrl+Z.
+    **Ersatt av beslut 82** (biljett #31): mediaspelaren syns numera i alla huvudsteg, och den egna
+    knappen är borttagen.
 
 64. **Ett rutintillfälle har två veckor: ordinarie och faktisk** (biljett #16, beslut 26 och 32).
     Den **ordinarie** veckan är den rytmen ger – frekvens plus de två förskjutningarna. Den
@@ -431,6 +433,10 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     att mediaspelaren var dold där, och två knappar för samma sak väcker frågan vad skillnaden är.
     Balanseringen är ett steg i historiken, så ◀ tar tillbaka hela. Egen biljett, oberoende av inläsningen,
     och kan göras först.
+    **Byggt** (biljett #31): spelaren bor i `app/spelare.js` och ritas i toppraden (`#spelare`), som redan
+    fanns och hade plats över – den kostar därför ingen höjd av huvudvyn. Tangentbordsgenvägarna Ctrl+Z och
+    Ctrl+Y flyttade med dit: de hör till historiken och inte till någon vy. `app/tidsaxel.js` ritar bara
+    tidsaxeln.
 83. **Det inlästa är klart, förslag eller oplacerat.** Varje steg (Plan, Rum, Installationer) visar det
     inlästa i tre grupper: *klart* ligger på plats, *förslag* är det systemet tror – godtas ett i taget
     eller med *Godta alla* – och *oplacerat* är det systemet inte vet, som dras till rätt plan, rum eller

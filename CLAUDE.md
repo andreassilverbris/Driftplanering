@@ -80,7 +80,8 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/viewer.js` | `DP.Viewer`: generisk 3D-vy, `sattByggnad()`, lager, kamera, val, `blinka()`, gröna/avvikande installationer |
 | `app/ui.js` | Byggnadsträd, verktygsfält, byggnadsval, informationskort (`DP.ui`) |
 | `app/texter.js` | `DP.Texter`: flöden för att ändra åtgärdstext med konfliktfrågor |
-| `app/tidsaxel.js` | `DP.Tidsaxel`: tidsaxel för året + mediaspelaren (ångra/gör om) |
+| `app/tidsaxel.js` | `DP.Tidsaxel`: tidsaxel för året (Planering) |
+| `app/spelare.js` | Mediaspelaren (ångra/gör om/gå till steg) på en fast plats i toppraden, gemensam för alla tre huvudsteg, med Ctrl+Z och Ctrl+Y. Ritar sig själv ur historiken via `prenumerera`, så den exporterar inget till `DP` (beslut 82) |
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
@@ -268,8 +269,10 @@ planerade tiden (beslut 30, idé 6 och 8).
 **Grillat 2026-11-24: Byggnad som vägledd process** – skapa ny byggnad, läsa in plan, rum och installationer
 från en inläsningsfil med tre flikar, ändra byggnad och utbyte av installationer (beslut 69–112). Prototypen
 ligger på grenen `prototyp-inlasning` och är utvärderad (beslut 105–112). Specen är biljett #30
-(`ready-for-human`); nästa steg är att skiva den med `to-tickets`. Mediaspelaren på en fast plats för alla
-huvudsteg (beslut 82) kan bli första biljetten.
+(`ready-for-human`); nästa steg är att skiva den med `to-tickets`. Första biljetten, **mediaspelaren på en
+fast plats för alla huvudsteg** (beslut 82, biljett #31), är byggd: spelaren bor i `app/spelare.js` och
+ritas högst upp i toppraden, så den syns i Byggnad, Planering och Balansering. Den egna knappen *Ångra
+balanseringen* (beslut 63) är borttagen.
 
 Kända begränsningar:
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar

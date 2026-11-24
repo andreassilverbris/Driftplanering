@@ -1,6 +1,8 @@
 /*
  * Tidsaxeln: en rad per rond med rutintillfällen per vecka, plus en rad med besöken i byggnaden.
- * Innehåller också mediaspelaren för att stega bakåt och framåt i historiken.
+ *
+ * Mediaspelaren satt tidigare i huvudet här. Den bor numera högst upp i toppraden, gemensam
+ * för alla tre huvudsteg (beslut 82, `app/spelare.js`).
  */
 (function () {
   'use strict';
@@ -28,7 +30,7 @@
     var s = P.state();
     rot.innerHTML = '';
 
-    // Huvud: rubrik, zoom och spelare
+    // Huvud: rubrik och zoom
     var huvud = el('div', 'ta-huvud');
     var rub = el('div', 'ta-rubrik');
     rub.innerHTML = '<b>Tidsaxel ' + P.AR + '</b> <span>rutintillfällen som planeringen skapar · klicka på ett tillfälle för att se det i telefonen</span>';
@@ -40,7 +42,6 @@
       z.appendChild(k);
     });
     huvud.appendChild(z);
-    huvud.appendChild(spelare());
     rot.appendChild(huvud);
 
     var n = antalVeckor();
@@ -160,40 +161,11 @@
     return k;
   }
 
-  // Mediaspelare för historiken
-  function spelare() {
-    var h = P.historik();
-    var w = el('div', 'spelare');
-    function knapp(symbol, titel, aktiv, gor) {
-      var k = el('button', 'sp-knapp', symbol);
-      k.title = titel;
-      k.disabled = !aktiv;
-      k.addEventListener('click', function () { gor(k); });
-      return k;
-    }
-    w.appendChild(knapp('⏮', 'Till början', h.pos > 0, function (k) { P.gaTill(0, { historik: true, kalla: DP.mitt(k) }); }));
-    w.appendChild(knapp('◀', 'Ångra (Ctrl+Z)', h.pos > 0, function (k) { P.angra({ historik: true, kalla: DP.mitt(k) }); }));
-    var txt = el('div', 'sp-text');
-    var steg = h.pos === 0 ? 'Start' : h.lista[h.pos];
-    txt.innerHTML = '<span class="sp-steg">Steg ' + h.pos + ' / ' + (h.lista.length - 1) + '</span>' + steg;
-    txt.title = steg;
-    w.appendChild(txt);
-    w.appendChild(knapp('▶', 'Gör om (Ctrl+Y)', h.pos < h.lista.length - 1, function (k) { P.gorOm({ historik: true, kalla: DP.mitt(k) }); }));
-    w.appendChild(knapp('⏭', 'Till senaste', h.pos < h.lista.length - 1, function (k) { P.gaTill(h.lista.length - 1, { historik: true, kalla: DP.mitt(k) }); }));
-    return w;
-  }
-
   function markorEl(nyckel) { return rot.querySelector('.rt-mark[data-nyckel="' + nyckel + '"]'); }
   // Cellen för en rond och en vecka, med eller utan tillfälle i sig
   function cellEl(rond, vecka) {
     return rot.querySelector('.ta-cell[data-rond="' + rond + '"][data-vecka="' + vecka + '"]');
   }
-
-  window.addEventListener('keydown', function (e) {
-    if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { return; }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); P.angra({ historik: true }); }
-    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); P.gorOm({ historik: true }); }
-  });
 
   DP.Tidsaxel = { rita: rita, markorEl: markorEl, cellEl: cellEl };
 })();

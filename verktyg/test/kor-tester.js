@@ -68,11 +68,11 @@ const historikpos = page => page.evaluate(() => DP.Plan.historik().pos);
 // Klickar Ångra och väntar på att historiken backat ett steg. Ångra ändrar bara positionen i
 // historiken, inte dess längd, så det är pos som säger att klicket gått igenom.
 //
-// Mediaspelaren hör till Planeringens tidsaxel och är dold i Balansering. Där används
-// tangentbordet i stället, som är samma väg en planerare har: Ctrl+Z gäller överallt.
+// Mediaspelaren har en fast plats högst upp och syns i alla tre huvudstegen (beslut 82), så
+// knappen går att klicka på var planeraren än står – inget tangentbord behövs som reserv.
 async function angra(page) {
   const fore = await page.evaluate(() => DP.Plan.historik().pos);
-  await klickaEllerTangent(page, '.spelare button[title^="Ångra"]', 'Control+z');
+  await page.locator('#spelare button[title^="Ångra"]').click();
   await vanta(page, n => DP.Plan.historik().pos < n, 'ångra från position ' + fore, fore);
 }
 
@@ -80,12 +80,8 @@ async function angra(page) {
 // inte längden, är det som säger att klicket gått igenom.
 async function gorOm(page) {
   const fore = await page.evaluate(() => DP.Plan.historik().pos);
-  await klickaEllerTangent(page, '.spelare button[title^="Gör om"]', 'Control+y');
+  await page.locator('#spelare button[title^="Gör om"]').click();
   await vanta(page, n => DP.Plan.historik().pos > n, 'gör om från position ' + fore, fore);
-}
-async function klickaEllerTangent(page, valjare, tangent) {
-  const knapp = page.locator(valjare);
-  if (await knapp.isVisible()) { await knapp.click(); } else { await page.keyboard.press(tangent); }
 }
 
 // Standardhöjden är 1090 och inte användarens 1200: de flesta testerna bryr sig inte om
@@ -1288,6 +1284,123 @@ async function testProcesslinjen(browser) {
   await page.close();
 }
 
+// Mediaspelaren på en fast plats i alla huvudsteg (beslut 82, biljett #31).
+//
+// Den satt tidigare i Planeringens tidsaxel, som är dold i Balansering, och Balansering hade
+// därför en egen knapp *Ångra balanseringen*. Nu ligger spelaren högst upp i toppraden och
+// syns i alla tre huvudstegen, så den egna knappen är borta.
+//
+// Tre saker prövas: att den ligger på **samma** plats i alla tre steg (samma rektangel, inte
+// bara "syns"), att ångra och gör om fungerar från varje steg – även för Balanseringens enda
+// stora steg – och att den inte stjäl höjd från huvudvyn på användarens 1920×1200.
+async function testMediaspelaren(browser) {
+  console.log('Mediaspelaren på en fast plats i alla huvudsteg');
+  const page = await nySida(browser, URL_INDEX, null, 1200);
+
+  // ---- Samma plats i alla tre huvudsteg ----
+  // Spelaren hör till toppraden och inte till någon vy, så den ska ligga stilla på pixeln när
+  // huvudsteget byts. Rektangeln jämförs, inte bara synligheten: en spelare som hoppar mellan
+  // stegen är inte en fast plats, och det är just det löftet som gör att man vågar byta steg.
+  const lagen = {};
+  for (const id of ['byggnad', 'planering', 'balansering']) {
+    await page.locator('.pl-steg[data-steg="' + id + '"]').click();
+    await vanta(page, stegId => DP.Vyer.aktivt() === stegId, 'huvudsteget ' + id, id);
+    lagen[id] = await page.evaluate(() => {
+      const r = document.querySelector('#spelare').getBoundingClientRect();
+      const topp = document.querySelector('.topp').getBoundingClientRect();
+      return {
+        synlig: !!document.querySelector('#spelare .sp-knapp'),
+        x: Math.round(r.x), y: Math.round(r.y), bredd: Math.round(r.width), hojd: Math.round(r.height),
+        iToppraden: r.top >= topp.top && r.bottom <= topp.bottom,
+        knappar: document.querySelectorAll('#spelare .sp-knapp').length
+      };
+    });
+    kontroll(lagen[id].synlig && lagen[id].knappar === 4,
+      'mediaspelaren syns med sina fyra knappar i huvudsteget ' + id);
+    kontroll(lagen[id].iToppraden,
+      'mediaspelaren ligger i toppraden i huvudsteget ' + id);
+  }
+  const plats = o => o.x + ',' + o.y + ',' + o.bredd + ',' + o.hojd;
+  kontroll(plats(lagen.byggnad) === plats(lagen.planering)
+    && plats(lagen.planering) === plats(lagen.balansering),
+    'mediaspelaren ligger på exakt samma plats i alla tre huvudstegen (' + plats(lagen.planering) + ')');
+  // Den gamla platsen i tidsaxelns huvud ska vara tom: två spelare hade varit två svar på
+  // samma fråga, och den i tidsaxeln försvinner i Balansering.
+  kontroll(await page.locator('.ta-huvud .spelare').count() === 0,
+    'mediaspelaren ligger inte kvar i tidsaxelns huvud');
+
+  // ---- Ångra och gör om från varje huvudsteg ----
+  // Ett steg görs i Planering och ångras/görs om därifrån, sedan samma sak med huvudsteget
+  // Byggnad framme: steget hör till planeringen, men vägen tillbaka ska finnas där man står.
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  const f = page.locator('#flode');
+  for (const steg of ['byggnad', 'planering']) {
+    const forePos = await historikpos(page);
+    await f.locator('button.val', { hasText: forePos ? 'Varje kvartal' : 'Varje månad' }).click();
+    await stegKlartPos(page, forePos, 'besöksfrekvens i huvudsteget ' + steg);
+    const bas = await page.evaluate(() => DP.Plan.state().bas.typ);
+    await page.locator('.pl-steg[data-steg="' + steg + '"]').click();
+    await angra(page);
+    const efterAngra = await page.evaluate(() => DP.Plan.state().bas && DP.Plan.state().bas.typ);
+    kontroll(efterAngra !== bas,
+      'ångra från mediaspelaren tar tillbaka steget med huvudsteget ' + steg +
+      ' framme (' + bas + ' → ' + efterAngra + ')');
+    await gorOm(page);
+    const efterGorOm = await page.evaluate(() => DP.Plan.state().bas && DP.Plan.state().bas.typ);
+    kontroll(efterGorOm === bas,
+      'gör om från mediaspelaren lägger tillbaka steget med huvudsteget ' + steg + ' framme');
+    await page.locator('.pl-steg[data-steg="planering"]').click();
+  }
+
+  // ---- Balanseringens enda steg, ångrat från Balansering ----
+  // Löftet i beslut 36 är att hela balanseringen är **ett** steg i historiken. Det löftet var
+  // osynligt i Balansering så länge spelaren satt i tidsaxeln; nu prövas det där det gäller.
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa planering' }).click();
+  await vanta(page, () => DP.Plan.klaraByggnader().length === 4, 'alla fyra byggnaderna klara');
+  await page.locator('#balansera-knapp').click();
+  await vanta(page, () => DP.Plan.balanseringStatus().balanserad, 'balanseringen gjord');
+  kontroll(await page.locator('#bal-angra').count() === 0,
+    'knappen Ångra balanseringen finns inte kvar i Balansering');
+  const efterBal = await page.evaluate(() =>
+    DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).forskjutning || 0).join(','));
+  await angra(page);
+  await vanta(page, () => !DP.Plan.balanseringStatus().balanserad, 'balanseringen ångrad');
+  kontroll(await page.evaluate(() =>
+    DP.Plan.byggnadsordning.every(id => !DP.Plan.stateFor(id).forskjutning)),
+    'ett ◀ i mediaspelaren tar tillbaka hela balanseringen');
+  await gorOm(page);
+  await vanta(page, () => DP.Plan.balanseringStatus().balanserad, 'balanseringen tillbaka');
+  kontroll(await page.evaluate(() =>
+    DP.Plan.byggnadsordning.map(id => DP.Plan.stateFor(id).forskjutning || 0).join(',')) === efterBal,
+    'gör om lägger tillbaka samma förskjutningar (' + efterBal + ')');
+  await bild(page, 'mediaspelaren-balansering');
+
+  // ---- Utrymmet: huvudvyn ryms fortfarande på 1920×1200 ----
+  // Spelaren ligger i toppraden som redan fanns, så den ska inte ha kostat någon höjd. Samma
+  // två mått som processlinjens test: layouten slutar vid fönsterkanten, och sidopanelens
+  // huvud lämnar plats åt steginnehållet.
+  for (const id of ['byggnad', 'planering', 'balansering']) {
+    await page.locator('.pl-steg[data-steg="' + id + '"]').click();
+    const matt = await page.evaluate(stegId => {
+      const h = e => Math.round(document.querySelector(e).getBoundingClientRect().height);
+      return {
+        fonster: window.innerHeight,
+        layoutBotten: Math.round(document.querySelector('.layout').getBoundingClientRect().bottom),
+        topp: h('.topp'),
+        innehall: h('#hs-' + stegId)
+      };
+    }, id);
+    kontroll(matt.layoutBotten <= matt.fonster && matt.topp <= 60 && matt.innehall >= 800,
+      'huvudvyn ryms med mediaspelaren i huvudsteget ' + id +
+      ' (topprad ' + matt.topp + ' px, layout slutar på ' + matt.layoutBotten + ' av ' + matt.fonster + ' px)');
+  }
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 // Etapp 5: Balanseringens tidsaxel – belastning per utförare (berättelse 25–27 och 50–55).
 //
 // Två saker prövas. Den ena är modulen DP.Balansering, med ett underlag som byggs direkt i
@@ -1834,9 +1947,15 @@ async function testBalansera(browser) {
   // Ett enda ångra återställer alla förskjutningar, och brickorna animeras tillbaka
   // ------------------------------------------------------------------
   const aktivFore = await page.evaluate(() => DP.Plan.aktivId());
+  // Ångras från mediaspelaren högst upp, som nu syns även i Balansering (beslut 82). Den egna
+  // knappen *Ångra balanseringen* finns inte längre – kontrollen nedan håller den borta.
+  kontroll(await page.locator('#bal-angra').count() === 0,
+    'knappen Ångra balanseringen finns inte längre – mediaspelaren gör samma sak');
+  kontroll(await page.locator('#spelare button[title^="Ångra"]').isVisible(),
+    'mediaspelarens Ångra går att klicka på i Balansering');
   // Flygbrickorna lever bara medan animeringen pågår, så de räknas direkt efter klicket.
   // Att de finns är kontrollen: flytten syns, i stället för att tidsaxeln bara byter innehåll.
-  await page.locator('#bal-angra').click();
+  await page.locator('#spelare button[title^="Ångra"]').click();
   const brickorVidAngra = await page.locator('.flygbricka').count();
   kontroll(brickorVidAngra > 0,
     'brickorna animeras till sina gamla veckor vid ångra (' + brickorVidAngra + ' brickor)');
@@ -3293,6 +3412,7 @@ async function testFristaendeFil(browser) {
     await testTidFoljerMed(browser);
     await testForskjutning(browser);
     await testProcesslinjen(browser);
+    await testMediaspelaren(browser);
     await testBalanseringensTidsaxel(browser);
     await testBalansera(browser);
     await testVeckorUtanTillsyn(browser);
