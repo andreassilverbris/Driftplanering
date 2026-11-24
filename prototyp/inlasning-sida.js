@@ -71,7 +71,17 @@
     }).join('');
 
     var innehall = aktivt === 'byggnad' ? ritaByggnad(st) : ritaInlasning(st, aktivt, ss);
-    $('panel').innerHTML = rad + '<nav class="processlinje">' + linje + '</nav><div class="steginnehall">' + innehall + '</div>';
+    // Listan får aldrig hoppa: rullningen står kvar där den var när panelen ritas om,
+    // så länge man är kvar i samma steg.
+    var panel = $('panel'), oppen = panel.querySelector('.oppna');
+    var rull = { steg: panel.dataset.steg, panel: panel.scrollTop, oppna: oppen ? oppen.scrollTop : 0 };
+    panel.innerHTML = rad + '<nav class="processlinje">' + linje + '</nav><div class="steginnehall">' + innehall + '</div>';
+    panel.dataset.steg = aktivt;
+    if (rull.steg === aktivt) {
+      panel.scrollTop = rull.panel;
+      var ny = panel.querySelector('.oppna');
+      if (ny) { ny.scrollTop = rull.oppna; }
+    } else { panel.scrollTop = 0; }
     ritaModell();
   }
 
@@ -345,7 +355,7 @@
   document.addEventListener('dragend', function () {
     dras = null;
     document.body.className = '';
-    Array.prototype.forEach.call(document.querySelectorAll('.over'), function (x) { x.classList.remove('over'); });
+    rensaMarkering();
   });
   function malFor(el) {
     if (!dras || !el.closest) { return null; }
@@ -355,30 +365,48 @@
     if (slag === 'inst') { return el.closest('[data-zon-rum]'); }
     return null;
   }
+  // Var hamnar det dragna? Över ett rum: före eller efter beroende på vilken halva man pekar på.
+  // Över ett plan: ovanför eller nedanför. Linjen visar platsen innan man släpper.
+  var infoga = null;
+  function rensaMarkering() {
+    Array.prototype.forEach.call(document.querySelectorAll('.over, .infoga-fore, .infoga-efter'), function (x) { x.classList.remove('over', 'infoga-fore', 'infoga-efter'); });
+  }
   document.addEventListener('dragover', function (e) {
     var m = malFor(e.target);
     if (!m) { return; }
     e.preventDefault();
-    Array.prototype.forEach.call(document.querySelectorAll('.over'), function (x) { if (x !== m) { x.classList.remove('over'); } });
-    m.classList.add('over');
+    rensaMarkering();
+    var r = m.getBoundingClientRect();
+    if (m.dataset.foreRum) {
+      infoga = e.clientX < r.left + r.width / 2 ? 'fore' : 'efter';
+      m.classList.add('infoga-' + infoga);
+    } else if (m.dataset.planId) {
+      infoga = e.clientY < r.top + r.height / 2 ? 'fore' : 'efter';   // 'fore' = ovanför i listan
+      m.classList.add('infoga-' + infoga);
+    } else { infoga = null; m.classList.add('over'); }
   });
   document.addEventListener('drop', function (e) {
     var m = malFor(e.target);
     if (!m) { return; }
     e.preventDefault();
     var d = dras.split(':'), slag = d[0], key = d.slice(1).join(':'), st = cur();
+    rensaMarkering();
     if (slag === 'rum') {
       if (m.dataset.foreRum) {
-        if (m.dataset.foreRum === key) { return; }
         var plan = m.closest('[data-zon-plan]').dataset.zonPlan;
-        gor({ typ: 'flyttaRum', key: key, plan: plan, fore: m.dataset.foreRum });
+        var keys = I.ordningPaPlan(st, plan).filter(function (k) { return k !== key; });
+        var i0 = keys.indexOf(m.dataset.foreRum);
+        if (m.dataset.foreRum === key) { return; }
+        var fore = infoga === 'efter' ? (keys[i0 + 1] || null) : m.dataset.foreRum;
+        gor({ typ: 'flyttaRum', key: key, plan: plan, fore: fore });
       } else { gor({ typ: 'flyttaRum', key: key, plan: m.dataset.zonPlan }); }
     }
     if (slag === 'plan' && m.dataset.planId !== key) {
-      // Listan visar översta planet överst: släpp på ett plan = lägg det dragna ovanför
+      // Listan visar översta planet överst. Ordningen är nedifrån och upp, så "ovanför" i listan
+      // betyder efter i ordningen.
       var o = st.planOrdning.filter(function (id) { return id !== key; });
       var i = o.indexOf(m.dataset.planId);
-      gor({ typ: 'ordnaPlan', id: key, fore: o[i + 1] || null });
+      gor({ typ: 'ordnaPlan', id: key, fore: infoga === 'fore' ? (o[i + 1] || null) : o[i] });
     }
     if (slag === 'inst') { gor({ typ: 'flyttaInst', key: key, rumKey: m.dataset.zonRum }); }
   });

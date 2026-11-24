@@ -107,6 +107,8 @@
     { id: 'tvatt', namn: 'Tvätt och tork', monster: /tvätt|tork/, farg: 'personal', nta: 30 },
     { id: 'forrad', namn: 'Förråd', monster: /förråd|kallvind/, farg: 'forrad', nta: 40 },
     { id: 'skyddsrum', namn: 'Skyddsrum', monster: /skyddsrum/, farg: 'teknik', nta: 70 },
+    { id: 'kok', namn: 'Kök', monster: /kök|diskrum/, farg: 'personal', nta: 30 },
+    { id: 'fikarum', namn: 'Fikarum', monster: /fika|pentry|personalrum/, farg: 'personal', nta: 20 },
     { id: 'kontor', namn: 'Kontor och dagrum', monster: /kontor|expedition|vaktrum|lektion|dagrum/, farg: 'kontor', nta: 40 },
     { id: 'ovrigt', namn: 'Övrigt rum', monster: null, farg: 'forrad', nta: 30 }
   ];
