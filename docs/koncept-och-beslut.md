@@ -512,6 +512,34 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
      planering kan kopieras mellan. Vid fel typ skapar man en ny byggnad och läser in samma fil, som kan tas ut
      med allt ifyllt.
 
+#### Det prototypen visade (2026-11-24)
+
+Prototypen ligger på grenen `prototyp-inlasning` (`prototyp-inlasning.html`). Andreas tog ut en tom fil,
+fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom ur provet:
+
+105. **Listan hoppar aldrig.** När man godtar, drar eller väljer något står rullningen kvar där den var;
+     man ska aldrig behöva leta sig tillbaka. Det är en regel för **hela systemet**, inte bara inläsningen –
+     det är en av de saker användare stör sig mest på i andra system.
+106. **Dra och släpp visar platsen innan man släpper.** En linje visar om det dragna hamnar före eller efter
+     det man pekar på (för plan: ovanför eller nedanför). Att släppa på ett rum och hoppas räcker inte.
+107. **Stegen ser likadana ut överallt.** Byggnad får samma lodräta lista med steg som Planering har i dag –
+     uppifrån och ner, där avklarade steg fälls ihop – och inte prototypens rutor från vänster till höger.
+     Planeringens form finns redan och är inlärd, och enhetligheten är viktigare än vilken form som är bäst.
+108. **Kök och Fikarum är rumstyper** (kök, diskrum; fika, pentry, personalrum), utöver dem i beslut 80.
+109. **Inläsningsfilen har kolumnerna Rumstyp och Installationstyp.** Utan dem följer de typer planeraren
+     valt inte med när filen tas ut och läses in igen – "BLC 2" och "Gillestuga" frågades om. Kolumnerna är
+     **ifyllda när filen tas ut** och **valfria när man fyller i själv**: är de tomma föreslås typen ur
+     benämningen som förut. Justerar beslut 80 och 81.
+110. **Ett rumsnummer som krockar ger ett förslag.** Dras ett rum till ett plan där numret redan finns
+     (Vindsförråd 05-001 till plan 03, som redan har 03-001) föreslås nästa lediga nummer. Annars hade två
+     rum haft samma plan + nummer, och ingen vet vilket installationerna sitter i.
+111. **Modellen växer med stegen även när allt kommer från en fil** (preciserar beslut 85). I steget Plan
+     visas bara planen som skal – i fel ordning ligger källaren överst, vilket gör förslaget om ordningen
+     självklart. Rummen syns från steget Rum eller när Plan är grönt, installationerna från steget
+     Installationer eller när Rum är grönt.
+112. **Det öppna ligger kvar överst.** Förslag och oplacerat ligger fast högst upp i steget medan listan med
+     plan och rum rullas, så att man kan dra något till ett rum längst ner.
+
 ## Förslag (bekräftade)
 
 ### A. Planera alltid i veckor (fråga 2.1)

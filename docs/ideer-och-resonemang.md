@@ -124,7 +124,7 @@ Det som saknas är **vilka ronder** och **hur ofta**. Det kan definieras per byg
 
 ## 4. Inläsning av plan, rum och installationer – och en genererad 3D-modell
 
-**Status:** grillad 2026-11-24. Besluten står som 69–102 i `koncept-och-beslut.md` och går före det som
+**Status:** grillad 2026-11-24, prototyp utvärderad, spec i biljett #30. Besluten står som 69–112 i `koncept-och-beslut.md` och går före det som
 står här, där de skiljer sig (t.ex. en fil med tre flikar, rum identifierade av plan + rumsnummer, NTV för
 rumshöjden och ett vägledande flöde i stället för en importvy). Texten nedan är kvar som bakgrund.
 

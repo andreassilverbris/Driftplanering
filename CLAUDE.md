@@ -266,9 +266,10 @@ beslutsdokumentet, och begreppen står i `GLOSSARY.md`.
 planerade tiden (beslut 30, idé 6 och 8).
 
 **Grillat 2026-11-24: Byggnad som vägledd process** – skapa ny byggnad, läsa in plan, rum och installationer
-från en inläsningsfil med tre flikar, ändra byggnad och utbyte av installationer (beslut 69–104). Nästa steg
-där är en slit-och-släng-prototyp av inläsningsläget (beslut 102), sedan spec och biljetter. Mediaspelaren på
-en fast plats för alla huvudsteg (beslut 82) kan göras som egen biljett före det.
+från en inläsningsfil med tre flikar, ändra byggnad och utbyte av installationer (beslut 69–112). Prototypen
+ligger på grenen `prototyp-inlasning` och är utvärderad (beslut 105–112). Specen är biljett #30
+(`ready-for-human`); nästa steg är att skiva den med `to-tickets`. Mediaspelaren på en fast plats för alla
+huvudsteg (beslut 82) kan bli första biljetten.
 
 Kända begränsningar:
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
