@@ -7,12 +7,19 @@
   'use strict';
 
   var DP = window.DP, P = DP.Plan, D = DP.Dialog;
+  // Namnen vaktas: en installation kan ha tagits bort (beslut 87) eller försvunnit med sin
+  // byggnad (beslut 100), och de här namnen står i sju dialogtexter. Ett namn som saknas ska
+  // bli ett ord planeraren kan läsa, inte ett kast som släcker dialogen.
   function instNamn(instId) {
-    if (instId === 'BYGGNAD') { return P.byggnad().namn + ' (hela byggnaden)'; }
+    if (instId === 'BYGGNAD') { return P.byggnadsNamn() + ' (hela byggnaden)'; }
     var i = P.inst(instId);
-    return i.beteckning + ' ' + i.benamning;
+    return i ? i.beteckning + ' ' + i.benamning : 'Borttagen installation';
   }
-  function kortNamn(instId) { return instId === 'BYGGNAD' ? P.byggnad().namn : P.inst(instId).beteckning; }
+  function kortNamn(instId) {
+    if (instId === 'BYGGNAD') { return P.byggnadsNamn(); }
+    var i = P.inst(instId);
+    return i ? i.beteckning : 'Borttagen';
+  }
 
   function veckoChips(lista) {
     return '<div class="vchips">' + lista.map(function (t) { return '<span class="vchip">' + t + '</span>'; }).join('') + '</div>';

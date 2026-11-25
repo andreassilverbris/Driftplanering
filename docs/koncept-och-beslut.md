@@ -659,9 +659,31 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     **Värme**. I dag justeras tabellerna i datafilerna; ett administrationsgränssnitt är idé 11.
 100. **Ta bort byggnad** finns i *Ändra byggnad* och är ett steg i historiken. Planeringen försvinner med
      byggnaden, och har den varit med i en balansering markeras Balansering som ändrad.
+
+     *Byggt i biljett #41.* `DP.Plan.taBortByggnad(bid)` tar byggnadens data, dess planering och dess
+     plats i byggnadsordningen i **ett** steg, och ångra tar tillbaka alla tre. Två saker som provet
+     tvingade fram: den **sista** byggnaden går inte att ta bort, eftersom modellen, trädet och
+     väljaren alla ritar ur en aktiv byggnad och ett system utan någon byggnad inte är ett läge
+     planeraren kan arbeta i. Och markeringen i Balansering skiljer **borttagen** från *inte längre
+     klar* – en byggnad som inte är klar står kvar i listan och går att göra klar igen, en borttagen
+     är borta, och att säga fel sak hade skickat planeraren att leta efter den. Därför bär
+     balanseringens sammandrag numera byggnadens **namn** och inte bara dess id: en byggnad som inte
+     finns går inte att slå upp när beskedet ska formuleras.
 101. **De fyra befintliga byggnaderna behåller sin handritade form.** Installationer kan flyttas, ersättas och
      läggas till utan att formen ändras. Ändras *rummen* på ett plan ritas det planet om enligt byggnadstypens
      regel, efter en varning som säger det.
+
+     *Byggt i biljett #41.* `DP.Plan.ritaOmPlan(planId, bid)` **tar bort** planets ritade rektanglar i
+     stället för att räkna fram nya och skriva in dem: formen är räknad och ska inte ligga i
+     tillståndet (beslut 71), så utan rektangel lägger `form()` ut hela planet i ett och samma
+     koordinatsystem. Det är hela bristen i ett halvt ritat plan – de rum som har `rect` ligger i
+     datafilens koordinater och de utan i regelns, och de två är inte samma.
+     Varningen kommer **när planet blivit blandat** och inte innan: `DP.Planlosning.blandadePlan(b)`
+     svarar på vilka plan som har både ritade och räknade rum, och steg 3 visar en upplysning så
+     länge listan är tom och en varning med *Rita om planet* när den inte är det. En varning som
+     står där hela tiden slutar planeraren att läsa. Omritningen är ett steg i historiken, så ett ◀
+     ger planet dess ritade form tillbaka, och den gäller **bara det planet** – grannplanen står kvar
+     som de är ritade, eftersom de byggnader planeraren lärt sig på inte ska förändras i onödan.
 102. **Prototypen** innehåller en påhittad, avsiktligt rörig Kasern 3 i en inläsningsfil som går att ta ut,
      ändra och läsa in; de fyra stegen med klart, förslag och oplacerat, *Godta alla* och dra och släpp;
      modellen som växer fram i den riktiga 3D-vyn med kaserns regel; ångra och gör om. Inte Ändra byggnad,
@@ -680,6 +702,15 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
      planeraren skriver**, inte när hon trycker på knappen. Byggnaden får ändå ett eget id som står still
      (`byggnad1`, `byggnad2` …), så att ett senare namnbyte inte rör något som pekar på byggnaden – det
      är inte beslutets byggnads-id, bara nyckeln tillståndet redan behöver.
+
+     *Namnbytet byggt i biljett #41.* `DP.Plan.sattByggnadsNamn(namn, bid)` är samma kontroll med
+     byggnaden själv undantagen (`namnHinder(namn, bid)`), så namnet får skrivas om utan att krocka
+     med sig självt. **Tillfällena byter namn av sig själva**, och det är id:t ovan som gör det
+     möjligt: `rutintillfalleNamn()` bygger namnet ur byggnadens namn vid uppslagningen, och de
+     avvikande texterna är nycklade på rond och vecka. Hade något av dem burit tillfällets *namn*
+     hade ett namnbyte tappat dem. Historikens text bär namnet som gällde **när steget skrevs** –
+     "Kasern 1: byt namn till Kasern 1 Norra" – eftersom listan läses som vad planeraren gjorde och
+     inte som vad byggnaden heter nu.
 104. **Byggnadstypen är låst efter steg 1.** Typen avgör planlösningens regel, utseendet och vilka byggnader
      planering kan kopieras mellan. Vid fel typ skapar man en ny byggnad och läser in samma fil, som kan tas ut
      med allt ifyllt.

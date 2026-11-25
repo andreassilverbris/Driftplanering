@@ -175,8 +175,8 @@ Skriptens ordning i `index.html` spelar roll:
   den nya nyckeln. Allt är steg i historiken med text i klartext ("flytta Dagrum före Entré på
   plan 01"). `rumStatus()` bär också `handritad`: Garage, Kasern 1 och 2 och Hangar är ritade rum för
   rum och lämnas orörda av planlösningen (beslut 101), så ett rum som läggs till eller dras om där
-  får sin plats ur regeln medan grannarna behåller sina ritade mått – steg 3 säger det i klartext,
-  och att rita om hela planet efter en varning hör till *Ändra byggnad* (biljett #41).
+  får sin plats ur regeln medan grannarna behåller sina ritade mått – och `blandade`, de plan där
+  det faktiskt skett. Steg 3 varnar då och erbjuder `ritaOmPlan` (se *Ändra byggnad* nedan).
 - **BRA och BTA räknas ur modellen när rummen saknar dem, och märks *beräknad* (beslut 79,
   biljett #40).** Uträkningen bor i `DP.Planlosning.areor(byggnad)` – den är geometri, och hör
   därför där formen räknas och inte i `planering.js`. NTA är alltid rummens summa. BRA och BTA
@@ -215,6 +215,28 @@ Skriptens ordning i `index.html` spelar roll:
   De **övriga** installationerna ligger aldrig i tillståndet: `DP.Planlosning.form()`
   genererar dem ur rumstyperna, och både modellen och byggnadsträdet räknar dem därifrån
   (berättelse 57).
+- **Ändra byggnad: namnet, borttagningen och det omritade planet (beslut 100, 101 och 103,
+  biljett #41).** Samma fyra steg öppnar en **befintlig** byggnad, och steg 1 är där byggnaden
+  som helhet ändras. `sattByggnadsNamn(namn, bid)` byter namn med samma kontroll som när
+  byggnaden skapades (`namnHinder(namn, bid)`, byggnaden själv undantagen). **Rutintillfällena
+  byter namn av sig själva**: `rutintillfalleNamn()` bygger namnet ur byggnadens namn vid
+  uppslagningen, och de avvikande texterna är nycklade på rond och vecka – hade de burit
+  tillfällets namn hade ett namnbyte tappat dem.
+  `taBortByggnad(bid)` tar bort byggnaden, dess planering och dess plats i ordningen som
+  **ett** steg; ångra tar tillbaka alla tre, eftersom listan över byggnader ligger i steget
+  (beslut 73). Steget skrivs för hand och inte genom `andraByggnad`, som kräver att byggnaden
+  finns. Den **sista** byggnaden går inte att ta bort: vyerna ritar ur en aktiv byggnad.
+  Var byggnaden med i en balansering markeras Balansering som ändrad av sig självt –
+  `planeringAndringar()` skiljer då `borttagen` från `ej-klar`, eftersom en borttagen byggnad
+  inte går att göra klar igen. Därför bär `balanseringSammandrag` också byggnadens **namn**:
+  en byggnad som inte finns går inte att slå upp, och raden hade annars burit id:t.
+  `ritaOmPlan(planId, bid)` lägger om ett **handritat** plan enligt byggnadstypens regel
+  (beslut 101) genom att ta bort planets ritade `rect` – formen är räknad och ska inte ligga i
+  tillståndet (beslut 71), så utan rektangel lägger `form()` ut hela planet i ett och samma
+  koordinatsystem. Installationernas ritade plats i rummet faller med, som vid en flytt.
+  Bara det plan planeraren pekar på: de byggnader hon lärt sig på ska inte förändras i onödan.
+  `DP.Planlosning.blandadePlan(b)` svarar på **vilka** plan som blandar ritade och räknade rum,
+  alltså där bristen uppstått, och `rumStatus().blandade` bär listan till steg 3.
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -525,6 +547,20 @@ utan DOM: BRA är planets omslutande rektangel – rummens rektanglar har NTA so
 kant i kant – och BTA samma rektangel utökad en halv väggtjocklek runt om, eftersom ytterväggen
 ritas centrerad på rummets kant. Märkningen är per plan, så planeraren ser vilket plan som är
 systemets tal.
+Elfte biljetten, **Ändra byggnad: flytta, ta bort och byta namn** (beslut 100, 101 och 103,
+biljett #41), är byggd: samma fyra steg öppnar en befintlig byggnad. En installation går att
+**flytta** mellan rum med kopplingar och avvikande texter i behåll – det är samma installation,
+så tillsynen är densamma – och att **ta bort**, varvid kopplingarna försvinner i samma steg och
+steg 6 får ett nytt tidsförslag som markeras som ändrad förutsättning utan att räknas om.
+Byggnadens **namn** byts i steg 1 med samma unikhetskontroll som när den skapades, och
+rutintillfällena byter namn med den i tidsaxeln och i telefonen. **Ta bort byggnad** tar
+planeringen med sig som ett steg i historiken; var byggnaden med i en balansering säger
+Balansering att planeringen har ändrats, och ett ångra tar tillbaka byggnaden, planeringen och
+bocken. Den sista byggnaden går inte att ta bort. Ett **handritat** plan där rummen ändrats
+varnar nu i klartext i stället för att bara upplysa, och *Rita om planet* lägger om hela planet
+enligt byggnadstypens regel efter en fråga som säger vad den gör – bara det planet, grannarna
+står kvar som de är ritade. Inläsning mot en befintlig byggnad (berättelse 72–74) och utbytet
+hör till de följande biljetterna i spåret.
 
 Kända begränsningar:
 - Installationernas plats **i** rummet är schematisk: de fördelas jämnt längs väggen mot korridoren,
@@ -535,8 +571,9 @@ Kända begränsningar:
   och går oavsett var i listan planet står.
 - Ett rum som läggs till eller dras om i en **handritad** byggnad (Garage, Kasern 1 och 2, Hangar)
   får sin plats ur byggnadstypens regel medan grannarna behåller sina ritade rektanglar (beslut 101),
-  så rummen kan hamna över varandra i modellen. Steg 3 säger det i klartext. Att rita om hela planet
-  efter en varning hör till *Ändra byggnad* (biljett #41, berättelse 58).
+  så rummen kan hamna över varandra i modellen. Steg 3 varnar då och erbjuder *Rita om planet*
+  (biljett #41), som lägger om hela planet enligt regeln. Varningen är ett besked och ingen spärr:
+  planeraren kan låta planet stå blandat, och modellen är då fel på det sätt varningen beskriver.
 - Den **beräknade** arean uteblir på ett plan där modellens rektangel inte täcker rummens NTA
   (beslut 79). Korridorsregeln ger korridoren remsan mellan rumsraderna, och den är sällan lika
   stor som korridorens NTA – ett BRA under NTA är geometriskt omöjligt, så uträkningen avstår och
@@ -553,8 +590,11 @@ Kända begränsningar:
   Det byggs i sin egen biljett, och filen tas redan ut med bara nuvarande versioner (beslut 96).
 - En .numbers-fil går inte att läsa direkt – mini-bygget av SheetJS läser .xlsx. Planeraren exporterar
   till .xlsx i Numbers först.
-- Byggnadens namn, område och färg går bara att sätta när byggnaden skapas. Att ändra dem hör till
-  *Ändra byggnad*, som byggs senare i spåret.
+- Byggnadens **område och färg** går bara att sätta när byggnaden skapas. Namnet går att byta i
+  steg 1 (biljett #41), men området och färgen är inte byggda där ännu.
+- Inläsning **mot en befintlig byggnad** visar ingen skillnad ännu – se punkten ovan om beslut 86.
+  *Ändra byggnad via fil* (berättelse 72–74) hör dit och är inte byggt i biljett #41, som tar
+  ändringarna för hand: flytta, ta bort, byta namn, ta bort byggnaden och rita om ett plan.
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
   resultatet – de förskjutna veckorna och de provisoriska flyttarna – men går inte att dra i.
 - Balanseringens sökning är greedy per byggnad i byggnadsordning, inte uttömmande: den hittar ett bra läge,

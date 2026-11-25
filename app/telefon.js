@@ -12,7 +12,11 @@
   var oppna = []; // { nyckel, vy: 'lista'|'detalj', index, scroll }
   var b, rumIndex, planIndex;
   function indexera() {
-    b = P.byggnad(); rumIndex = {}; planIndex = {};
+    // Tom byggnad när den aktiva inte finns: *Ta bort byggnad* (beslut 100) byter aktiv
+    // byggnad innan lyssnarna körs, så det normala är att den finns – men en krasch här hade
+    // tagit hela sidan med sig, och en telefon utan byggnad har bara ingenting att visa.
+    b = P.byggnad() || { namn: '', rum: [], plan: [], installationer: [] };
+    rumIndex = {}; planIndex = {};
     // Nycklat på rummets nyckel (plan + rumsnummer), som installationernas `rum` bär (beslut 76)
     b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
     b.plan.forEach(function (p) { planIndex[p.id] = p; });
@@ -69,9 +73,16 @@
 
   function installationsInfo(k) {
     if (k.inst === 'BYGGNAD') { return { namn: b.namn + ' (hela byggnaden)', plan: '–', rum: '–', inst: null }; }
+    // Installationen, rummet och planet slås upp ett i taget och vaktas: en installation kan
+    // ha tagits bort (beslut 87) eller försvunnit med sin byggnad (beslut 100) medan
+    // kopplingen ännu inte städats ur den vy som ritar. Att säga "borttagen installation" är
+    // pedagogiskt riktigare än att kasta – och en krasch här hade släckt hela telefonen.
     var i = P.inst(k.inst);
-    var r = rumIndex[i.rum], p = planIndex[r.plan];
-    return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: DP.rumBeteckning(r) + ' – ' + r.namn, inst: i };
+    if (!i) { return { namn: 'Borttagen installation', plan: '–', rum: '–', inst: null }; }
+    var r = rumIndex[i.rum], p = r ? planIndex[r.plan] : null;
+    return { namn: i.benamning, bet: i.beteckning,
+      plan: p ? p.id + ' – ' + p.namn : '–',
+      rum: r ? DP.rumBeteckning(r) + ' – ' + r.namn : '–', inst: i };
   }
 
   function rita() {

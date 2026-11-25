@@ -726,9 +726,24 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-fel { margin-top: 6px; background: #fdecea; border: 1px solid #f5c2bd; border-radius: 6px; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: #8c2018; }
 .bf-notis { margin-top: 10px; font-size: 12px; color: var(--dov); line-height: 1.5; }
 .bf-faltrutnat { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-.bf-faltrutnat .falt .varde { margin-top: 2px; font-size: 14px; }
+/* Värdet är en flexrad: namnet bär sin *Byt namn*-knapp, och namnbytet sitt fält med
+   Spara och Avbryt (beslut 103). */
+.bf-faltrutnat .falt .varde { margin-top: 2px; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* Färgrutan står ensam i ett fält och inte i en flexrad, så den behöver egen storlek */
 .bf-faltrutnat .bal-farg { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+/* Ändra byggnad (beslut 100 och 103): namnbytet tar hela rutnätets bredd – fältet, Spara,
+   Avbryt och beskedet behöver mer plats än en halv rad. */
+.bf-namnbyte { grid-column: 1 / -1; }
+.bf-namnbyte .bf-falt { flex: 1 1 140px; min-width: 0; }
+/* *Ta bort byggnaden* står för sig, med luft över: den hör inte till uppgifterna ovanför,
+   och en knapp som tar bort en byggnad ska inte ligga tätt intill dem man läser. */
+.bf-farligt { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linje); }
+/* Varningen när ett ritat plan blivit halvt räknat (beslut 101). Samma röda ruta som
+   `.bf-fel`, men med luft mellan stycken och knappar: den förklarar ett vägval. */
+.bf-ritaom { margin-top: 10px; }
+.bf-ritaom p { margin: 0 0 7px; }
+.bf-ritaom p:last-of-type { margin-bottom: 9px; }
+.bf-ritaom .knapprad { margin: 0; flex-wrap: wrap; }
 /* Byggnaden utan plan: beskedet står mitt i vyn där modellen hade legat. */
 .tom-byggnad { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); max-width: 460px; text-align: center; background: rgba(255,255,255,.92); border: 1px solid var(--linje); border-radius: 12px; padding: 18px 22px; box-shadow: 0 4px 18px rgba(20,30,45,.08); }
 .tb-rubrik { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
@@ -4659,11 +4674,33 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     return ut;
   }
 
+  // Vilka plan **blandar** ritade och räknade rum? Det är den form beslut 101 pekar ut som
+  // fel: på ett sådant plan lägger `form()` ut rummen utan rektangel enligt regeln – från
+  // origo, i sin egen runda runt korridoren – medan grannarna behåller sina ritade mått, och
+  // de två koordinatsystemen är inte samma. Rummen kan då ligga över varandra.
+  //
+  // Frågan bor här och inte i `planering.js`, av samma skäl som `arRitad()`: det är geometri,
+  // och den som räknar ut platsen är den som vet när platsen inte går att räkna. Svaret är
+  // listan med plan-id, så att den som varnar kan säga *vilket* plan det gäller.
+  //
+  // Ett plan med bara ritade rum är orört och ett med bara räknade är räknat: båda är hela.
+  // Det är blandningen som är bristen, och den uppstår först när planeraren lägger till eller
+  // drar om ett rum i en handritad byggnad.
+  function blandadePlan(byggnad) {
+    var b = byggnad;
+    if (!b) { return []; }
+    return (b.plan || []).filter(function (p) {
+      var pa = (b.rum || []).filter(function (r) { return r.plan === p.id && !r.iRum; });
+      return pa.some(function (r) { return !!r.rect; }) && pa.some(function (r) { return !r.rect; });
+    }).map(function (p) { return p.id; });
+  }
+
   DP.Planlosning = {
     planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
     benamningsforslag: benamningsforslag, form: form, SKAL: SKAL,
     laggUtRum: laggUtRum, laggUtInstallationer: laggUtInstallationer,
     regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad,
+    blandadePlan: blandadePlan,
     areor: areor, VAGG_TJ: VAGG_TJ
   };
 })();
@@ -5984,6 +6021,14 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // Steget hör till byggnaden, precis som `andra`: ångrar planeraren en ändring av Kasern 1
   // medan hon står i Garaget ska hon se vad som återställs. Den aktiva byggnaden är förvalet,
   // så det vanliga anropet lämnar id:t tomt.
+  //
+  // **Den städar inte planeringen, och ska inte göra det.** `stada()` rensar texter, tider och
+  // nivå 3-arbete som inte längre har någon rond eller koppling att höra till – och ronder och
+  // kopplingar är just det `andraByggnad` aldrig rör. En ändring som *river* något planeringen
+  // pekar på går därför en annan väg: `taBortPlan`, `taBortRum` och `taBortInst` använder
+  // `andraFlera`, så att kopplingarna försvinner i samma steg som det de pekade på (beslut 87).
+  // Den som lägger till en ny ändring här får pröva den mot det: rör den bara byggnadens egna
+  // uppgifter hör den hemma här, river den något hör den hemma i `andraFlera`.
   function andraByggnad(text, bid, fn, info) {
     var id = bid || aktiv;
     if (!historik[pos].byggnader[id]) { return; }
@@ -6121,6 +6166,87 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       inlasning: { plan: [], infordaPlan: [], rum: [], infordaRum: [],
         inst: [], infordaInst: [], fil: null }
     };
+  }
+
+  // ------------------------------------------------------------------
+  // Ändra byggnad (beslut 100 och 103, berättelse 2, 70 och 71)
+  // ------------------------------------------------------------------
+  // Byt namn på byggnaden. Namnet är unikt (beslut 103), och kontrollen är densamma som när
+  // byggnaden skapades – `namnHinder(namn, bid)` med byggnaden själv undantagen, så att ett
+  // namn får skrivas om utan att krocka med sig själv.
+  //
+  // Rutintillfällena heter Byggnad-Rond-ÅÅÅÅvVV och namnges av `rutintillfalleNamn()` ur
+  // byggnadens namn vid uppslagningen. De byter därför namn med byggnaden utan att något
+  // behöver skrivas om: tidsaxeln och telefonen frågar om namnet varje gång de ritar.
+  // Det är också skälet att de **avvikande texterna** är nycklade på rond och vecka och inte
+  // på tillfällets namn – ett namnbyte skulle annars ha tappat dem.
+  //
+  // Svaret är sant när namnet byttes. Vyn frågar `namnHinder()` först och visar beskedet medan
+  // planeraren skriver (beslut 103); kontrollen här är den som gäller.
+  function sattByggnadsNamn(namn, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    if (!b) { return false; }
+    var nytt = String(namn || '').trim();
+    if (nytt === b.namn) { return false; }
+    if (namnHinder(nytt, id)) { return false; }
+    var gammalt = b.namn;
+    andraByggnad('byt namn till ' + nytt, id, function (data) { data.namn = nytt; },
+      { namnbyte: { byggnad: id, fran: gammalt, till: nytt } });
+    return true;
+  }
+
+  // Ta bort byggnaden som ett steg i historiken (beslut 100). Planeringen försvinner med
+  // byggnaden – den hör till den och har ingenting att säga utan den – och ångra tar tillbaka
+  // båda, eftersom listan över byggnader ligger i steget och inte i en modulvariabel
+  // (beslut 73).
+  //
+  // Steget skrivs för hand och inte genom `andraByggnad`, eftersom det tar bort just det
+  // `andraByggnad` kräver ska finnas. Tre saker lämnar steget: byggnadens data, dess
+  // planering och dess plats i ordningen.
+  //
+  // Var byggnaden med i en balansering markeras Balansering som ändrad planering av sig
+  // själv: `planeringAndringar()` jämför sammandraget mot nuläget, och byggnaden faller ur
+  // `klaraByggnader()` när den inte finns. Att den är *borttagen* och inte bara "inte längre
+  // klar" vet jämförelsen av att den inte finns i byggnadsordningen (se `planeringAndringar`).
+  // Det gemensamma tillståndet rörs inte: förskjutningarna hör till de byggnader som finns
+  // kvar, och inget räknas om av sig självt (beslut 40).
+  function taBortByggnad(bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    if (!b) { return false; }
+    // Den sista byggnaden går inte att ta bort: vyerna – modellen, trädet, väljaren – ritar
+    // alla ur en aktiv byggnad, och ett system utan någon byggnad är inget läge planeraren
+    // kan arbeta i. Det är heller inget hon vill: en tom lista lär henne ingenting.
+    if (ordning().length < 2) { return false; }
+    var namn = b.namn;
+    var fore = state();
+    var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
+    var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
+    delete alla[id];
+    delete byggnader[id];
+    var nyOrdning = ordning().filter(function (x) { return x !== id; });
+    historik = historik.slice(0, pos + 1);
+    historik.push({ alla: alla, byggnader: byggnader, ordning: nyOrdning,
+      gemensamt: klona(historik[pos].gemensamt),
+      text: 'Ta bort byggnad ' + namn,
+      // Steget gäller den borttagna byggnaden, trots att den inte finns i det. Det är vad
+      // `ga()` behöver för att ett **ångra** ska växla tillbaka dit: den läser byggnaden ur
+      // steget man lämnar och växlar bara när den finns i steget man går till (se `ga()`).
+      // Ångrar planeraren borttagningen ska hon möta byggnaden som kom tillbaka; gör hon om
+      // den finns byggnaden inte i målsteget, och då växlar `ga()` inte.
+      byggnad: id, rorda: [id] });
+    pos = historik.length - 1;
+    // Var den borttagna aktiv står vyerna och pekar på ingenting. Byt till den sista som
+    // finns kvar, precis som ett ångra förbi *Skapa byggnad* gör (se `ga()`).
+    // Genom `vaxlaByggnad` och inte för hand: den byggnad som blir aktiv finns i steget, så
+    // bytet går samma väg som planerarens eget och lyssnarna körs likadant.
+    if (aktiv === id) { vaxlaByggnad(nyOrdning[nyOrdning.length - 1]); }
+    meddela(fore, state(), utokaInfo({ borttagenByggnad: { id: id, namn: namn } }, [id],
+      allaFore, byggnaderFore));
+    return true;
   }
 
   // ------------------------------------------------------------------
@@ -6761,7 +6887,12 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       // behåller sina ritade – och de kan hamna över varandra. Frågan ställs av planlösningen
       // själv (taket räknas bara för en räknad byggnad), så den besvaras där och inte här:
       // två prov på samma sak hade kunnat glida isär.
-      handritad: DP.Planlosning.arRitad(b)
+      handritad: DP.Planlosning.arRitad(b),
+      // Planen som **blandar** ritade och räknade rum, alltså de där bristen faktiskt
+      // uppstått (beslut 101). `handritad` säger att byggnaden är ritad, den här listan att
+      // ett plan har blivit halvt räknat – och det är först då varningen och *Rita om planet*
+      // har något att göra. En handritad byggnad som ingen rört har tom lista.
+      blandade: DP.Planlosning.blandadePlan(b)
     };
   }
   // Byt rumstyp på ett rum som redan ligger i byggnaden (beslut 80). Typen styr rummets
@@ -6804,6 +6935,60 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
           .filter(function (k) { return k !== nyckel; });
       }
     });
+  }
+
+  // Rita om ett plan enligt byggnadstypens regel (beslut 101, berättelse 58). Det gäller de
+  // handritade byggnaderna – Garage, Kasern 1 och 2 och Hangar – där rummen bär egna
+  // rektanglar från `data/`. Läggs ett rum till eller dras ett om där får det sin plats ur
+  // regeln medan grannarna behåller sina ritade mått, och eftersom de två koordinatsystemen
+  // inte är samma kan rummen hamna över varandra.
+  //
+  // Omritningen **tar bort** planets ritade rektanglar i stället för att räkna fram nya och
+  // skriva in dem: formen är räknad och ska inte ligga i tillståndet (beslut 71). Utan
+  // rektangel lägger `DP.Planlosning.form()` ut hela planet enligt regeln, i ett och samma
+  // koordinatsystem – och då är planet helt igen.
+  //
+  // Installationernas ritade plats i rummet följer med bort, av samma skäl som vid en flytt
+  // (se `flyttaInst`): platsen är ritad för det rum rummet låg i, och ett rum som flyttat
+  // hade burit en apparat utanför sina väggar. Planlösningen räknar fram den nya platsen
+  // jämnt längs väggen mot korridoren (beslut 78).
+  //
+  // Bara det plan planeraren pekar på ritas om, inte byggnaden: de byggnader hon lärt sig på
+  // ska inte förändras i onödan (berättelse 58). Omritningen är ett steg i historiken, så ett
+  // ◀ ger planet dess ritade form tillbaka.
+  //
+  // Svaret är sant när planet ritades om. Ett plan som inte finns eller inte har ett enda
+  // ritat rum svarar falskt: där finns ingenting att rita om.
+  function ritaOmPlan(planId, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    if (!b) { return false; }
+    var p = b.plan.filter(function (x) { return x.id === planId; })[0];
+    if (!p) { return false; }
+    var ritade = b.rum.filter(function (r) { return r.plan === planId && r.rect; });
+    if (!ritade.length) { return false; }
+    var nycklar = {};
+    b.rum.forEach(function (r) {
+      if (r.plan === planId) { nycklar[DP.rumNyckel(r.plan, r.nr)] = true; }
+    });
+    andraByggnad('rita om plan ' + planId + ' enligt byggnadstypens regel', id, function (data) {
+      data.rum.forEach(function (r) {
+        if (r.plan !== planId) { return; }
+        // Bara rektangeln. **Höjden rörs inte**, trots att den också är ritad: den är en
+        // uppgift om rummet och inte en plats i planet – ett fläktrum är högt var i
+        // byggnaden det än ligger. Att slänga den hade bytt ett mått någon ritat mot
+        // typens standardhöjd, alltså förlorat en uppgift i stället för att räkna om en.
+        // Rummen som saknar höjd får den ur NTV ÷ NTA som förut (beslut 79).
+        delete r.rect;
+      });
+      data.installationer.forEach(function (i) {
+        if (!nycklar[i.rum]) { return; }
+        delete i.x;
+        delete i.z;
+        delete i.h;
+      });
+    });
+    return true;
   }
 
   // Kopplingarna och de avvikande texterna för installationer som försvunnit, bort i samma
@@ -7517,8 +7702,13 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
 
   // De härledda uppgifterna nedan gäller den aktiva byggnaden om inget byggnads-id anges.
   // Balanseringen räknar på alla byggnader samtidigt och skickar därför alltid med id:t.
+  //
+  // Namnet tas genom `byggnadsNamn()` och inte ur `B(bid)` direkt: *Ta bort byggnad*
+  // (beslut 100) gör det möjligt att något fortfarande håller en borttagen byggnads id – en
+  // öppen telefonvy, ett sparat balanseringssammandrag – och ett tillfällesnamn som kraschar
+  // hade tagit hela vyn med sig. `byggnadsNamn()` svarar då med id:t, som är fult men läsbart.
   function rutintillfalleNamn(rondId, v, bid) {
-    return B(bid).namn.replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
+    return String(byggnadsNamn(bid)).replace(/\s+/g, '') + '-' + rondNamn(rondId) + '-' + veckoNamn(v);
   }
 
   // Hela förskjutningen för en rond: byggnadens besöksrytm (nivå 1) plus rondens egen (nivå 2).
@@ -7606,8 +7796,12 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     return (s || state()).kopplingar.filter(function (k) { return k.inst === instId; });
   }
 
+  // Tom lista för en byggnad som inte finns, av samma skäl som `rutintillfalleNamn()`: en
+  // borttagen byggnads id kan ligga kvar i något som ännu inte ritats om, och "inga
+  // installationer" är ett riktigt svar om en byggnad som inte finns.
   function signifikanta(bid) {
-    return B(bid).installationer.filter(function (i) { return i.signifikant; });
+    var b = B(bid);
+    return b ? b.installationer.filter(function (i) { return i.signifikant; }) : [];
   }
 
   // De generella åtgärderna gäller byggnaden som helhet och kopplas till 'BYGGNAD'
@@ -7660,7 +7854,10 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     s = s || stateFor(bid);
     var schablon = DP.tidsschablon;
     var kopp = s.kopplingar.filter(function (k) { return k.rond === rondId; });
-    var nRum = B(bid).rum.length;
+    // Noll rum för en byggnad som inte finns, av samma skäl som `signifikanta()`: ett sparat
+    // balanseringssammandrag kan hålla en borttagen byggnads id (beslut 100), och förslaget
+    // ska då bli ett tal och inte ett kast.
+    var nRum = (B(bid) || { rum: [] }).rum.length;
     var minuter = 0;
     var perTyngd = { latt: 0, normal: 0, tung: 0 };
     var nInst = 0;
@@ -8573,7 +8770,11 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
           timmar: tidTimmar(r.id, s, bid)
         };
       });
-      ut.byggnader[bid] = { ronder: ronder };
+      // Namnet sparas med sammandraget, inte bara id:t. Tas byggnaden bort (beslut 100) finns
+      // den inte att slå upp när ändringen ska formuleras, och raden hade fått säga "byggnad3"
+      // – ett id planeraren aldrig sett. Namnet som gällde vid balanseringen är dessutom det
+      // rätta i beskedet: det är den byggnaden hon balanserade.
+      ut.byggnader[bid] = { namn: byggnadsNamn(bid), ronder: ronder };
     });
     return ut;
   }
@@ -8592,17 +8793,32 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (!fore) { return []; }
     var nu = balanseringSammandrag();
     var ut = [];
-    function lagg(bid, typ, text) { ut.push({ byggnad: bid, byggnadNamn: byggnadsNamn(bid), typ: typ, text: text }); }
+    // Namnet tas ur sammandraget när byggnaden inte finns kvar: en borttagen byggnad går inte
+    // att slå upp, och raden hade annars burit id:t i stället för namnet.
+    function namnet(bid) {
+      return (fore.byggnader[bid] && fore.byggnader[bid].namn) || byggnadsNamn(bid);
+    }
+    function lagg(bid, typ, text) { ut.push({ byggnad: bid, byggnadNamn: namnet(bid), typ: typ, text: text }); }
 
     // Byggnader som slutat vara klara räknas inte längre med i balanseringen, och den
     // byggnadens förskjutning säger inget om belastningen – det är den tyngsta ändringen av
     // alla, så den redovisas som en egen rad och ronderna i den räknas inte upp en gång till.
     // Byggnaderna i sammandraget *och* de som finns nu: en byggnad som skapats efter
     // balanseringen finns bara i nuläget, och en som ångrats bort bara i sammandraget.
+    var finns = {};
+    ordning().forEach(function (bid) { finns[bid] = true; });
     allaIdn(fore.byggnader, nu.byggnader).forEach(function (bid) {
       var f = fore.byggnader[bid], n = nu.byggnader[bid];
       if (f && !n) {
-        lagg(bid, 'ej-klar', byggnadsNamn(bid) + ' är inte längre klar i alla sex stegen och räknas inte med');
+        // **Borttagen** eller bara inte längre klar? Två helt olika besked för planeraren:
+        // en byggnad som inte är klar står kvar i listan och går att göra klar igen, en
+        // borttagen är borta (beslut 100, berättelse 71). Att säga "inte längre klar i alla
+        // sex stegen" om en byggnad som inte finns hade skickat henne att leta efter den.
+        if (!finns[bid]) {
+          lagg(bid, 'borttagen', namnet(bid) + ' är borttagen och räknas inte med');
+        } else {
+          lagg(bid, 'ej-klar', namnet(bid) + ' är inte längre klar i alla sex stegen och räknas inte med');
+        }
       } else if (!f && n) {
         lagg(bid, 'ny-klar', byggnadsNamn(bid) + ' är klar i alla sex stegen nu och räknas med');
       } else if (f && n) {
@@ -8741,6 +8957,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // `byggnadsordning.forEach(…)` – och den formen ska fortsätta att svara sant.
     get byggnadsordning() { return ordning().slice(); },
     skapaByggnad: skapaByggnad, namnTaget: namnTaget, namnHinder: namnHinder,
+    sattByggnadsNamn: sattByggnadsNamn, taBortByggnad: taBortByggnad,
     byggnadsSteg: byggnadsSteg, byggnadStatus: byggnadStatus,
     planHinder: planHinder, laggTillPlan: laggTillPlan, flyttaPlan: flyttaPlan,
     taBortPlan: taBortPlan, sattPlanNamn: sattPlanNamn, planStatus: planStatus,
@@ -8749,6 +8966,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     svaraPlan: svaraPlan, inlasningStatus: inlasningStatus, filArk: filArk,
     godtaRum: godtaRum, godtaAllaRum: godtaAllaRum, svaraRum: svaraRum,
     rumStatus: rumStatus, sattRumstyp: sattRumstyp, taBortRum: taBortRum,
+    ritaOmPlan: ritaOmPlan,
     laggTillRum: laggTillRum, flyttaRum: flyttaRum, rumHinder: rumHinder,
     nastaRumsnummer: nastaRumsnummer,
     godtaInst: godtaInst, godtaAllaInst: godtaAllaInst, svaraInst: svaraInst,
@@ -10646,12 +10864,19 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   'use strict';
 
   var DP = window.DP, P = DP.Plan, D = DP.Dialog;
+  // Namnen vaktas: en installation kan ha tagits bort (beslut 87) eller försvunnit med sin
+  // byggnad (beslut 100), och de här namnen står i sju dialogtexter. Ett namn som saknas ska
+  // bli ett ord planeraren kan läsa, inte ett kast som släcker dialogen.
   function instNamn(instId) {
-    if (instId === 'BYGGNAD') { return P.byggnad().namn + ' (hela byggnaden)'; }
+    if (instId === 'BYGGNAD') { return P.byggnadsNamn() + ' (hela byggnaden)'; }
     var i = P.inst(instId);
-    return i.beteckning + ' ' + i.benamning;
+    return i ? i.beteckning + ' ' + i.benamning : 'Borttagen installation';
   }
-  function kortNamn(instId) { return instId === 'BYGGNAD' ? P.byggnad().namn : P.inst(instId).beteckning; }
+  function kortNamn(instId) {
+    if (instId === 'BYGGNAD') { return P.byggnadsNamn(); }
+    var i = P.inst(instId);
+    return i ? i.beteckning : 'Borttagen';
+  }
 
   function veckoChips(lista) {
     return '<div class="vchips">' + lista.map(function (t) { return '<span class="vchip">' + t + '</span>'; }).join('') + '</div>';
@@ -11053,7 +11278,11 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   var oppna = []; // { nyckel, vy: 'lista'|'detalj', index, scroll }
   var b, rumIndex, planIndex;
   function indexera() {
-    b = P.byggnad(); rumIndex = {}; planIndex = {};
+    // Tom byggnad när den aktiva inte finns: *Ta bort byggnad* (beslut 100) byter aktiv
+    // byggnad innan lyssnarna körs, så det normala är att den finns – men en krasch här hade
+    // tagit hela sidan med sig, och en telefon utan byggnad har bara ingenting att visa.
+    b = P.byggnad() || { namn: '', rum: [], plan: [], installationer: [] };
+    rumIndex = {}; planIndex = {};
     // Nycklat på rummets nyckel (plan + rumsnummer), som installationernas `rum` bär (beslut 76)
     b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
     b.plan.forEach(function (p) { planIndex[p.id] = p; });
@@ -11110,9 +11339,16 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
 
   function installationsInfo(k) {
     if (k.inst === 'BYGGNAD') { return { namn: b.namn + ' (hela byggnaden)', plan: '–', rum: '–', inst: null }; }
+    // Installationen, rummet och planet slås upp ett i taget och vaktas: en installation kan
+    // ha tagits bort (beslut 87) eller försvunnit med sin byggnad (beslut 100) medan
+    // kopplingen ännu inte städats ur den vy som ritar. Att säga "borttagen installation" är
+    // pedagogiskt riktigare än att kasta – och en krasch här hade släckt hela telefonen.
     var i = P.inst(k.inst);
-    var r = rumIndex[i.rum], p = planIndex[r.plan];
-    return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: DP.rumBeteckning(r) + ' – ' + r.namn, inst: i };
+    if (!i) { return { namn: 'Borttagen installation', plan: '–', rum: '–', inst: null }; }
+    var r = rumIndex[i.rum], p = r ? planIndex[r.plan] : null;
+    return { namn: i.benamning, bet: i.beteckning,
+      plan: p ? p.id + ' – ' + p.namn : '–',
+      rum: r ? DP.rumBeteckning(r) + ' – ' + r.namn : '–', inst: i };
   }
 
   function rita() {
@@ -12297,7 +12533,14 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     instdrag: null,
     nyInst: { rum: '', benamning: '', beteckning: '', typ: '', fabrikat: '', modell: '',
       datum: '', externtId: '' },
-    laggerTillInst: false
+    laggerTillInst: false,
+    // *Ändra byggnad* i steg 1 (beslut 100 och 103): det nya namnet medan planeraren skriver
+    // det. `null` betyder att hon inte döper om – samma mönster som `doper` för ett plan, och
+    // av samma skäl: ändringen sker där uppgiften står och inte i en ruta ovanpå sidan.
+    // `nyttNamnFran` är namnet som gällde när fältet öppnades, så att ett ångra på annat håll
+    // går att känna igen: då är det hon skrivit ett svar på ett namn som inte gäller längre.
+    nyttNamn: null,
+    nyttNamnFran: null
   };
 
   function el(tag, cls, html) {
@@ -12541,15 +12784,21 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     rita();
   }
 
-  // Byggnaden som finns: namnet och området går att läsa, typen står låst (beslut 104).
-  // Att *ändra* dem hör till *Ändra byggnad* och byggs i en senare biljett i spåret.
+  // Byggnaden som finns: *Ändra byggnad* (berättelse 2). Typen är låst (beslut 104), men
+  // **namnet går att byta** (beslut 103) och byggnaden att **ta bort** (beslut 100).
+  //
+  // Området och färgen står kvar som skrivskyddade: de hör också till *Ändra byggnad*, men
+  // ingen av dem står i biljetten, och ett fält som ser redigerbart ut utan att vara det är
+  // värre än ett som inte gör det.
   function befintligByggnad(kropp) {
     var b = P.byggnad();
     if (!b) { return; }
     var typ = DP.byggnadstyper[b.typ];
     var omr = DP.omraden.filter(function (o) { return o.id === b.omrade; })[0];
     var rutnat = el('div', 'bf-faltrutnat');
-    falt(rutnat, 'Namn', b.namn);
+    // Namnet är det enda fältet med en knapp: resten av steget är uppgifter om byggnaden,
+    // och namnet är det planeraren kan rätta.
+    namnfalt(rutnat, b);
     falt(rutnat, 'Byggnadstyp', (typ ? typ.namn : b.typ) + ' <span class="tagg">låst</span>');
     falt(rutnat, 'Område', omr ? omr.namn : '–');
     falt(rutnat, 'Färg', '<span class="bal-farg" style="background:' + b.farg + '"></span>');
@@ -12558,6 +12807,117 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       'Byggnadstypen är låst när byggnaden skapats: den avgör planlösningen, utseendet och ' +
       'vilka byggnader planeringen kan kopieras mellan. Blir typen fel skapar du en ny byggnad ' +
       'och läser in samma fil.'));
+    taBortByggnadsrad(kropp, b);
+  }
+
+  // Namnet: visat med *Byt namn*, eller ett fält medan planeraren skriver det nya. Beskedet om
+  // ett upptaget namn kommer **medan hon skriver** (beslut 103), precis som i steg 1 för en ny
+  // byggnad, och det är samma regel som svarar – `P.namnHinder`, med byggnaden själv undantagen
+  // så att namnet får skrivas om utan att krocka med sig självt.
+  function namnfalt(rutnat, b) {
+    if (ui.nyttNamn === null) {
+      var r = el('div', 'falt');
+      r.appendChild(el('div', 'etikett', 'Namn'));
+      var v = el('div', 'varde');
+      v.appendChild(el('span', null, b.namn));
+      v.appendChild(knapp('Byt namn', 'knapp sekundar liten-knapp', function () {
+        ui.nyttNamn = b.namn;
+        ui.nyttNamnFran = b.namn;
+        ui.fokus = 'byggnadsnamn';
+        rita();
+      }, 'Byt namn på byggnaden. Rutintillfällena byter namn med den.'));
+      r.appendChild(v);
+      rutnat.appendChild(r);
+      return;
+    }
+    var hinder = P.namnHinder(ui.nyttNamn, b.id);
+    var rad = el('div', 'falt bf-namnbyte');
+    rad.appendChild(el('div', 'etikett', 'Namn'));
+    var varde = el('div', 'varde');
+    var namnfaltet = el('input', 'bf-falt');
+    namnfaltet.value = ui.nyttNamn;
+    namnfaltet.dataset.falt = 'byggnadsnamn';
+    namnfaltet.addEventListener('input', function () { ui.nyttNamn = namnfaltet.value; rita(); });
+    namnfaltet.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { spara(); }
+      if (e.key === 'Escape') { avbrytNamnbyte(); rita(); }
+    });
+    varde.appendChild(namnfaltet);
+    var spar = knapp('Spara', 'knapp liten-knapp', spara,
+      'Rutintillfällena byter namn med byggnaden. ◀ tar namnet tillbaka.');
+    spar.disabled = !!hinder || ui.nyttNamn.trim() === b.namn;
+    if (spar.disabled) { spar.title = hinder || 'Namnet är oförändrat'; }
+    varde.appendChild(spar);
+    varde.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+      avbrytNamnbyte(); rita();
+    }));
+    rad.appendChild(varde);
+    if (hinder) { rad.appendChild(el('div', 'bf-fel', hinder)); }
+    rutnat.appendChild(rad);
+
+    function spara() {
+      // Gick namnbytet igenom ritar lyssnaren om; gick det inte står fältet kvar med
+      // beskedet, och då måste omritningen begäras här.
+      if (P.sattByggnadsNamn(ui.nyttNamn, b.id)) { avbrytNamnbyte(); } else { rita(); }
+    }
+  }
+  // Lämna namnbytet. De två fälten nollställs tillsammans, så att `nyttNamnFran` aldrig kan
+  // bli kvar och peka på ett namn ingen längre skriver mot.
+  function avbrytNamnbyte() { ui.nyttNamn = null; ui.nyttNamnFran = null; }
+
+  // *Ta bort byggnad* (beslut 100, berättelse 71). Planeringen försvinner med byggnaden, och
+  // har den varit med i en balansering markeras Balansering som ändrad – följder nog att
+  // frågan ställs först, till skillnad från ett rum eller en installation där `◀` räcker som
+  // besked. Det är samma skiljelinje som *Ta bort rond* i Planering: bekräfta när
+  // borttagningen rör något på annat håll.
+  function taBortByggnadsrad(kropp, b) {
+    var sista = P.byggnadsordning.length < 2;
+    var rad = el('div', 'knapprad bf-farligt');
+    var k = knapp('Ta bort byggnaden', 'knapp sekundar liten-knapp', function () {
+      fragaTaBort(b);
+    }, 'Tar bort byggnaden och dess planering. ◀ tar den tillbaka.');
+    k.disabled = sista;
+    if (sista) {
+      k.title = 'Den sista byggnaden går inte att ta bort – modellen och listorna behöver en ' +
+        'byggnad att visa.';
+    }
+    rad.appendChild(k);
+    kropp.appendChild(rad);
+  }
+
+  // Frågan innan borttagningen. Den räknar upp vad som försvinner med byggnaden, eftersom det
+  // är det planeraren behöver väga: ett tomt skal är en annan sak än en färdigplanerad kasern.
+  function fragaTaBort(b) {
+    var sig = b.installationer.filter(function (i) { return i.signifikant; }).length;
+    var klar = P.byggnadKlar(b.id);
+    var bal = P.balanseringStatus();
+    var delar = [];
+    if (b.plan.length) { delar.push(antal(b.plan.length, 'plan', 'plan')); }
+    if (b.rum.length) { delar.push(antal(b.rum.length, 'rum', 'rum')); }
+    if (sig) { delar.push(antal(sig, 'signifikant installation', 'signifikanta installationer')); }
+    var html = '<p>' + DP.Dialog.esc(b.namn) + ' försvinner med ' +
+      (delar.length ? delar.join(', ') : 'inga plan eller rum') + ', och planeringen med den.</p>';
+    if (klar) {
+      html += '<p>Byggnaden är <b>klar i alla sex stegen</b>, så dess ronder räknas med i ' +
+        'Balansering i dag.</p>';
+    }
+    // Var byggnaden med i balanseringen blir Balansering markerad som ändrad planering
+    // (beslut 40). Det sägs i förväg: planeraren ska veta att hon får en markering att svara
+    // på, inte möta den som en överraskning i ett annat huvudsteg.
+    if (bal.balanserad && klar) {
+      html += '<p>Balansering kommer att säga att <b>planeringen har ändrats</b> sedan du ' +
+        'balanserade. Inget räknas om av sig självt – förskjutningarna ligger kvar tills du ' +
+        'balanserar om.</p>';
+    }
+    html += '<p>◀ tar byggnaden tillbaka, med planering och allt.</p>';
+    DP.Dialog.visa({
+      titel: 'Ta bort ' + b.namn + '?',
+      html: html,
+      knappar: [
+        { text: 'Ta bort byggnaden', prim: true, gor: function () { P.taBortByggnad(b.id); } },
+        { text: 'Avbryt' }
+      ]
+    });
   }
   function falt(rot2, etikett, varde) {
     var r = el('div', 'falt');
@@ -13225,14 +13585,22 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // De handritade byggnaderna är ritade rum för rum i `data/` och lämnas orörda av
     // planlösningen (beslut 101). Ett rum som läggs till eller dras om där får sin plats ur
     // regeln medan grannarna behåller sina ritade mått, och då kan de ligga över varandra.
-    // Planeraren får veta det innan hon drar – att planet ritas om efter en varning hör till
-    // *Ändra byggnad* (berättelse 58) och är inte byggt här.
+    //
+    // Två besked, inte ett. **Innan** något rörts är det en upplysning: byggnaden är ritad,
+    // och det du gör här räknas om. **Efter** att ett plan blivit halvt räknat är det en
+    // varning med en väg ut – *Rita om planet* lägger ut hela planet enligt regeln
+    // (beslut 101, berättelse 58). Att skilja dem är hela poängen: en varning som står där
+    // hela tiden slutar planeraren att läsa.
     if (st.handritad) {
-      kropp.appendChild(el('div', 'bf-notis',
-        '<b>' + b.namn + '</b> är en ritad byggnad: dess rum har egna mått i systemet. Att dra ' +
-        'om ordningen eller lägga till ett rum här räknar om <i>det nya rummets</i> plats ur ' +
-        'byggnadstypens regel, men inte grannarnas – så rummen kan hamna över varandra i ' +
-        'modellen. Att rita om hela planet efter en varning hör till <i>Ändra byggnad</i>.'));
+      if (st.blandade.length) {
+        kropp.appendChild(blandadVarning(b, st));
+      } else {
+        kropp.appendChild(el('div', 'bf-notis',
+          '<b>' + b.namn + '</b> är en ritad byggnad: dess rum har egna mått i systemet. Att dra ' +
+          'om ordningen eller lägga till ett rum här räknar om <i>det nya rummets</i> plats ur ' +
+          'byggnadstypens regel, men inte grannarnas – så rummen kan hamna över varandra i ' +
+          'modellen. Du får då välja att rita om hela planet enligt regeln.'));
+      }
     }
     // Alla plan ritas, också de utan rum: ett tomt plan är det planeraren drar ett oplacerat
     // rum till (berättelse 37), och ett plan som inte syns går inte att dra till.
@@ -13245,6 +13613,62 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     lista.addEventListener('dragend', function () { ui.rumdrag = null; rita(); });
     kropp.appendChild(lista);
     laggTillRumFormular(kropp, st);
+  }
+
+  // ---- Varningen när ett ritat plan blivit halvt räknat (beslut 101, berättelse 58) ----
+  // Varningen säger tre saker i den ordningen: vad som är fel (rummen kan ligga över
+  // varandra), vilket plan det gäller, och vad *Rita om planet* gör. Det tredje är det
+  // viktigaste: omritningen tar bort planets ritade mått, så hela planet läggs ut enligt
+  // byggnadstypens regel. Det är inget planeraren kan gissa sig till, och det går inte att
+  // se i modellen förrän det är gjort.
+  //
+  // Ett knapp per blandat plan, inte en knapp för byggnaden: bara det plan hon rört ska
+  // ritas om, och de byggnader hon lärt sig på ska inte förändras i onödan (berättelse 58).
+  function blandadVarning(b, st) {
+    var w = el('div', 'bf-fel bf-ritaom');
+    var namnFor = {};
+    st.plan.forEach(function (p) { namnFor[p.id] = p.namn || p.id; });
+    var listan = st.blandade.map(function (id) {
+      return 'plan ' + id + (namnFor[id] ? ' ' + namnFor[id] : '');
+    }).join(', ');
+    w.appendChild(el('p', null,
+      '<b>' + b.namn + '</b> är en ritad byggnad, och på ' + listan + ' har rummen nu både ' +
+      'ritade och räknade mått. De två räknas inte i samma koordinatsystem, så <b>rummen kan ' +
+      'ligga över varandra i modellen</b>.'));
+    w.appendChild(el('p', null,
+      'Att <i>rita om planet</i> tar bort planets ritade mått och lägger ut <b>alla</b> dess ' +
+      'rum enligt byggnadstypens regel – korridoren längs byggnaden och rummen på båda sidor ' +
+      'i nummerordning. Rummens egna uppgifter, installationer och tillsyn rörs inte; det är ' +
+      'bara platsen i modellen som räknas om. Grannplanen står kvar som de är ritade.'));
+    var rad = el('div', 'knapprad');
+    st.blandade.forEach(function (id) {
+      rad.appendChild(knapp('Rita om plan ' + id, 'knapp sekundar liten-knapp', function () {
+        fragaRitaOm(b, id, namnFor[id]);
+      }, 'Lägger ut alla rum på plan ' + id + ' enligt byggnadstypens regel. ◀ tar den ritade ' +
+         'formen tillbaka.'));
+    });
+    w.appendChild(rad);
+    return w;
+  }
+
+  // Frågan innan omritningen. Den säger hur många rum som får ny plats, eftersom det är
+  // skillnaden mellan att rätta ett rum och att lägga om ett helt plan.
+  function fragaRitaOm(b, planId, planNamn) {
+    var pa = b.rum.filter(function (r) { return r.plan === planId && !r.iRum; });
+    var ritade = pa.filter(function (r) { return !!r.rect; }).length;
+    DP.Dialog.visa({
+      titel: 'Rita om plan ' + planId + (planNamn ? ' ' + planNamn : '') + '?',
+      html: '<p>' + antal(pa.length, 'rum', 'rum') + ' på planet får sin plats räknad ur ' +
+        'byggnadstypens regel, varav ' + ritade + ' har ritade mått i dag.</p>' +
+        '<p>Rummens nummer, benämningar, areor och installationer rörs inte – och tillsynen ' +
+        'inte heller. Det är bara <b>platsen i modellen</b> som räknas om.</p>' +
+        '<p>Övriga plan i ' + DP.Dialog.esc(b.namn) + ' står kvar som de är ritade. ◀ tar ' +
+        'den ritade formen tillbaka.</p>',
+      knappar: [
+        { text: 'Rita om planet', prim: true, gor: function () { P.ritaOmPlan(planId, b.id); } },
+        { text: 'Avbryt' }
+      ]
+    });
   }
 
   // ---- Lägg till ett rum för hand (berättelse 26) ----
@@ -13938,6 +14362,14 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   P.prenumerera(function () {
     // Ångras ett *Skapa byggnad* är formuläret inte längre på väg någonstans
     if (ui.skapar && !P.byggnad()) { ui.skapar = false; }
+    // Ändras byggnadens namn på annat håll – ett ångra, ett gör om – är det halvskrivna
+    // namnet inte längre ett svar på vad som står i fältet: hon skrev det mot ett namn som
+    // inte gäller längre. Jämförelsen går mot namnet som gällde när fältet öppnades, inte
+    // mot att byggnaden finns – ett ångra av namnbytet lämnar byggnaden på plats.
+    if (ui.nyttNamn !== null) {
+      var bn = P.byggnad();
+      if (!bn || bn.namn !== ui.nyttNamnFran) { avbrytNamnbyte(); }
+    }
     rita();
   });
   // Byter planeraren byggnad mitt i ifyllningen är formuläret inte längre på väg någonstans:
@@ -13948,6 +14380,8 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     ui.skapar = false;
     ui.doper = null;
     ui.rumstyp = null;
+    // Namnet hon skrev gällde den byggnad hon stod i, inte den hon bytt till.
+    avbrytNamnbyte();
     // Ett halvskrivet rum hör till den byggnad hon stod i: planet det pekar på finns kanske
     // inte i den nya, och numret är räknat på den gamlas rum.
     ui.laggerTillRum = false;

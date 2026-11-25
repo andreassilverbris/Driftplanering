@@ -72,7 +72,14 @@
     instdrag: null,
     nyInst: { rum: '', benamning: '', beteckning: '', typ: '', fabrikat: '', modell: '',
       datum: '', externtId: '' },
-    laggerTillInst: false
+    laggerTillInst: false,
+    // *Ändra byggnad* i steg 1 (beslut 100 och 103): det nya namnet medan planeraren skriver
+    // det. `null` betyder att hon inte döper om – samma mönster som `doper` för ett plan, och
+    // av samma skäl: ändringen sker där uppgiften står och inte i en ruta ovanpå sidan.
+    // `nyttNamnFran` är namnet som gällde när fältet öppnades, så att ett ångra på annat håll
+    // går att känna igen: då är det hon skrivit ett svar på ett namn som inte gäller längre.
+    nyttNamn: null,
+    nyttNamnFran: null
   };
 
   function el(tag, cls, html) {
@@ -316,15 +323,21 @@
     rita();
   }
 
-  // Byggnaden som finns: namnet och området går att läsa, typen står låst (beslut 104).
-  // Att *ändra* dem hör till *Ändra byggnad* och byggs i en senare biljett i spåret.
+  // Byggnaden som finns: *Ändra byggnad* (berättelse 2). Typen är låst (beslut 104), men
+  // **namnet går att byta** (beslut 103) och byggnaden att **ta bort** (beslut 100).
+  //
+  // Området och färgen står kvar som skrivskyddade: de hör också till *Ändra byggnad*, men
+  // ingen av dem står i biljetten, och ett fält som ser redigerbart ut utan att vara det är
+  // värre än ett som inte gör det.
   function befintligByggnad(kropp) {
     var b = P.byggnad();
     if (!b) { return; }
     var typ = DP.byggnadstyper[b.typ];
     var omr = DP.omraden.filter(function (o) { return o.id === b.omrade; })[0];
     var rutnat = el('div', 'bf-faltrutnat');
-    falt(rutnat, 'Namn', b.namn);
+    // Namnet är det enda fältet med en knapp: resten av steget är uppgifter om byggnaden,
+    // och namnet är det planeraren kan rätta.
+    namnfalt(rutnat, b);
     falt(rutnat, 'Byggnadstyp', (typ ? typ.namn : b.typ) + ' <span class="tagg">låst</span>');
     falt(rutnat, 'Område', omr ? omr.namn : '–');
     falt(rutnat, 'Färg', '<span class="bal-farg" style="background:' + b.farg + '"></span>');
@@ -333,6 +346,117 @@
       'Byggnadstypen är låst när byggnaden skapats: den avgör planlösningen, utseendet och ' +
       'vilka byggnader planeringen kan kopieras mellan. Blir typen fel skapar du en ny byggnad ' +
       'och läser in samma fil.'));
+    taBortByggnadsrad(kropp, b);
+  }
+
+  // Namnet: visat med *Byt namn*, eller ett fält medan planeraren skriver det nya. Beskedet om
+  // ett upptaget namn kommer **medan hon skriver** (beslut 103), precis som i steg 1 för en ny
+  // byggnad, och det är samma regel som svarar – `P.namnHinder`, med byggnaden själv undantagen
+  // så att namnet får skrivas om utan att krocka med sig självt.
+  function namnfalt(rutnat, b) {
+    if (ui.nyttNamn === null) {
+      var r = el('div', 'falt');
+      r.appendChild(el('div', 'etikett', 'Namn'));
+      var v = el('div', 'varde');
+      v.appendChild(el('span', null, b.namn));
+      v.appendChild(knapp('Byt namn', 'knapp sekundar liten-knapp', function () {
+        ui.nyttNamn = b.namn;
+        ui.nyttNamnFran = b.namn;
+        ui.fokus = 'byggnadsnamn';
+        rita();
+      }, 'Byt namn på byggnaden. Rutintillfällena byter namn med den.'));
+      r.appendChild(v);
+      rutnat.appendChild(r);
+      return;
+    }
+    var hinder = P.namnHinder(ui.nyttNamn, b.id);
+    var rad = el('div', 'falt bf-namnbyte');
+    rad.appendChild(el('div', 'etikett', 'Namn'));
+    var varde = el('div', 'varde');
+    var namnfaltet = el('input', 'bf-falt');
+    namnfaltet.value = ui.nyttNamn;
+    namnfaltet.dataset.falt = 'byggnadsnamn';
+    namnfaltet.addEventListener('input', function () { ui.nyttNamn = namnfaltet.value; rita(); });
+    namnfaltet.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { spara(); }
+      if (e.key === 'Escape') { avbrytNamnbyte(); rita(); }
+    });
+    varde.appendChild(namnfaltet);
+    var spar = knapp('Spara', 'knapp liten-knapp', spara,
+      'Rutintillfällena byter namn med byggnaden. ◀ tar namnet tillbaka.');
+    spar.disabled = !!hinder || ui.nyttNamn.trim() === b.namn;
+    if (spar.disabled) { spar.title = hinder || 'Namnet är oförändrat'; }
+    varde.appendChild(spar);
+    varde.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+      avbrytNamnbyte(); rita();
+    }));
+    rad.appendChild(varde);
+    if (hinder) { rad.appendChild(el('div', 'bf-fel', hinder)); }
+    rutnat.appendChild(rad);
+
+    function spara() {
+      // Gick namnbytet igenom ritar lyssnaren om; gick det inte står fältet kvar med
+      // beskedet, och då måste omritningen begäras här.
+      if (P.sattByggnadsNamn(ui.nyttNamn, b.id)) { avbrytNamnbyte(); } else { rita(); }
+    }
+  }
+  // Lämna namnbytet. De två fälten nollställs tillsammans, så att `nyttNamnFran` aldrig kan
+  // bli kvar och peka på ett namn ingen längre skriver mot.
+  function avbrytNamnbyte() { ui.nyttNamn = null; ui.nyttNamnFran = null; }
+
+  // *Ta bort byggnad* (beslut 100, berättelse 71). Planeringen försvinner med byggnaden, och
+  // har den varit med i en balansering markeras Balansering som ändrad – följder nog att
+  // frågan ställs först, till skillnad från ett rum eller en installation där `◀` räcker som
+  // besked. Det är samma skiljelinje som *Ta bort rond* i Planering: bekräfta när
+  // borttagningen rör något på annat håll.
+  function taBortByggnadsrad(kropp, b) {
+    var sista = P.byggnadsordning.length < 2;
+    var rad = el('div', 'knapprad bf-farligt');
+    var k = knapp('Ta bort byggnaden', 'knapp sekundar liten-knapp', function () {
+      fragaTaBort(b);
+    }, 'Tar bort byggnaden och dess planering. ◀ tar den tillbaka.');
+    k.disabled = sista;
+    if (sista) {
+      k.title = 'Den sista byggnaden går inte att ta bort – modellen och listorna behöver en ' +
+        'byggnad att visa.';
+    }
+    rad.appendChild(k);
+    kropp.appendChild(rad);
+  }
+
+  // Frågan innan borttagningen. Den räknar upp vad som försvinner med byggnaden, eftersom det
+  // är det planeraren behöver väga: ett tomt skal är en annan sak än en färdigplanerad kasern.
+  function fragaTaBort(b) {
+    var sig = b.installationer.filter(function (i) { return i.signifikant; }).length;
+    var klar = P.byggnadKlar(b.id);
+    var bal = P.balanseringStatus();
+    var delar = [];
+    if (b.plan.length) { delar.push(antal(b.plan.length, 'plan', 'plan')); }
+    if (b.rum.length) { delar.push(antal(b.rum.length, 'rum', 'rum')); }
+    if (sig) { delar.push(antal(sig, 'signifikant installation', 'signifikanta installationer')); }
+    var html = '<p>' + DP.Dialog.esc(b.namn) + ' försvinner med ' +
+      (delar.length ? delar.join(', ') : 'inga plan eller rum') + ', och planeringen med den.</p>';
+    if (klar) {
+      html += '<p>Byggnaden är <b>klar i alla sex stegen</b>, så dess ronder räknas med i ' +
+        'Balansering i dag.</p>';
+    }
+    // Var byggnaden med i balanseringen blir Balansering markerad som ändrad planering
+    // (beslut 40). Det sägs i förväg: planeraren ska veta att hon får en markering att svara
+    // på, inte möta den som en överraskning i ett annat huvudsteg.
+    if (bal.balanserad && klar) {
+      html += '<p>Balansering kommer att säga att <b>planeringen har ändrats</b> sedan du ' +
+        'balanserade. Inget räknas om av sig självt – förskjutningarna ligger kvar tills du ' +
+        'balanserar om.</p>';
+    }
+    html += '<p>◀ tar byggnaden tillbaka, med planering och allt.</p>';
+    DP.Dialog.visa({
+      titel: 'Ta bort ' + b.namn + '?',
+      html: html,
+      knappar: [
+        { text: 'Ta bort byggnaden', prim: true, gor: function () { P.taBortByggnad(b.id); } },
+        { text: 'Avbryt' }
+      ]
+    });
   }
   function falt(rot2, etikett, varde) {
     var r = el('div', 'falt');
@@ -1000,14 +1124,22 @@
     // De handritade byggnaderna är ritade rum för rum i `data/` och lämnas orörda av
     // planlösningen (beslut 101). Ett rum som läggs till eller dras om där får sin plats ur
     // regeln medan grannarna behåller sina ritade mått, och då kan de ligga över varandra.
-    // Planeraren får veta det innan hon drar – att planet ritas om efter en varning hör till
-    // *Ändra byggnad* (berättelse 58) och är inte byggt här.
+    //
+    // Två besked, inte ett. **Innan** något rörts är det en upplysning: byggnaden är ritad,
+    // och det du gör här räknas om. **Efter** att ett plan blivit halvt räknat är det en
+    // varning med en väg ut – *Rita om planet* lägger ut hela planet enligt regeln
+    // (beslut 101, berättelse 58). Att skilja dem är hela poängen: en varning som står där
+    // hela tiden slutar planeraren att läsa.
     if (st.handritad) {
-      kropp.appendChild(el('div', 'bf-notis',
-        '<b>' + b.namn + '</b> är en ritad byggnad: dess rum har egna mått i systemet. Att dra ' +
-        'om ordningen eller lägga till ett rum här räknar om <i>det nya rummets</i> plats ur ' +
-        'byggnadstypens regel, men inte grannarnas – så rummen kan hamna över varandra i ' +
-        'modellen. Att rita om hela planet efter en varning hör till <i>Ändra byggnad</i>.'));
+      if (st.blandade.length) {
+        kropp.appendChild(blandadVarning(b, st));
+      } else {
+        kropp.appendChild(el('div', 'bf-notis',
+          '<b>' + b.namn + '</b> är en ritad byggnad: dess rum har egna mått i systemet. Att dra ' +
+          'om ordningen eller lägga till ett rum här räknar om <i>det nya rummets</i> plats ur ' +
+          'byggnadstypens regel, men inte grannarnas – så rummen kan hamna över varandra i ' +
+          'modellen. Du får då välja att rita om hela planet enligt regeln.'));
+      }
     }
     // Alla plan ritas, också de utan rum: ett tomt plan är det planeraren drar ett oplacerat
     // rum till (berättelse 37), och ett plan som inte syns går inte att dra till.
@@ -1020,6 +1152,62 @@
     lista.addEventListener('dragend', function () { ui.rumdrag = null; rita(); });
     kropp.appendChild(lista);
     laggTillRumFormular(kropp, st);
+  }
+
+  // ---- Varningen när ett ritat plan blivit halvt räknat (beslut 101, berättelse 58) ----
+  // Varningen säger tre saker i den ordningen: vad som är fel (rummen kan ligga över
+  // varandra), vilket plan det gäller, och vad *Rita om planet* gör. Det tredje är det
+  // viktigaste: omritningen tar bort planets ritade mått, så hela planet läggs ut enligt
+  // byggnadstypens regel. Det är inget planeraren kan gissa sig till, och det går inte att
+  // se i modellen förrän det är gjort.
+  //
+  // Ett knapp per blandat plan, inte en knapp för byggnaden: bara det plan hon rört ska
+  // ritas om, och de byggnader hon lärt sig på ska inte förändras i onödan (berättelse 58).
+  function blandadVarning(b, st) {
+    var w = el('div', 'bf-fel bf-ritaom');
+    var namnFor = {};
+    st.plan.forEach(function (p) { namnFor[p.id] = p.namn || p.id; });
+    var listan = st.blandade.map(function (id) {
+      return 'plan ' + id + (namnFor[id] ? ' ' + namnFor[id] : '');
+    }).join(', ');
+    w.appendChild(el('p', null,
+      '<b>' + b.namn + '</b> är en ritad byggnad, och på ' + listan + ' har rummen nu både ' +
+      'ritade och räknade mått. De två räknas inte i samma koordinatsystem, så <b>rummen kan ' +
+      'ligga över varandra i modellen</b>.'));
+    w.appendChild(el('p', null,
+      'Att <i>rita om planet</i> tar bort planets ritade mått och lägger ut <b>alla</b> dess ' +
+      'rum enligt byggnadstypens regel – korridoren längs byggnaden och rummen på båda sidor ' +
+      'i nummerordning. Rummens egna uppgifter, installationer och tillsyn rörs inte; det är ' +
+      'bara platsen i modellen som räknas om. Grannplanen står kvar som de är ritade.'));
+    var rad = el('div', 'knapprad');
+    st.blandade.forEach(function (id) {
+      rad.appendChild(knapp('Rita om plan ' + id, 'knapp sekundar liten-knapp', function () {
+        fragaRitaOm(b, id, namnFor[id]);
+      }, 'Lägger ut alla rum på plan ' + id + ' enligt byggnadstypens regel. ◀ tar den ritade ' +
+         'formen tillbaka.'));
+    });
+    w.appendChild(rad);
+    return w;
+  }
+
+  // Frågan innan omritningen. Den säger hur många rum som får ny plats, eftersom det är
+  // skillnaden mellan att rätta ett rum och att lägga om ett helt plan.
+  function fragaRitaOm(b, planId, planNamn) {
+    var pa = b.rum.filter(function (r) { return r.plan === planId && !r.iRum; });
+    var ritade = pa.filter(function (r) { return !!r.rect; }).length;
+    DP.Dialog.visa({
+      titel: 'Rita om plan ' + planId + (planNamn ? ' ' + planNamn : '') + '?',
+      html: '<p>' + antal(pa.length, 'rum', 'rum') + ' på planet får sin plats räknad ur ' +
+        'byggnadstypens regel, varav ' + ritade + ' har ritade mått i dag.</p>' +
+        '<p>Rummens nummer, benämningar, areor och installationer rörs inte – och tillsynen ' +
+        'inte heller. Det är bara <b>platsen i modellen</b> som räknas om.</p>' +
+        '<p>Övriga plan i ' + DP.Dialog.esc(b.namn) + ' står kvar som de är ritade. ◀ tar ' +
+        'den ritade formen tillbaka.</p>',
+      knappar: [
+        { text: 'Rita om planet', prim: true, gor: function () { P.ritaOmPlan(planId, b.id); } },
+        { text: 'Avbryt' }
+      ]
+    });
   }
 
   // ---- Lägg till ett rum för hand (berättelse 26) ----
@@ -1713,6 +1901,14 @@
   P.prenumerera(function () {
     // Ångras ett *Skapa byggnad* är formuläret inte längre på väg någonstans
     if (ui.skapar && !P.byggnad()) { ui.skapar = false; }
+    // Ändras byggnadens namn på annat håll – ett ångra, ett gör om – är det halvskrivna
+    // namnet inte längre ett svar på vad som står i fältet: hon skrev det mot ett namn som
+    // inte gäller längre. Jämförelsen går mot namnet som gällde när fältet öppnades, inte
+    // mot att byggnaden finns – ett ångra av namnbytet lämnar byggnaden på plats.
+    if (ui.nyttNamn !== null) {
+      var bn = P.byggnad();
+      if (!bn || bn.namn !== ui.nyttNamnFran) { avbrytNamnbyte(); }
+    }
     rita();
   });
   // Byter planeraren byggnad mitt i ifyllningen är formuläret inte längre på väg någonstans:
@@ -1723,6 +1919,8 @@
     ui.skapar = false;
     ui.doper = null;
     ui.rumstyp = null;
+    // Namnet hon skrev gällde den byggnad hon stod i, inte den hon bytt till.
+    avbrytNamnbyte();
     // Ett halvskrivet rum hör till den byggnad hon stod i: planet det pekar på finns kanske
     // inte i den nya, och numret är räknat på den gamlas rum.
     ui.laggerTillRum = false;

@@ -550,9 +550,24 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-fel { margin-top: 6px; background: #fdecea; border: 1px solid #f5c2bd; border-radius: 6px; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: #8c2018; }
 .bf-notis { margin-top: 10px; font-size: 12px; color: var(--dov); line-height: 1.5; }
 .bf-faltrutnat { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-.bf-faltrutnat .falt .varde { margin-top: 2px; font-size: 14px; }
+/* Värdet är en flexrad: namnet bär sin *Byt namn*-knapp, och namnbytet sitt fält med
+   Spara och Avbryt (beslut 103). */
+.bf-faltrutnat .falt .varde { margin-top: 2px; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* Färgrutan står ensam i ett fält och inte i en flexrad, så den behöver egen storlek */
 .bf-faltrutnat .bal-farg { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+/* Ändra byggnad (beslut 100 och 103): namnbytet tar hela rutnätets bredd – fältet, Spara,
+   Avbryt och beskedet behöver mer plats än en halv rad. */
+.bf-namnbyte { grid-column: 1 / -1; }
+.bf-namnbyte .bf-falt { flex: 1 1 140px; min-width: 0; }
+/* *Ta bort byggnaden* står för sig, med luft över: den hör inte till uppgifterna ovanför,
+   och en knapp som tar bort en byggnad ska inte ligga tätt intill dem man läser. */
+.bf-farligt { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linje); }
+/* Varningen när ett ritat plan blivit halvt räknat (beslut 101). Samma röda ruta som
+   `.bf-fel`, men med luft mellan stycken och knappar: den förklarar ett vägval. */
+.bf-ritaom { margin-top: 10px; }
+.bf-ritaom p { margin: 0 0 7px; }
+.bf-ritaom p:last-of-type { margin-bottom: 9px; }
+.bf-ritaom .knapprad { margin: 0; flex-wrap: wrap; }
 /* Byggnaden utan plan: beskedet står mitt i vyn där modellen hade legat. */
 .tom-byggnad { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); max-width: 460px; text-align: center; background: rgba(255,255,255,.92); border: 1px solid var(--linje); border-radius: 12px; padding: 18px 22px; box-shadow: 0 4px 18px rgba(20,30,45,.08); }
 .tb-rubrik { font-weight: 700; font-size: 15px; margin-bottom: 6px; }

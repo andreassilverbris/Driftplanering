@@ -630,11 +630,33 @@
     return ut;
   }
 
+  // Vilka plan **blandar** ritade och räknade rum? Det är den form beslut 101 pekar ut som
+  // fel: på ett sådant plan lägger `form()` ut rummen utan rektangel enligt regeln – från
+  // origo, i sin egen runda runt korridoren – medan grannarna behåller sina ritade mått, och
+  // de två koordinatsystemen är inte samma. Rummen kan då ligga över varandra.
+  //
+  // Frågan bor här och inte i `planering.js`, av samma skäl som `arRitad()`: det är geometri,
+  // och den som räknar ut platsen är den som vet när platsen inte går att räkna. Svaret är
+  // listan med plan-id, så att den som varnar kan säga *vilket* plan det gäller.
+  //
+  // Ett plan med bara ritade rum är orört och ett med bara räknade är räknat: båda är hela.
+  // Det är blandningen som är bristen, och den uppstår först när planeraren lägger till eller
+  // drar om ett rum i en handritad byggnad.
+  function blandadePlan(byggnad) {
+    var b = byggnad;
+    if (!b) { return []; }
+    return (b.plan || []).filter(function (p) {
+      var pa = (b.rum || []).filter(function (r) { return r.plan === p.id && !r.iRum; });
+      return pa.some(function (r) { return !!r.rect; }) && pa.some(function (r) { return !r.rect; });
+    }).map(function (p) { return p.id; });
+  }
+
   DP.Planlosning = {
     planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
     benamningsforslag: benamningsforslag, form: form, SKAL: SKAL,
     laggUtRum: laggUtRum, laggUtInstallationer: laggUtInstallationer,
     regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad,
+    blandadePlan: blandadePlan,
     areor: areor, VAGG_TJ: VAGG_TJ
   };
 })();

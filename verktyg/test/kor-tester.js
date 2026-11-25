@@ -6050,8 +6050,10 @@ async function testStegRum(browser) {
   }));
   kontroll(ritad.handritad === true,
     'rumStatus säger att Kasern 1 är en ritad byggnad (beslut 101)');
-  kontroll(/ritad byggnad/.test(ritad.notis) && /Ändra byggnad/.test(ritad.notis),
-    'steg 3 säger i klartext att grannarna inte ritas om, och hänvisar vidare ("'
+  // Hänvisningen till *Ändra byggnad* är borta sedan biljett #41: omritningen finns nu här,
+  // och notisen pekar på den i stället för på en biljett som inte var byggd.
+  kontroll(/ritad byggnad/.test(ritad.notis) && /rita om hela planet/.test(ritad.notis),
+    'steg 3 säger i klartext att grannarna inte ritas om, och att planet går att rita om ("'
     + ritad.notis.slice(0, 110) + '")');
   await byggnadsval(page, kasern5);
   kontroll(await page.evaluate(() => DP.Plan.rumStatus().handritad) === false,
@@ -6561,6 +6563,510 @@ async function testStegInstallationer(browser) {
   await page.close();
 }
 
+// ------------------------------------------------------------------
+// Ändra byggnad: flytta, ta bort och byta namn (biljett #41)
+// ------------------------------------------------------------------
+// Berättelse 2, 58 och 67–71. Fem saker prövas, i den ordning planeraren möter dem: att en
+// kopplad installation kan flyttas utan att tillsynen ändras, att en borttagen installation
+// tar sina kopplingar med sig, att ett namnbyte följer med till rutintillfällenas namn, att
+// en borttagen byggnad markerar Balansering som ändrad och går att ångra, och att ett ritat
+// plan först varnar och sedan ritas om.
+async function testAndraByggnad(browser) {
+  console.log('Ändra byggnad: flytta, ta bort och byta namn (biljett #41)');
+
+  // ------------------------------------------------------------------
+  // Flytta en kopplad installation: kopplingarna och texterna följer med
+  // ------------------------------------------------------------------
+  // Kasern 1 med standardplanering, så att installationerna faktiskt har tillsyn att följa
+  // med. Flytten är **samma** installation (beslut 87): id:t består, och kopplingarna pekar
+  // på id:t – så det som ska prövas är att ingenting gick förlorat på vägen.
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  // Standardplaneringen fyller alla sex stegen med godkända förslag (beslut 53), så steg 5
+  // och steg 6 är gröna och har följder att visa när något ändras. Samma väg som knappen
+  // *Standardplanering för alla* tar i Balansering.
+  await page.evaluate(() => DP.Plan.andra('Standardplanering för provet',
+    st => DP.Flode.skrivStandard(st, 'kasern1')));
+  await vanta(page, () => DP.Plan.byggnadKlar('kasern1'), 'Kasern 1 klar i alla sex stegen');
+
+  // En signifikant installation med minst en koppling, och ett rum på samma plan att flytta
+  // den till. Valet görs i sidan och inte hårdkodat: datafilen ska kunna ändras utan att
+  // testet låser sig vid ett rumsnummer.
+  const valt = await page.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    const i = P.signifikanta().filter(x => s.kopplingar.some(k => k.inst === x.id))[0];
+    const plan = i.rum.split('-')[0];
+    const mal = P.byggnad().rum.filter(r => r.plan === plan && DP.rumNyckel(r.plan, r.nr) !== i.rum)[0];
+    return { id: i.id, bet: i.beteckning, fran: i.rum, till: DP.rumNyckel(mal.plan, mal.nr), malNamn: mal.namn };
+  });
+  kontroll(!!valt.id, 'en kopplad installation att flytta finns i Kasern 1 (' + valt.bet + ')');
+
+  // En avvikande text på installationsnivå, så att flytten prövas med allt som hänger på
+  // installationen och inte bara med kopplingarna.
+  const fore = await page.evaluate(({ id }) => {
+    const P = DP.Plan, s = P.state();
+    const k = s.kopplingar.filter(x => x.inst === id)[0];
+    P.andra('avvikande text för provet', st => {
+      st.instTexter[k.atgard + '|' + id] = ['Kontrollera extra noga'];
+    });
+    const st2 = P.state();
+    return {
+      kopplingar: st2.kopplingar.filter(x => x.inst === id).map(x => x.atgard + '|' + x.rond).sort(),
+      text: st2.instTexter[k.atgard + '|' + id],
+      textNyckel: k.atgard + '|' + id,
+      steg5: P.kopplingsStatus(st2).klar
+    };
+  }, valt);
+
+  const forePos = await historiklangd(page);
+  await page.evaluate(({ id, till }) => DP.Plan.flyttaInst(id, till), valt);
+  await stegKlart(page, forePos, 'flytta installation');
+
+  const flyttad = await page.evaluate(({ id, textNyckel }) => {
+    const P = DP.Plan, s = P.state(), i = P.inst(id);
+    return {
+      rum: i.rum, id: i.id,
+      kopplingar: s.kopplingar.filter(x => x.inst === id).map(x => x.atgard + '|' + x.rond).sort(),
+      text: s.instTexter[textNyckel],
+      steg5: P.kopplingsStatus(s).klar,
+      // Platsen i rummet är räknad och ska inte ligga i tillståndet (beslut 71 och 78)
+      egenPlats: i.x !== undefined || i.z !== undefined,
+      text_historik: P.historik().lista.slice(-1)[0]
+    };
+  }, { id: valt.id, textNyckel: fore.textNyckel });
+
+  kontroll(flyttad.rum === valt.till && flyttad.id === valt.id,
+    'installationen ligger i det nya rummet med samma id (' + valt.fran + ' → ' + flyttad.rum + ')');
+  kontroll(flyttad.kopplingar.join(',') === fore.kopplingar.join(',') && fore.kopplingar.length > 0,
+    'de kopplade åtgärderna följde med flytten (' + flyttad.kopplingar.length + ' st)');
+  kontroll(JSON.stringify(flyttad.text) === JSON.stringify(fore.text),
+    'den avvikande texten följde med flytten');
+  kontroll(flyttad.steg5 === fore.steg5 && fore.steg5 === true,
+    'steg 5 är fortfarande grönt efter flytten');
+  kontroll(!flyttad.egenPlats,
+    'den ritade platsen i rummet föll bort, så planlösningen räknar en ny (beslut 78)');
+  kontroll(/flytta .* till /.test(flyttad.text_historik),
+    'flytten är ett steg i historiken i klartext ("' + flyttad.text_historik + '")');
+
+  // ------------------------------------------------------------------
+  // Ta bort en installation: kopplingarna försvinner, och steg 5 och 6 visar följderna
+  // ------------------------------------------------------------------
+  // Kopplingarna ska bort i **samma** steg (beslut 87): en koppling som pekar på en
+  // installation som inte finns är ingen tillsyn, och steg 5 hade räknat den som gjord.
+  const forePos2 = await historiklangd(page);
+  const tidFore = await page.evaluate(({ id }) => {
+    const P = DP.Plan, s = P.state();
+    const rond = s.kopplingar.filter(k => k.inst === id)[0].rond;
+    return { rond, minuter: P.tidForslag(rond, s).minuter, antal: P.state().kopplingar.length,
+             sig: P.kopplingsStatus(s).tot };
+  }, valt);
+  const foreSig = tidFore.sig;
+  await page.evaluate(({ id }) => DP.Plan.taBortInst(id), valt);
+  await stegKlart(page, forePos2, 'ta bort installation');
+
+  const borttagen = await page.evaluate(({ id, rond, textNyckel }) => {
+    const P = DP.Plan, s = P.state();
+    const ts = P.tidStatus(s).rader.filter(r => r.rond === rond)[0];
+    return {
+      finns: !!P.inst(id),
+      kopplingar: s.kopplingar.filter(k => k.inst === id).length,
+      antal: s.kopplingar.length,
+      text: s.instTexter[textNyckel],
+      steg5: P.kopplingsStatus(s).klar,
+      saknasText: P.kopplingsStatus(s).saknasText,
+      kvarAvSig: P.kopplingsStatus(s).tot,
+      // Steg 6: färre installationer i ronden ger ett nytt förslag, och den godkända tiden
+      // markeras som ändrad förutsättning (beslut 51) – men räknas inte om (beslut 27).
+      minuter: P.tidForslag(rond, s).minuter,
+      andrad: ts.andrad, godkand: ts.godkand
+    };
+  }, { id: valt.id, rond: tidFore.rond, textNyckel: fore.textNyckel });
+
+  kontroll(!borttagen.finns, 'installationen finns inte längre');
+  kontroll(borttagen.kopplingar === 0 && borttagen.antal < tidFore.antal,
+    'kopplingarna försvann i samma steg (' + tidFore.antal + ' → ' + borttagen.antal + ')');
+  kontroll(borttagen.text === undefined,
+    'den avvikande texten på installationsnivå försvann med installationen');
+  // Steg 5 förblir **grönt**, och det är rätt: installationen och dess kopplingar försvann i
+  // samma steg (beslut 87), så det finns inget hål kvar att fylla. Följden i steg 5 är att
+  // byggnaden har en signifikant installation mindre att hålla reda på – hade kopplingen legat
+  // kvar hade steget räknat en tillsyn som inte finns.
+  kontroll(borttagen.steg5 === true && borttagen.saknasText === '',
+    'steg 5 är fortfarande grönt: borttagningen lämnade inget hål ("' + borttagen.saknasText + '")');
+  kontroll(borttagen.kvarAvSig === foreSig - 1,
+    'steg 5 räknar en signifikant installation mindre (' + foreSig + ' → ' + borttagen.kvarAvSig + ')');
+  kontroll(borttagen.minuter < tidFore.minuter,
+    'steg 6 får ett nytt tidsförslag (' + tidFore.minuter + ' → ' + borttagen.minuter + ' min)');
+  kontroll(borttagen.andrad === true && !!borttagen.godkand,
+    'den godkända tiden står kvar men markeras som ändrad förutsättning (beslut 27 och 51)');
+
+  // Ett ångra tar tillbaka installationen **och** dess tillsyn i ett steg
+  await angra(page);
+  const ater = await page.evaluate(({ id, textNyckel }) => {
+    const P = DP.Plan, s = P.state();
+    return { finns: !!P.inst(id), kopplingar: s.kopplingar.filter(k => k.inst === id).length,
+             text: s.instTexter[textNyckel], steg5: P.kopplingsStatus(s).klar };
+  }, { id: valt.id, textNyckel: fore.textNyckel });
+  kontroll(ater.finns && ater.kopplingar === fore.kopplingar.length && ater.steg5,
+    'ett ångra tar tillbaka installationen, kopplingarna och grön bock i steg 5');
+  kontroll(JSON.stringify(ater.text) === JSON.stringify(fore.text),
+    'ångra tar också tillbaka den avvikande texten');
+
+  // ------------------------------------------------------------------
+  // Byt namn på byggnaden: rutintillfällena byter namn med den (beslut 103)
+  // ------------------------------------------------------------------
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+  await bf.locator('.steg-kort[data-bsteg="1"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="1"] .steg-kropp'),
+    'steg 1 öppet');
+  kontroll((await bf.locator('.steg-kort[data-bsteg="1"]').innerText()).includes('låst'),
+    'byggnadstypen står som låst i steg 1 (beslut 104)');
+
+  // Namnet är unikt, och beskedet kommer medan planeraren skriver (beslut 103)
+  await bf.locator('button', { hasText: 'Byt namn' }).click();
+  await bf.locator('input[data-falt="byggnadsnamn"]').fill('Kasern 2');
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-fel'), 'beskedet om namnet');
+  kontroll((await bf.locator('.bf-fel').innerText()).includes('redan en byggnad som heter Kasern 2'),
+    'ett upptaget namn stoppas med ett besked medan hon skriver');
+  kontroll(await bf.locator('button', { hasText: 'Spara' }).isDisabled(),
+    'Spara är avstängd så länge namnet är upptaget');
+  // Byggnadens eget namn är inte upptaget för den själv
+  kontroll(await page.evaluate(() => !DP.Plan.namnHinder('Kasern 1', 'kasern1')),
+    'byggnaden får behålla sitt eget namn (namnHinder med utom)');
+
+  const namnFore = await page.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    const t = P.rutintillfallen(s)[0];
+    return { tillfalle: P.rutintillfalleNamn(t.rond, t.vecka), rond: t.rond, vecka: t.vecka };
+  });
+  // Positionen och inte längden: ett ångra ligger före, så ett nytt steg skriver över det som
+  // låg framför och längden står still medan positionen går fram.
+  const forePos3 = await historikpos(page);
+  await bf.locator('input[data-falt="byggnadsnamn"]').fill('Kasern 1 Norra');
+  await bf.locator('button', { hasText: 'Spara' }).click();
+  await stegKlartPos(page, forePos3, 'byt namn');
+
+  const namnEfter = await page.evaluate(({ rond, vecka }) => {
+    const P = DP.Plan;
+    return {
+      namn: P.byggnad().namn,
+      tillfalle: P.rutintillfalleNamn(rond, vecka),
+      iValjaren: [].map.call(document.querySelectorAll('#byggnad option'), o => o.textContent),
+      iListan: document.querySelector('#byggnadsflode .bf-byggnad.aktiv .bf-bnamn').textContent,
+      text: P.historik().lista.slice(-1)[0]
+    };
+  }, namnFore);
+  kontroll(namnEfter.namn === 'Kasern 1 Norra', 'byggnaden har det nya namnet');
+  kontroll(namnEfter.tillfalle.indexOf('Kasern1Norra-') === 0
+    && namnEfter.tillfalle !== namnFore.tillfalle,
+    'rutintillfället bytte namn med byggnaden (' + namnFore.tillfalle + ' → ' + namnEfter.tillfalle + ')');
+  kontroll(namnEfter.iValjaren.indexOf('Kasern 1 Norra') >= 0,
+    'det nya namnet står i byggnadsväljaren');
+  kontroll(namnEfter.iListan === 'Kasern 1 Norra', 'det nya namnet står i byggnadslistan');
+  // Prefixet är namnet som gällde **när steget skrevs**, alltså det gamla: historiken läses
+  // som en lista över vad planeraren gjorde, och "Kasern 1: byt namn till Kasern 1 Norra"
+  // säger vilken byggnad hon stod i.
+  kontroll(namnEfter.text === 'Kasern 1: byt namn till Kasern 1 Norra',
+    'namnbytet är ett steg i historiken ("' + namnEfter.text + '")');
+
+  // Namnet i tidsaxeln och i telefonen (berättelse 70)
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet');
+  await vanta(page, () => !!document.querySelector('#tidsaxel .rt-mark'), 'tidsaxelns markörer');
+  const iTidsaxeln = await page.evaluate(() => {
+    const b = document.querySelector('#tidsaxel .rt-mark');
+    return b ? b.title.split('\n')[0] : '';
+  });
+  kontroll(/Kasern1Norra-/.test(iTidsaxeln),
+    'tidsaxelns rutintillfälle bär det nya namnet ("' + iTidsaxeln + '")');
+  await page.locator('#tidsaxel .rt-mark').first().click();
+  await vanta(page, () => !!document.querySelector('#telefoner .telefon'), 'telefonen öppen');
+  const iTelefonen = await page.evaluate(() =>
+    document.querySelector('#telefoner .telefon').innerText);
+  kontroll(/Kasern1Norra/.test(iTelefonen),
+    'telefonens rutintillfälle bär det nya namnet');
+
+  // ---- Ångra tar namnet tillbaka ----
+  await angra(page);
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().namn) === 'Kasern 1',
+    'ett ångra tar tillbaka det gamla namnet');
+
+  // Ett halvskrivet namn är ett svar på det namn som gällde när fältet öppnades. Ändras
+  // namnet på annat håll – ett ångra, ett gör om – stänger fältet sig i stället för att stå
+  // kvar med ett svar på en fråga som inte finns längre.
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet igen');
+  // Steget kan redan stå öppet sedan förra gången – ett klick hade då stängt det.
+  if (await bf.locator('.steg-kort[data-bsteg="1"] .steg-kropp').count() === 0) {
+    await bf.locator('.steg-kort[data-bsteg="1"] .steg-huvud').click();
+  }
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="1"] .steg-kropp'),
+    'steg 1 öppet igen');
+  await bf.locator('button', { hasText: 'Byt namn' }).click();
+  await bf.locator('input[data-falt="byggnadsnamn"]').fill('Något halvskrivet');
+  kontroll(await bf.locator('input[data-falt="byggnadsnamn"]').count() === 1,
+    'namnfältet står öppet med det halvskrivna namnet');
+  await gorOm(page);
+  await vanta(page, () => !document.querySelector('#byggnadsflode input[data-falt="byggnadsnamn"]'),
+    'namnfältet stängt av gör om');
+  kontroll(await bf.locator('input[data-falt="byggnadsnamn"]').count() === 0,
+    'ett gör om som ändrar namnet stänger det halvskrivna fältet');
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel i namnbytet ' + page.fel.join(' | '));
+  await page.close();
+
+  // ------------------------------------------------------------------
+  // Ta bort byggnad: Balansering markeras som ändrad, och ångra tar tillbaka bocken
+  // ------------------------------------------------------------------
+  // Beslut 100 och berättelse 71. Byggnaden tas bort efter en balansering, så att följden
+  // syns: den räknades med, och nu gör den inte det.
+  const bp = await balanseradSida(browser);
+  const balFore = await bp.evaluate(() => {
+    const b = DP.Plan.balanseringStatus();
+    return { klar: b.klar, andrad: b.andrad, klara: DP.Plan.klaraByggnader().length };
+  });
+  kontroll(balFore.klar && !balFore.andrad && balFore.klara === 4,
+    'alla fyra byggnaderna är klara och balanseringen stämmer före borttagningen');
+
+  const forePos4 = await bp.evaluate(() => DP.Plan.historik().pos);
+  const bort = await bp.evaluate(() => {
+    const P = DP.Plan;
+    const ok = P.taBortByggnad('kasern2');
+    const b = P.balanseringStatus();
+    return {
+      ok,
+      finns: !!P.byggnad('kasern2'),
+      ordning: P.byggnadsordning,
+      aktiv: P.aktivId(),
+      klara: P.klaraByggnader().length,
+      klar: b.klar, andrad: b.andrad,
+      rader: b.andringar.map(a => ({ typ: a.typ, text: a.text })),
+      // Inget räknas om av sig självt (beslut 40): det sparade resultatet är orört
+      balanserad: b.balanserad,
+      text: P.historik().lista.slice(-1)[0]
+    };
+  });
+  kontroll(bort.ok && !bort.finns && bort.ordning.indexOf('kasern2') < 0,
+    'byggnaden är borta ur byggnadsordningen (' + bort.ordning.join(', ') + ')');
+  kontroll(bort.klara === 3, 'den räknas inte längre med i balanseringen (' + bort.klara + ' klara)');
+  kontroll(bort.andrad && !bort.klar,
+    'Balansering är markerad som ändrad planering och har tappat grön bock');
+  const raden = bort.rader.filter(r => r.typ === 'borttagen')[0];
+  kontroll(!!raden && raden.text === 'Kasern 2 är borttagen och räknas inte med',
+    'ändringen står i klartext och säger att byggnaden är borttagen: '
+    + JSON.stringify(bort.rader.map(r => r.typ)));
+  kontroll(bort.balanserad, 'balanseringens sparade resultat är orört – inget räknas om av sig självt');
+  kontroll(bort.text === 'Ta bort byggnad Kasern 2',
+    'borttagningen är ett steg i historiken i klartext ("' + bort.text + '")');
+  kontroll(bp.fel.length === 0, 'inga JavaScript-fel när en byggnad tas bort ' + bp.fel.join(' | '));
+
+  // ---- Ångra tar tillbaka byggnaden, planeringen och bocken ----
+  await angra(bp);
+  const tillbaka = await bp.evaluate(() => {
+    const P = DP.Plan, b = P.balanseringStatus();
+    return { finns: !!P.byggnad('kasern2'), namn: P.byggnadsNamn('kasern2'),
+             ordning: P.byggnadsordning, klara: P.klaraByggnader().length,
+             klar: b.klar, andrad: b.andrad, aktiv: P.aktivId(),
+             // Planeringen kom tillbaka med byggnaden
+             ronder: P.stateFor('kasern2').ronder.length };
+  });
+  kontroll(tillbaka.finns && tillbaka.namn === 'Kasern 2' && tillbaka.ordning.length === 4,
+    'ett ångra tar tillbaka byggnaden på sin plats i ordningen');
+  kontroll(tillbaka.ronder > 0 && tillbaka.klara === 4,
+    'planeringen kom tillbaka med byggnaden (' + tillbaka.ronder + ' ronder)');
+  kontroll(tillbaka.klar && !tillbaka.andrad,
+    'grön bock på Balansering är tillbaka och ingenting är ändrat längre');
+  kontroll(tillbaka.aktiv === 'kasern2',
+    'ångra växlar till den byggnad som kom tillbaka (' + tillbaka.aktiv + ')');
+
+  // Den sista byggnaden går inte att ta bort: vyerna behöver en byggnad att visa
+  const sista = await bp.evaluate(() => {
+    const P = DP.Plan;
+    ['kasern1', 'kasern2', 'hangar'].forEach(id => P.taBortByggnad(id));
+    return { ordning: P.byggnadsordning, nekad: P.taBortByggnad(P.byggnadsordning[0]),
+             kvar: P.byggnadsordning.length };
+  });
+  kontroll(sista.ordning.length === 1 && sista.nekad === false && sista.kvar === 1,
+    'den sista byggnaden går inte att ta bort (' + sista.ordning.join(', ') + ')');
+  kontroll(bp.fel.length === 0, 'inga JavaScript-fel efter borttagningarna ' + bp.fel.join(' | '));
+  await bp.close();
+
+  // ------------------------------------------------------------------
+  // Ett handritat plan: först en varning, sedan ritas bara det planet om
+  // ------------------------------------------------------------------
+  // Beslut 101 och berättelse 58. Kasern 1 är ritad rum för rum i `data/`, så ett rum som
+  // läggs till där får sin plats ur regeln medan grannarna behåller sina ritade mått – och
+  // de två koordinatsystemen är inte samma.
+  const rp = await nySida(browser, URL_INDEX, 'kasern1');
+  await rp.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(rp, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const rbf = rp.locator('#byggnadsflode');
+  await rbf.locator('.steg-kort[data-bsteg="3"] .steg-huvud').click();
+  await vanta(rp, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"] .steg-kropp'),
+    'steg 3 öppet');
+
+  // Innan något rörts är beskedet en **upplysning** och inte en varning: byggnaden är ritad,
+  // men inget plan är halvt räknat än.
+  const innan = await rp.evaluate(() => {
+    const st = DP.Plan.rumStatus();
+    return { handritad: st.handritad, blandade: st.blandade,
+             notis: !!document.querySelector('#byggnadsflode .bf-notis'),
+             varning: !!document.querySelector('#byggnadsflode .bf-ritaom') };
+  });
+  kontroll(innan.handritad && innan.blandade.length === 0,
+    'Kasern 1 är handritad och inget plan blandar ritade och räknade rum ännu');
+  kontroll(innan.notis && !innan.varning,
+    'steg 3 visar en upplysning om den ritade byggnaden, ingen varning');
+
+  // Ett nytt rum på ett ritat plan gör planet halvt räknat
+  const forePos5 = await historiklangd(rp);
+  const nyttRum = await rp.evaluate(() => {
+    const P = DP.Plan, plan = P.byggnad().plan[0].id;
+    const nyckel = P.laggTillRum({ plan, namn: 'Fikarum' });
+    return { plan, nyckel };
+  });
+  await stegKlart(rp, forePos5, 'lägg till rum i ritad byggnad');
+  await vanta(rp, () => !!document.querySelector('#byggnadsflode .bf-ritaom'), 'varningen');
+
+  const efterRum = await rp.evaluate(({ plan }) => {
+    const st = DP.Plan.rumStatus();
+    const v = document.querySelector('#byggnadsflode .bf-ritaom');
+    return {
+      blandade: st.blandade,
+      // Rummen överlappar: det nya ligger i regelns koordinatsystem, grannarna i sitt ritade
+      overlapp: (() => {
+        const f = DP.Planlosning.form(DP.Plan.byggnad());
+        const pa = f.rum.filter(r => r.plan === plan && !r.skal && !r.iRum && r.rect);
+        for (let i = 0; i < pa.length; i++) {
+          for (let j = i + 1; j < pa.length; j++) {
+            const a = pa[i].rect, b = pa[j].rect;
+            if (a[0] < b[2] - 0.01 && b[0] < a[2] - 0.01 && a[1] < b[3] - 0.01 && b[1] < a[3] - 0.01) {
+              return pa[i].nr + ' och ' + pa[j].nr;
+            }
+          }
+        }
+        return '';
+      })(),
+      text: v ? v.innerText : '',
+      knapp: !!v && !!v.querySelector('button')
+    };
+  }, nyttRum);
+  kontroll(efterRum.blandade.indexOf(nyttRum.plan) >= 0,
+    'planet blandar nu ritade och räknade rum (' + efterRum.blandade.join(', ') + ')');
+  kontroll(!!efterRum.overlapp,
+    'rummen ligger över varandra i modellen, som beslut 101 förutser (' + efterRum.overlapp + ')');
+  kontroll(/ligga över varandra/.test(efterRum.text) && efterRum.knapp,
+    'steg 3 varnar i klartext och erbjuder att rita om planet');
+  kontroll(efterRum.text.indexOf('plan ' + nyttRum.plan) >= 0,
+    'varningen säger vilket plan det gäller ("' + efterRum.text.split('\n')[0] + '")');
+
+  // ---- Rita om planet: frågan först, sedan läggs bara det planet om ----
+  const andraPlanFore = await rp.evaluate(() => {
+    const b = DP.Plan.byggnad(), p2 = b.plan[1].id;
+    return { plan: p2, rekt: b.rum.filter(r => r.plan === p2).map(r => JSON.stringify(r.rect)) };
+  });
+  await rbf.locator('.bf-ritaom button').first().click();
+  await vanta(rp, () => !!document.querySelector('.dlg'), 'frågan innan omritningen');
+  const fragan = await rp.evaluate(() => document.querySelector('.dlg').innerText);
+  kontroll(fragan.indexOf('Rita om plan ' + nyttRum.plan) >= 0 && /platsen i modellen/.test(fragan),
+    'frågan säger vad omritningen gör innan den görs');
+  kontroll(/rörs inte/.test(fragan),
+    'frågan säger att rummens uppgifter och tillsynen inte rörs');
+
+  const forePos6 = await historiklangd(rp);
+  await rp.locator('.dlg button', { hasText: 'Rita om planet' }).click();
+  await stegKlart(rp, forePos6, 'rita om planet');
+
+  const omritat = await rp.evaluate(({ plan, nyckel }) => {
+    const P = DP.Plan, b = P.byggnad(), st = P.rumStatus();
+    const f = DP.Planlosning.form(b);
+    const pa = f.rum.filter(r => r.plan === plan && !r.skal && !r.iRum && r.rect);
+    let overlapp = '';
+    for (let i = 0; i < pa.length; i++) {
+      for (let j = i + 1; j < pa.length; j++) {
+        const a = pa[i].rect, c = pa[j].rect;
+        if (a[0] < c[2] - 0.01 && c[0] < a[2] - 0.01 && a[1] < c[3] - 0.01 && c[1] < a[3] - 0.01) {
+          overlapp = pa[i].nr + ' och ' + pa[j].nr;
+        }
+      }
+    }
+    return {
+      blandade: st.blandade, overlapp,
+      // Rummens egna uppgifter rörs inte, bara platsen
+      rum: b.rum.filter(r => r.plan === plan).map(r => ({ nr: r.nr, namn: r.namn, nta: r.nta, rect: r.rect })),
+      nyttFinns: b.rum.some(r => DP.rumNyckel(r.plan, r.nr) === nyckel),
+      text: P.historik().lista.slice(-1)[0]
+    };
+  }, nyttRum);
+
+  kontroll(omritat.blandade.indexOf(nyttRum.plan) < 0 && omritat.blandade.length === 0,
+    'planet blandar inte längre ritade och räknade rum');
+  kontroll(!omritat.overlapp,
+    'rummen på det omritade planet ligger inte över varandra' + (omritat.overlapp ? ' (' + omritat.overlapp + ')' : ''));
+  kontroll(omritat.rum.every(r => r.rect === undefined),
+    'planets ritade mått är borta, så regeln lägger ut hela planet (beslut 71)');
+  kontroll(omritat.rum.every(r => r.nr && r.namn) && omritat.nyttFinns,
+    'rummens nummer, benämningar och areor rörs inte av omritningen');
+  kontroll(omritat.text === 'Kasern 1: rita om plan ' + nyttRum.plan + ' enligt byggnadstypens regel',
+    'omritningen är ett steg i historiken i klartext ("' + omritat.text + '")');
+
+  // Bara det planet: grannplanet står kvar som det är ritat (berättelse 58)
+  const granne = await rp.evaluate(({ plan }) => ({
+    rekt: DP.Plan.byggnad().rum.filter(r => r.plan === plan).map(r => JSON.stringify(r.rect))
+  }), andraPlanFore);
+  kontroll(granne.rekt.join('|') === andraPlanFore.rekt.join('|'),
+    'grannplanet står kvar som det är ritat – bara det valda planet ritades om');
+
+  // Ett ångra ger den ritade formen tillbaka
+  await angra(rp);
+  const angrad = await rp.evaluate(({ plan }) => ({
+    ritade: DP.Plan.byggnad().rum.filter(r => r.plan === plan && r.rect).length,
+    blandade: DP.Plan.rumStatus().blandade
+  }), nyttRum);
+  kontroll(angrad.ritade > 0 && angrad.blandade.length === 1,
+    'ett ångra ger planet dess ritade form tillbaka (' + angrad.ritade + ' ritade rum)');
+
+  await bild(rp, 'andra-byggnad-varning');
+
+  // ---- Huvudvyn ryms på skärmen med varningen och steg 1 öppna ----
+  // Panelen har sin egen rullning (beslut 112); det är **sidan** som inte får scrolla.
+  const rymsVarning = await rp.evaluate(() => ({
+    sida: document.documentElement.scrollHeight <= window.innerHeight + 1,
+    hojd: document.documentElement.scrollHeight, fonster: window.innerHeight
+  }));
+  kontroll(rymsVarning.sida,
+    'huvudvyn ryms utan att sidan scrollar med varningen i steg 3 ('
+    + rymsVarning.hojd + ' av ' + rymsVarning.fonster + ' px)');
+
+  // Steg 1 med namnbytet öppet: fältet, Spara och Avbryt får plats på rutnätets bredd
+  await rbf.locator('.steg-kort[data-bsteg="1"] .steg-huvud').click();
+  await vanta(rp, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="1"] .steg-kropp'),
+    'steg 1 öppet');
+  await rbf.locator('button', { hasText: 'Byt namn' }).click();
+  await vanta(rp, () => !!document.querySelector('#byggnadsflode input[data-falt="byggnadsnamn"]'),
+    'namnfältet');
+  await bild(rp, 'andra-byggnad-steg1');
+  const rymsSteg1 = await rp.evaluate(() => {
+    const f = document.querySelector('#byggnadsflode input[data-falt="byggnadsnamn"]');
+    const panel = f.closest('.steg-kropp');
+    return {
+      sida: document.documentElement.scrollHeight <= window.innerHeight + 1,
+      hojd: document.documentElement.scrollHeight, fonster: window.innerHeight,
+      // Fältet och dess knappar ligger innanför steget och inte utanför kanten
+      inom: f.getBoundingClientRect().right <= panel.getBoundingClientRect().right + 1,
+      taBort: !!document.querySelector('#byggnadsflode .bf-farligt button')
+    };
+  });
+  kontroll(rymsSteg1.sida,
+    'huvudvyn ryms utan att sidan scrollar med namnbytet öppet ('
+    + rymsSteg1.hojd + ' av ' + rymsSteg1.fonster + ' px)');
+  kontroll(rymsSteg1.inom, 'namnfältet ryms innanför stegets kant');
+  kontroll(rymsSteg1.taBort, 'steg 1 har knappen Ta bort byggnaden');
+
+  kontroll(rp.fel.length === 0, 'inga JavaScript-fel ' + rp.fel.join(' | '));
+  await rp.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -6589,6 +7095,7 @@ async function testStegInstallationer(browser) {
     await testInlasningsfilenPlan(browser);
     await testStegRum(browser);
     await testStegInstallationer(browser);
+    await testAndraByggnad(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);
