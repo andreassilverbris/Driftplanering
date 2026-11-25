@@ -78,6 +78,7 @@ Skriptens ordning i `index.html` spelar roll:
 | `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan), och `DP.rumNyckel`/`DP.rumBeteckning` (plan + rumsnummer, beslut 76). Byggnaden är källa till starttillståndet, som Garage och Kasern |
 | `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering, stil, konstanter och **planlösningens regel** `planlosning: { regel, djup, korrBredd, langd }` – beslut 99), `DP.omraden`, `DP.genereraOvriga()` |
 | `data/rumstyper.js` | `DP.rumstyper`: rumstyperna med namn, kategori (modellens sort), standard-NTA och igenkänningsmönster, plus `DP.rumstypFor(benämning)` och `DP.rumstypAv(kolumnvärde)` (beslut 80, 99 och 108). Tabellens ordning *är* regeln: det mest utpekande mönstret prövas först |
+| `data/installationstyper.js` | `DP.installationstypMonster`: igenkänningen av en installationstyp ur benämningen (Handbrandsläckare 3, Handbr.släckare 3, HC01), plus `DP.installationstypFor(benämning)`, `DP.installationstypAv(kolumnvärde)` och `DP.signifikantaTyper()` (beslut 81 och 109). Tabellens ordning *är* regeln, som i `rumstyper.js`. En **okänd** typ får inget förslag: typen avgör vilka åtgärder som går att koppla |
 | `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
 | `data/ordlista.js` | `DP.ordlista`: begreppen i fyra grupper, det som ordlistedialogen visar |
 | `data/garage.js`, `data/kasern.js` | Garage, Kasern 1 och 2 i `DP.byggnader` – **källa till starttillståndet**, läses bara av `planering.js` (beslut 71) |
@@ -91,10 +92,10 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/spelare.js` | Mediaspelaren (ångra/gör om/gå till steg) på en fast plats i toppraden, gemensam för alla tre huvudsteg, med Ctrl+Z och Ctrl+Y. Ritar sig själv ur historiken via `prenumerera`, så den exporterar inget till `DP` (beslut 82) |
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
-| `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Steg 1–3 är byggda; steg 4 syns men är tomt. Inläsningens tre grupper ritas av **samma** kod för Plan och Rum: det som skiljer raderna är vilka frågor de bär, och det svarar `DP.Inlasning` på |
-| `app/inlasning.js` | `DP.Inlasning`: inläsningsfilens tolkning utan DOM. `lasArk(ark)` delar ett ark i flikarna Plan, Rum och Installationer (igenkänning på **kolumnrubrikerna**, rubrikraden hittad under tabellrubriker och tomma rader), okända kolumner blir **egna fält** (beslut 89), och `tolkaPlan(rader, befintliga)` och `tolkaRum(rader, byggnad)` ger radmodellen `{ key, rad, egna, falt, fragor }` där statusen är **härledd**: inga frågor → *klar*, alla frågor har förslag → *förslag*, annars → *oplacerad* (beslut 83). Rumsraden matchas förlåtande på plan (`planMatchning`) och rumsnummer (`nrMatchning`), rumstypen läses ur benämningen och NTA föreslås ur rumstypen (beslut 76, 77, 79 och 80). `godta`/`besvara` för in svaren, `nastaLedigaNr` svarar vid en nummerkrock (beslut 110), `tillArk(byggnad)` är filen på väg ut |
+| `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Inläsningens tre grupper ritas av **samma** kod för alla tre flikarna: det som skiljer raderna är vilka frågor de bär, och det svarar `DP.Inlasning` på. I steg 4 är **rummet** droppmålet i sin helhet och inte en plats mellan två rader – ordningen inom ett rum betyder ingenting, eftersom platsen räknas fram – så där märks rummet i stället för att en linje ritas |
+| `app/inlasning.js` | `DP.Inlasning`: inläsningsfilens tolkning utan DOM. `lasArk(ark)` delar ett ark i flikarna Plan, Rum och Installationer (igenkänning på **kolumnrubrikerna**, rubrikraden hittad under tabellrubriker och tomma rader), okända kolumner blir **egna fält** (beslut 89), och `tolkaPlan(rader, befintliga)` och `tolkaRum(rader, byggnad)` ger radmodellen `{ key, rad, egna, falt, fragor }` där statusen är **härledd**: inga frågor → *klar*, alla frågor har förslag → *förslag*, annars → *oplacerad* (beslut 83). Rumsraden matchas förlåtande på plan (`planMatchning`) och rumsnummer (`nrMatchning`), rumstypen läses ur benämningen och NTA föreslås ur rumstypen (beslut 76, 77, 79 och 80). `tolkaInst(rader, byggnad, blivandeRum)` matchar en installation på **plan + rumsnummer** (`rumMatchning`): saknas planet och numret finns på ett enda plan blir det ett förslag, på flera plan oplacerat (beslut 86), installationstypen läses ur benämningen och en **okänd typ får inget förslag** (beslut 81), och ett tomt Id får ett id från systemet (`nyttInstId`). `blivandeRum` är de nycklar inläsningens egna rumsförslag ger, så en installation i ett rum som själv är ett förslag är klar och syns när rummet gör det (beslut 110). `godta`/`besvara` för in svaren, `nastaLedigaNr` svarar vid en nummerkrock (beslut 110), `tillArk(byggnad)` är filen på väg ut – där rummets nyckel delas upp i kolumnerna Plan och Rum |
 | `app/inlasningsfil.js` | `DP.Inlasningsfil`: sömmen mot .xlsx (SheetJS i `vendor/`). `las(blob, nar, fel)` ger ett ark, `taUt(ark, filnamn)` laddar ner en .xlsx. Allt annat arbetar med ark, så tolkningen går att pröva utan att en fil finns |
-| `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, `laggUtRum(byggnad, rum)` **rummens rektanglar** ur byggnadstypens regel (beslut 78), `kategoriFor(rumstyp)` modellens sort, och `form(byggnad)` byggnaden med `elev` per plan, räknade rektanglar och **skal** för de plan som saknar rum (beslut 85). Handritade byggnader lämnas orörda (beslut 101) |
+| `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, `laggUtRum(byggnad, rum)` **rummens rektanglar** ur byggnadstypens regel (beslut 78), `kategoriFor(rumstyp)` modellens sort, `laggUtInstallationer` **installationernas plats i rummet** jämnt längs väggen mot korridoren (beslut 78), och `form(byggnad)` byggnaden med `elev` per plan, räknade rektanglar, **skal** för de plan som saknar rum (beslut 85) och de **övriga** installationerna genererade ur rumstyperna (berättelse 57). Handritade byggnader lämnas orörda och får inga genererade övriga ovanpå sina egna (beslut 101) |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
 
@@ -175,6 +176,31 @@ Skriptens ordning i `index.html` spelar roll:
   rum och lämnas orörda av planlösningen (beslut 101), så ett rum som läggs till eller dras om där
   får sin plats ur regeln medan grannarna behåller sina ritade mått – steg 3 säger det i klartext,
   och att rita om hela planet efter en varning hör till *Ändra byggnad* (biljett #41).
+- **Installationerna kommer samma väg, och platsen i rummet är räknad (beslut 81, 86, 87 och
+  109, biljett #39).** `lasInArk` tolkar nu **alla tre** flikarna i **ett** historiksteg, och
+  installationerna matchas mot rummen **som de blir av inläsningen** – också mot dem som ännu
+  bara är förslag, så en installation i 01-003 är klar när rum 003 är ett förslag i samma fil
+  (beslut 110). `godtaInst(key)`, `godtaAllaInst()` (**ett** steg) och `svaraInst(key, slag,
+  varde)` är egna historiksteg, där slagen är `rum` och `typ`. `instStatus(bid)` ger
+  installationerna per **plan → rum**, i samma ordning som byggnadsträdet och modellen, och
+  tar med **alla** rum – också de utan installationer, eftersom ett rum är den plats en
+  installation dras till. Den skiljer på två sorters rum-som-saknas: en installation vars
+  rum är ett **rumsförslag i steg 3** står i `vantande` och syns så fort rummet godtas
+  (beslut 110) – det är inget fel och **håller steg 4 ogrönt** tills rummet är på plats, för
+  ett grönt steg 4 ovanför ett rött steg 3 hade sagt att installationerna sitter någonstans.
+  En vars rum varken finns eller är på väg står i `hemlosa` och är ett fel att rätta. `laggTillInst({ rum, benamning, typ, … })` ger samma förslag som
+  inläsningen (typen ur benämningen, id:t ur systemet) och `instHinder()` skälet i klartext;
+  `sattInstTyp(id, typ)` byter typ utan att röra kopplingarna – att de syns som saknade i
+  steg 5 är hela poängen (beslut 94). `flyttaInst(id, malRum)` är **samma** installation:
+  id:t består och kopplingarna följer med, så flytten är en ändring av byggnadens data och
+  inget mer. `taBortInst(id)` går däremot genom `andraFlera`, eftersom kopplingarna och de
+  avvikande texterna ska försvinna i **samma** steg (beslut 87); `taBortPlan` och `taBortRum`
+  gör nu detsamma för de installationer de tar med sig, och delar `rensaKopplingar`.
+  **Steg 4 får grön bock** när byggnaden har signifikanta installationer och det inlästa är
+  avgjort – en okänd installationstyp är ett sådant ogjort ställningstagande (beslut 81).
+  De **övriga** installationerna ligger aldrig i tillståndet: `DP.Planlosning.form()`
+  genererar dem ur rumstyperna, och både modellen och byggnadsträdet räknar dem därifrån
+  (berättelse 57).
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -458,13 +484,29 @@ stället som mål: där finns ingen rad att lägga en linje på. Ett **oplacerat
 ett plan vid sidan av knapparna på raden – båda vägarna går genom `svaraRum`, så nummerkrocken prövas
 likadant. *Lägg till rum* ger ett rum med samma förslag som inläsningen: rumstypen läst ur
 benämningen och NTA ur rumstypen, med nyckeln och typen visade innan rummet finns.
+Nionde biljetten, **steget Installationer och vägen vidare till Planering** (beslut 81,
+86, 87, 88, 94 och 109, biljett #39), är byggd: planeraren fyller i fliken Installationer med
+plan, rumsnummer, benämning, beteckning, fabrikat, modell, Id, externt id och
+installationsdatum, och läser in den. **En installation behöver bara plan och rumsnummer**
+för att hamna i rätt rum; saknas planet och numret finns på ett enda plan blir det ett
+förslag, och på flera plan oplacerat. **Installationstypen läses ur benämningen** ur den nya
+tabellen `data/installationstyper.js` (Handbrandsläckare 3, Handbr.släckare 3, BLC 1, HC01) –
+och en okänd typ får **inget förslag** utan måste väljas ur listan innan steget blir grönt:
+typen avgör vilka åtgärder som går att koppla, så en gissning hade gett en installation som
+ingen tillsyn hittar. Ett tomt Id får ett id från systemet. Installationerna går att dra
+mellan rum (kopplingarna följer med – det är samma installation), byta typ på och ta bort
+(kopplingarna försvinner i samma steg), och att lägga till för hand med samma förslag som
+inläsningen. **Övriga installationer** – belysning, brytare, uttag, rökdetektor och sanitet i
+ett WC – genereras ur rumstyperna av planlösningen och ligger aldrig i tillståndet. Platsen i
+rummet räknas fram ur rummets rektangel: jämnt fördelade längs väggen mot korridoren, de
+golvstående en bit in. Med alla fyra stegen gröna står byggnaden som **Klar för Planering**,
+och där möter den befintliga snabbstarten med byggnadstypens standardplanering – ingen
+planering skapas av sig själv.
 
 Kända begränsningar:
-- Byggnadsflödets steg 4 (Installationer) är tomt: det byggs i den följande biljetten i spåret.
-  Inläsningsfilen tas ut med alla tre flikarna och läser in **Plan och Rum**; raderna i
-  Installationer räknas och redovisas, men deras tolkning väntar på sin biljett. En byggnad
-  planeraren skapar kan därför få sina plan och rum men inte sina installationer, och kan inte bli
-  klar i Planering (steg 5 kräver installationer).
+- Installationernas plats **i** rummet är schematisk: de fördelas jämnt längs väggen mot korridoren,
+  eftersom filen inte säger var i rummet apparaten sitter. Planeraren ska kunna se *att* rummet har
+  tre handbrandsläckare och klicka på dem, inte var de hänger.
 - Draget av ett **oplacerat** rum rullar inte listan av sig självt: ligger målplanet utanför den
   synliga ytan måste planeraren rulla dit först, eller använda knapparna på raden – de gör samma sak
   och går oavsett var i listan planet står.
@@ -477,14 +519,16 @@ Kända begränsningar:
   värre än inget tal, så strecket är det ärliga svaret tills uträkningen finns.
 - Byggnadstypernas planlösningsregel finns för de tre typer som har tabeller (Garage, Kasern,
   Hangar). De fyra nya typerna i beslut 72 är inte inlagda ännu.
-- **Övriga installationer genereras inte** för de rum som läses in (berättelse 57): belysning,
-  brytare och uttag kommer med sin egen biljett tillsammans med steg 4.
-- Inläsning **mot en befintlig byggnad** visar ännu ingen skillnad (beslut 86): ett plan som redan finns
-  hoppas över, men ett ändrat namn syns inte som "före och efter", och det som saknas i filen blir inget
-  förslag att ta bort. Det byggs i biljetten om Ändra byggnad.
+- Inläsning **mot en befintlig byggnad** visar ännu ingen skillnad (beslut 86): ett plan, ett rum eller
+  en installation som redan finns hoppas över, men ett ändrat namn syns inte som "före och efter", och
+  det som saknas i filen blir inget förslag att ta bort. Ett utbyte via fil – samma Id med senare
+  installationsdatum (beslut 93) – känns inte heller igen ännu. Det byggs i biljetterna om Ändra
+  byggnad och Utbyte.
+- **Utbytta versioner finns inte ännu** (beslut 91–97): en installations apparat går att ta bort och
+  lägga till på nytt, men inte att *ersätta* så att den gamla blir en version med id:t och tillägget :1.
+  Det byggs i sin egen biljett, och filen tas redan ut med bara nuvarande versioner (beslut 96).
 - En .numbers-fil går inte att läsa direkt – mini-bygget av SheetJS läser .xlsx. Planeraren exporterar
   till .xlsx i Numbers först.
-- Planens areasummor (NTA, BRA, BTA per plan) finns inte ännu: de hör till steget Rum.
 - Byggnadens namn, område och färg går bara att sätta när byggnaden skapas. Att ändra dem hör till
   *Ändra byggnad*, som byggs senare i spåret.
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar

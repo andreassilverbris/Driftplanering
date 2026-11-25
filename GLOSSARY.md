@@ -75,6 +75,10 @@ En uppgift i inläsningsfilen som systemet inte känner till. Sparas, visas och 
 **Signifikant installation**:
 En installation som registreras som individ (id med 8 siffror) och ska ha minst en kopplad åtgärd.
 
+**Installationstyp**:
+Vad slags apparat en installation är: handbrandsläckare, brandlarmscentral, luftbehandlingsaggregat. Typen avgör vilka åtgärder som går att koppla, hur installationen ritas i modellen och vilken färg den får. Systemet läser den ur benämningen, och en typ det inte känner igen måste planeraren välja själv.
+_Undvik_: Apparattyp, utrustningstyp
+
 **Utbyte**:
 Att en installations apparat byts mot en ny. Installationen, dess id och planering består; den gamla apparaten blir en utbytt version.
 

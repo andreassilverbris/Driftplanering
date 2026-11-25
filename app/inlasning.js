@@ -160,6 +160,11 @@
     if (slag === 'nr') { rad.falt.nr = varde; }
     if (slag === 'rumstyp') { rad.falt.rumstyp = varde; }
     if (slag === 'nta') { rad.falt.nta = Number(varde); }
+    // Installationens två: vilket rum den sitter i (rummets nyckel, beslut 76) och dess
+    // installationstyp. `rum` är nyckeln och inte plan + nummer i text, så att ett rum som
+    // dras till ett annat plan tar sina installationer med sig.
+    if (slag === 'rum') { rad.falt.rum = varde; }
+    if (slag === 'typ') { rad.falt.typ = varde; }
   }
 
   // Godta raden: alla frågor som har ett förslag förs in och försvinner. Frågor **utan**
@@ -509,6 +514,245 @@
     return ut;
   }
 
+  // ------------------------------------------------------------------
+  // Fliken Installationer (beslut 81, 86 och 109, berättelse 45–49)
+  // ------------------------------------------------------------------
+  // Fliken har bara **signifikanta** installationer (beslut 81): ingen ska behöva fylla i
+  // hundratals vägguttag, och de övriga genereras ur rumstypen ändå.
+  //
+  // En installation behöver bara **plan och rumsnummer** för att hamna i rätt rum
+  // (berättelse 45). Tre frågor kan uppstå, och var och en har sin egen anledning:
+  //
+  //   rum   Rummet går inte att hitta. Är planet tomt men rumsnumret finns på **ett enda**
+  //         plan är det ett förslag; finns numret på flera plan vet systemet inte vilket
+  //         raden menar, och installationen blir **oplacerad** (beslut 86 och berättelse 46).
+  //   typ   Installationstypen läses ur benämningen (beslut 81). Känns ingen igen är frågan
+  //         **utan förslag**: typen avgör vilka åtgärder som går att koppla, och en gissning
+  //         hade gett en installation som ingen tillsyn hittar. Kolumnen Installationstyp går
+  //         före när den är ifylld (beslut 109).
+  //   benamning  En installation utan benämning får typens namn, av samma skäl som ett rum
+  //         utan benämning: allt ska gå att läsa i listor och i informationskortet.
+  //
+  // Id:t är **ingen** fråga. Ett tomt Id får ett id från systemet (beslut 81 och
+  // berättelse 48): den som fyller i filen har sällan fastighetssystemets id för en
+  // handbrandsläckare, och en rad som stannade på det hade varit en rad hon inte kan svara på.
+  //
+  // Varför installationen bär rummets **nyckel** och inte plan + nummer i text: dras rummet
+  // till ett annat plan byter det nyckel, och `flyttaRum` skriver om installationernas nyckel
+  // i samma steg (beslut 76). En installation som bar texten "01" och "003" hade hängt kvar på
+  // ett rum som inte längre finns.
+  //
+  // `blirRum` är de rum byggnaden får när inläsningens **rumsförslag** godtas: står det i
+  // filen exakt vad rummet kommer att heta är installationen klar, och den syns när rummet gör
+  // det (beslut 110 och berättelse 45). Annars hade en fil med plan, rum och installationer i
+  // samma inläsning gett oplacerade installationer till varje rum som själv var ett förslag.
+
+  // Vilka rum raden kan mena? Svaret är rummets nyckel när det är entydigt, och de träffar som
+  // finns när det inte är det. Plan matchas förlåtande som för ett rum (beslut 77), och
+  // rumsnumret fylls ut till tre siffror.
+  //
+  // `rum` är de rum som finns, `blivande` de nycklar inläsningens egna förslag ger. De hålls
+  // isär i svaret (`blivande: true`), så att den som läser kan säga att installationen syns
+  // när rummet gör det.
+  function rumMatchning(planVarde, nrVarde, rum, plan, blivande) {
+    var nrT = txt(nrVarde);
+    if (!nrT) { return { slag: 'utanNr' }; }
+    var nm = nrMatchning(nrT);
+    var nr = nm.nr;
+    var nycklar = (rum || []).map(function (r) { return DP.rumNyckel(r.plan, r.nr); });
+    var alla = nycklar.concat(blivande || []);
+
+    var planT = txt(planVarde);
+    if (planT) {
+      var pm = planMatchning(planT, plan);
+      if (pm.slag === 'exakt' || pm.slag === 'forslag') {
+        var nyckel = DP.rumNyckel(pm.plan.id, nr);
+        if (alla.indexOf(nyckel) >= 0) {
+          return { slag: pm.slag === 'exakt' && nm.slag === 'exakt' ? 'exakt' : 'forslag',
+            rum: nyckel, plan: pm.plan,
+            blivande: nycklar.indexOf(nyckel) < 0 };
+        }
+        return { slag: 'ingenRum', plan: pm.plan, nr: nr };
+      }
+      if (pm.slag === 'flera') { return { slag: 'fleraPlan', traffar: pm.traffar, nr: nr }; }
+      return { slag: 'ingetPlan', plan: planT, nr: nr };
+    }
+    // Planet saknas: numret får avgöra, men bara när det är entydigt (berättelse 46).
+    var traffar = alla.filter(function (k) { return k.slice(k.indexOf('-') + 1) === nr; });
+    if (traffar.length === 1) {
+      return { slag: 'forslag', rum: traffar[0], nr: nr, utanPlan: true,
+        blivande: nycklar.indexOf(traffar[0]) < 0 };
+    }
+    if (traffar.length > 1) { return { slag: 'fleraRum', traffar: traffar, nr: nr }; }
+    return { slag: 'ingenRum', nr: nr };
+  }
+
+  // Installationstypen: kolumnen går före benämningen (beslut 109), och en okänd typ är en
+  // fråga **utan förslag** (beslut 81) – till skillnad från rumstypen, som får *Övrigt rum*.
+  function instTypFraga(rad) {
+    var namn = rad.falt.namn;
+    return { slag: 'typ', forslag: null,
+      text: namn
+        ? 'Benämningen ' + namn + ' känns inte igen som en installationstyp. Välj typ ur ' +
+          'listan: typen avgör vilka åtgärder du kan koppla till installationen.'
+        : 'Raden saknar benämning, så installationstypen går inte att läsa ut. Välj typ ur ' +
+          'listan: typen avgör vilka åtgärder du kan koppla till installationen.' };
+  }
+
+  function tolkaInst(rader, byggnad, blivandeRum) {
+    var b = byggnad || {};
+    var plan = b.plan || [];
+    var rum = b.rum || [];
+    // Id:n som redan är tagna: byggnadens egna och de som den här inläsningen delat ut. Ett
+    // id pekar ut installationen, och två installationer kan inte dela det.
+    var tagnaId = {};
+    (b.installationer || []).forEach(function (i) { if (i.id) { tagnaId[txt(i.id)] = i; } });
+
+    var ut = [];
+    (rader || []).forEach(function (r, i) {
+      var rad = {
+        key: 'i' + (i + 1), rad: r, egna: r.egna || {},
+        falt: {
+          rum: '', typ: '', namn: txt(r.benamning), beteckning: txt(r.beteckning),
+          fabrikat: txt(r.fabrikat), modell: txt(r.modell), id: txt(r.id),
+          externtId: txt(r.externtId), datum: txt(r.datum)
+        },
+        fragor: []
+      };
+
+      // ---- Installationstypen (beslut 81 och 109) ----
+      // Före rummet, eftersom typens namn är förslaget en saknad benämning får – och
+      // benämningen är det typen läses ur när kolumnen är tom.
+      var angiven = DP.installationstypAv(r.instTyp);
+      if (angiven) {
+        rad.falt.typ = angiven;
+      } else {
+        var gissad = DP.installationstypFor(rad.falt.namn);
+        if (gissad) { rad.falt.typ = gissad; } else { rad.fragor.push(instTypFraga(rad)); }
+      }
+
+      // ---- Rummet (berättelse 45 och 46) ----
+      var rm = rumMatchning(r.plan, r.rum, rum, plan, blivandeRum);
+      if (rm.slag === 'exakt') {
+        rad.falt.rum = rm.rum;
+      } else if (rm.slag === 'forslag') {
+        rad.fragor.push({ slag: 'rum', forslag: rm.rum, text: rumForslagText(rm, r) });
+      } else if (rm.slag === 'utanNr') {
+        rad.fragor.push({ slag: 'rum', forslag: null,
+          text: 'Raden saknar rumsnummer. Välj vilket rum installationen sitter i: en ' +
+            'installation sitter i ett rum, och rummet pekas ut med plan och rumsnummer.' });
+      } else if (rm.slag === 'fleraRum') {
+        // Numret finns på flera plan och planet är tomt: systemet gissar bara när det är
+        // säkert (berättelse 46).
+        rad.fragor.push({ slag: 'rum', forslag: null,
+          text: 'Rumsnummer ' + rm.nr + ' finns på flera plan (' + rm.traffar.join(', ') +
+            ') och raden saknar plan. Välj vilket rum installationen sitter i.' });
+      } else if (rm.slag === 'fleraPlan') {
+        rad.fragor.push({ slag: 'rum', forslag: null,
+          text: 'Planet ' + txt(r.plan) + ' kan vara ' +
+            rm.traffar.map(function (p) { return p.id; }).join(' eller ') +
+            '. Välj vilket rum installationen sitter i.' });
+      } else if (rm.slag === 'ingetPlan') {
+        rad.fragor.push({ slag: 'rum', forslag: null,
+          text: 'Det finns inget plan ' + rm.plan + ' i byggnaden. Välj vilket rum ' +
+            'installationen sitter i, eller fyll i planet i steg 2 och rummet i steg 3 först.' });
+      } else {
+        rad.fragor.push({ slag: 'rum', forslag: null,
+          text: 'Det finns inget rum ' +
+            (rm.plan ? DP.rumNyckel(rm.plan.id, rm.nr) : 'med nummer ' + rm.nr) +
+            ' i byggnaden. Välj vilket rum installationen sitter i, eller läs in rummet i ' +
+            'steg 3 först.' });
+      }
+
+      // ---- Benämningen ----
+      // Typens namn är förslaget, som rumstypens namn är det för ett rum utan benämning.
+      // Finns ingen typ heller har raden inget att heta, och då är det typfrågan som ska
+      // besvaras först – benämningen följer av den.
+      if (!rad.falt.namn && rad.falt.typ) {
+        var tnamn = (DP.installationstyper[rad.falt.typ] || {}).namn || rad.falt.typ;
+        rad.fragor.push({ slag: 'benamning', forslag: tnamn,
+          text: 'Installationen saknar benämning – föreslås bli ' + tnamn + '.' });
+      }
+
+      // ---- Id:t (beslut 81, berättelse 48) ----
+      // Ett tomt Id får ett id från systemet, och ett Id som redan finns i byggnaden betyder
+      // att raden är **samma** installation – den är inte ny. Att *ändra* en befintlig
+      // installation via fil hör till beslut 86 och byggs i biljetten om Ändra byggnad.
+      if (rad.falt.id && tagnaId[rad.falt.id]) {
+        rad.fanns = true;
+        rad.fragor = [];
+      } else if (!rad.falt.id) {
+        rad.falt.id = nyttInstId(tagnaId);
+        rad.idFranSystemet = true;
+      }
+      if (rad.falt.id) { tagnaId[rad.falt.id] = rad; }
+      ut.push(rad);
+    });
+    return ut;
+  }
+
+  // Skälet ett rumsförslag får, i klartext (berättelse 24). Tre olika saker kan ha gjorts
+  // förlåtande, och planeraren ska kunna läsa vilket: planet tolkades, numret fylldes ut,
+  // eller planet saknades och numret var entydigt.
+  function rumForslagText(rm, r) {
+    var ut;
+    if (rm.utanPlan) {
+      ut = 'Raden saknar plan, men rumsnummer ' + rm.nr + ' finns bara på ett plan: ' +
+        rm.rum + '.';
+    } else if (txt(r.plan) !== rm.plan.id) {
+      ut = 'Planet ' + txt(r.plan) + ' tolkas som plan ' + rm.plan.id + ' (' + rm.plan.namn +
+        '), så installationen sitter i ' + rm.rum + '.';
+    } else {
+      ut = 'Rumsnumret ' + txt(r.rum) + ' fylls ut: installationen sitter i ' + rm.rum + '.';
+    }
+    // Rummet kan själv vara ett förslag i samma inläsning. Då är installationen klar först
+    // när rummet är det, och planeraren ska veta varför den inte syns i modellen ännu.
+    if (rm.blivande) {
+      ut += ' Rummet är ett förslag i steg 3 – installationen syns när rummet gör det.';
+    }
+    return ut;
+  }
+
+  // Ett id från systemet (beslut 81). Åtta siffror som de handritade byggnadernas, och
+  // räknade uppåt från 90000001 så att de aldrig krockar med dem som står i `data/` – de
+  // id:na är fastighetssystemets, och ett systemgivet ska gå att skilja från dem.
+  //
+  // `tagna` är en karta över de id som är upptagna, och innehåller också de id den här
+  // inläsningen redan delat ut: utan dem hade två rader i samma fil fått samma id.
+  var ID_START = 90000001;
+  function nyttInstId(tagna) {
+    for (var n = ID_START; n < ID_START + 100000; n++) {
+      if (!tagna[String(n)]) { return String(n); }
+    }
+    return String(ID_START);
+  }
+
+  // En installation som den ska ligga i byggnadsdatan. Bara klara rader förs in
+  // (berättelse 55).
+  //
+  // `x`, `z` och `h` sätts **inte** här: var installationen sitter i rummet är planlösningens
+  // sak och räknas ur rummets rektangel och typens montage (beslut 78), precis som rummets
+  // plats räknas ur regeln. Formen är räknad och ska inte ligga i tillståndet (beslut 71).
+  function instFranRad(rad) {
+    var f = rad.falt;
+    var typNamn = (DP.installationstyper[f.typ] || {}).namn || f.typ;
+    var ut = {
+      id: f.id, typ: f.typ, rum: f.rum,
+      benamning: f.namn || typNamn,
+      beteckning: f.beteckning || '', signifikant: true
+    };
+    // De valfria uppgifterna skrivs bara när de finns, av samma skäl som för ett rum: ett
+    // tomt fält som ser ut som ett svar är värre än inget fält.
+    if (f.fabrikat) { ut.fabrikat = f.fabrikat; }
+    if (f.modell) { ut.modell = f.modell; }
+    if (f.externtId) { ut.externtId = f.externtId; }
+    // Installationsdatumet skiljer versionerna av en installation åt (beslut 95 och
+    // berättelse 49). Det är upplysning och påverkar inte årets rutintillfällen.
+    if (f.datum) { ut.datum = f.datum; }
+    if (rad.egna && Object.keys(rad.egna).length) { ut.egna = rad.egna; }
+    return ut;
+  }
+
   // Raderna uppdelade i de tre grupperna (beslut 83). Ordningen inom varje grupp är filens:
   // planeraren läser listan vid sidan av sin egen fil, och en omsortering hade gjort det
   // svårare att hitta raden.
@@ -578,7 +822,18 @@
         nta: r.nta, ntv: r.ntv, bra: r.bra, bta: r.bta,
         temp: r.temp == null ? '' : (r.temp ? 'Ja' : 'Nej') };
     }
-    return { plan: r.plan, rum: r.rum, benamning: r.namn, instTyp: r.typ,
+    // Installationen bär rummets **nyckel** (beslut 76), och filen har två kolumner: Plan och
+    // Rum. Nyckeln delas därför upp på väg ut, så att den som fyller i filen möter samma två
+    // kolumner hon möter i fastighetssystemet och inte en nyckel hon aldrig sett.
+    var delar = txt(r.rum).split('-');
+    var nr = delar.length > 1 ? delar.pop() : '';
+    var planId = delar.join('-');
+    // Installationstypen tas ut som det **namn** planeraren ser och inte som id:t, precis som
+    // rumstypen: filen läses av en människa, och "Handbrandsläckare" är vad hon känner igen.
+    // `DP.installationstypAv` tar emot båda vid inläsningen, så kolumnen går tur och retur
+    // (beslut 109).
+    var typ = (DP.installationstyper || {})[r.typ];
+    return { plan: planId, rum: nr, benamning: r.benamning, instTyp: typ ? typ.namn : r.typ,
       beteckning: r.beteckning, fabrikat: r.fabrikat, modell: r.modell, id: r.id,
       externtId: r.externtId, datum: r.datum };
   }
@@ -590,6 +845,8 @@
     tolkaPlan: tolkaPlan, benamningsfraga: benamningsfraga,
     tolkaRum: tolkaRum, rumFranRad: rumFranRad, nastaLedigaNr: nastaLedigaNr,
     nummerkrock: nummerkrock,
+    tolkaInst: tolkaInst, instFranRad: instFranRad, nyttInstId: nyttInstId,
+    rumMatchning: rumMatchning, instTypFraga: instTypFraga,
     planMatchning: planMatchning, nrMatchning: nrMatchning,
     grupper: grupper, raknat: raknat, planFranRad: planFranRad,
     tillArk: tillArk, pad3: pad3, tal: tal

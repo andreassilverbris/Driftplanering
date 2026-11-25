@@ -471,10 +471,9 @@
       rum: [],
       installationer: [],
       // Det inlästa som ännu inte är avgjort (beslut 83). Tomt betyder att ingenting återstår
-      // – en byggnad som fyllts i för hand har ingen inläsning att avgöra. Facket för
-      // Installationer kommer med sin egen biljett: ett tomt fack ingen läser är en gissning
-      // om hur nästa biljett ska se ut.
-      inlasning: { plan: [], infordaPlan: [], rum: [], infordaRum: [], fil: null }
+      // – en byggnad som fyllts i för hand har ingen inläsning att avgöra.
+      inlasning: { plan: [], infordaPlan: [], rum: [], infordaRum: [],
+        inst: [], infordaInst: [], fil: null }
     };
   }
 
@@ -486,7 +485,7 @@
   // att läsa i ett test utan DOM.
   //
   // Steg 1 är klart när byggnaden har namn, typ och område. De tre följande – Plan, Rum och
-  // Installationer – byggs i senare biljetter och är klara när det de handlar om finns.
+  // Installationer – är klara när det de handlar om finns **och** det som lästes in är avgjort.
   function byggnadsSteg(bid) {
     var b = B(bid);
     if (!b) { return { 1: false, 2: false, 3: false, 4: false }; }
@@ -498,7 +497,18 @@
       1: !!(b.namn && b.typ && b.omrade),
       2: b.plan.length > 0 && inlasningStatus('plan', bid).klar,
       3: b.rum.length > 0 && inlasningStatus('rum', bid).klar,
+      // Steg 4 kräver samma sak som de två före: installationerna finns, och det som lästes
+      // in är avgjort. En okänd installationstyp är ett sådant ogjort ställningstagande
+      // (beslut 81) – typen avgör vilka åtgärder som går att koppla, och en bock hade sagt
+      // att byggnaden är komplett innan den är det.
+      //
+      // En installation som **väntar på sitt rum** håller också bocken borta: raden var klar
+      // och syns när rummet godtas i steg 3 (beslut 110), men till dess sitter den ingenstans.
+      // Ett grönt steg 4 ovanför ett rött steg 3 hade sagt att installationerna är på plats
+      // medan deras rum ännu är ett förslag.
       4: b.installationer.some(function (i) { return i.signifikant; })
+        && inlasningStatus('inst', bid).klar
+        && instStatus(bid).vantande.length === 0
     };
   }
   // Byggnadens läge i byggnadslistan, i klartext (berättelse 7). Statusen är *var arbetet
@@ -603,15 +613,25 @@
   // utan plan finns ingenstans, och en installation utan rum sitter inte någonstans. Är det
   // uppenbart att planet ska bort är det ett steg som alla andra, och ett ◀ tar det tillbaka.
   function taBortPlan(planId, bid) {
-    var b = B(bid);
+    var id = bid || aktiv;
+    var b = B(id);
     if (!b || !b.plan.some(function (p) { return p.id === planId; })) { return; }
     var p = b.plan.filter(function (x) { return x.id === planId; })[0];
     var nycklar = b.rum.filter(function (r) { return r.plan === planId; })
       .map(function (r) { return DP.rumNyckel(r.plan, r.nr); });
-    andraByggnad('ta bort plan ' + p.id + ' ' + p.namn, bid, function (data) {
+    // Genom `andraFlera` och inte `andraByggnad`: borttagningen rör både byggnadens data
+    // (planet, rummen, installationerna) och dess planering (kopplingarna till de
+    // installationer som försvinner), och de två ska vara **ett** steg. En koppling som
+    // pekar på en installation som inte finns är ingen tillsyn, och steg 5 hade räknat den
+    // som gjord (beslut 87).
+    andraFlera('ta bort plan ' + p.id + ' ' + p.namn, function (andring) {
+      var data = andring.byggnad(id);
       data.plan = data.plan.filter(function (x) { return x.id !== planId; });
       data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
+      var borttagna = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) >= 0; });
       data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
+      rensaKopplingar(andring.tillstand(id), borttagna);
+      rensaInlastaInst(data, nycklar, 'Planet ' + planId + ' är borttaget.');
       // Planet var inläst: ta det ur gruppen *klart* också, annars hade steget fortsatt räkna
       // ett plan som inte finns. Listan är nycklad på beteckningen, som är borta nu. Rummens
       // grupp *klart* är nycklad på plan + rumsnummer och faller av sig själv när rummet
@@ -707,16 +727,17 @@
     return ((b && b.inlasning) || {})[flik] || [];
   }
 
-  // Läs in ett ark som **ett** steg. Flikarna Plan och Rum tolkas; Installationer läses ur
-  // filen och räknas, men dess rader väntar på sin biljett i spåret.
+  // Läs in ett ark som **ett** steg: alla tre flikarna tolkas i samma steg.
   //
   // Att hela filen är ett enda historiksteg är med flit: planeraren väljer en fil, och ett ◀
   // ska ta tillbaka den valet – inte planen och lämna rummen kvar.
   //
-  // **Rummen tolkas mot planen som de blir av den här inläsningen**, inte mot dem som fanns
-  // före. Filen bär ofta plan och rum på en gång (berättelse 16), och ett rum på plan 01 ska
-  // inte bli oplacerat bara för att plan 01 kom in i samma fil. Därför förs planen in först,
-  // och rumstolkningen får byggnaden som den ser ut efteråt.
+  // **Varje flik tolkas mot det de före den ger**, inte mot det som fanns före inläsningen.
+  // Filen bär ofta plan, rum och installationer på en gång (berättelse 16), och ett rum på
+  // plan 01 ska inte bli oplacerat bara för att plan 01 kom in i samma fil – och en
+  // installation i 01-003 ska hamna rätt även när rum 003 kom i samma fil. Därför förs planen
+  // in först, rumstolkningen får byggnaden som den ser ut efteråt, och installationerna får
+  // både de klara rummen och de **blivande** – de rumsförslag som ännu inte godtagits.
   //
   // Svaret är en sammanfattning av vad inläsningen gav – antal per grupp och vilka blad som
   // inte kändes igen – så att vyn kan säga det utan att räkna om det själv.
@@ -743,6 +764,21 @@
     var rumNya = rumKlara.filter(function (r) { return !r.fanns; });
     var rumKvar = rumRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
 
+    // Rummen byggnaden har **efter** inläsningen, plus de nycklar rumsförslagen skulle ge om
+    // de godtogs: det installationerna matchas mot. En installation i ett rum som själv är ett
+    // förslag är klar och syns när rummet gör det (beslut 110 och berättelse 45).
+    var rumEfter = b.rum.concat(rumNya.map(function (r) { return DP.Inlasning.rumFranRad(r); }));
+    var blivande = rumKvar.map(function (r) {
+      var p = r.falt.plan || (DP.Inlasning.fraga(r, 'plan') || {}).forslag;
+      var nr = r.falt.nr || (DP.Inlasning.fraga(r, 'nr') || {}).forslag;
+      return p && nr ? DP.rumNyckel(p, nr) : null;
+    }).filter(Boolean);
+    var instRader = DP.Inlasning.tolkaInst(fil.inst,
+      { plan: planEfter, rum: rumEfter, installationer: b.installationer }, blivande);
+    var instKlara = instRader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
+    var instNya = instKlara.filter(function (r) { return !r.fanns; });
+    var instKvar = instRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+
     var namn = String(filnamn || 'inläsningsfilen');
     andraByggnad('läs in ' + namn, bid, function (data) {
       data.inlasning = data.inlasning || {};
@@ -754,14 +790,18 @@
       data.inlasning.infordaRum = rumKlara.map(function (r) {
         return DP.rumNyckel(r.falt.plan, r.falt.nr);
       });
+      data.inlasning.inst = instKvar;
+      data.inlasning.infordaInst = instKlara.map(function (r) { return r.falt.id; });
       data.inlasning.fil = { namn: namn, ignorerade: fil.ignorerade,
         egnaKolumner: fil.egnaKolumner, rum: fil.rum.length, inst: fil.inst.length };
       forInPlan(data, planNya);
       forInRum(data, rumNya);
+      forInInst(data, instNya);
     });
     return {
       raknat: DP.Inlasning.raknat(planRader), ignorerade: fil.ignorerade,
       rumRaknat: DP.Inlasning.raknat(rumRader),
+      instRaknat: DP.Inlasning.raknat(instRader),
       rum: fil.rum.length, inst: fil.inst.length, inforda: planNya.length
     };
   }
@@ -815,6 +855,17 @@
       }
       data.rum = data.rum.concat(pa);
     });
+  }
+
+  // Installationerna förs in sist i listan, i filens ordning. Ordningen betyder ingenting för
+  // en installation – den sitter i ett rum, och platsen i rummet räknas av planlösningen – så
+  // det finns inget att sortera på. Att de **övriga** installationerna (belysning, brytare,
+  // uttag) genereras ur rumstypen är planlösningens sak och inte tillståndets (beslut 71 och
+  // berättelse 57): de är ingen individ någon planerar tillsyn för.
+  function forInInst(data, rader) {
+    if (!rader.length) { return; }
+    data.installationer = data.installationer.concat(
+      rader.map(function (r) { return DP.Inlasning.instFranRad(r); }));
   }
 
   // Godta ett förslag, eller alla på en gång (berättelse 25). Varje godtagande är ett eget
@@ -1086,17 +1137,63 @@
   // Ta bort ett rum. Installationerna i rummet försvinner med det: en installation utan rum
   // sitter inte någonstans. Samma regel som när ett plan tas bort.
   function taBortRum(nyckel, bid) {
-    var b = B(bid);
+    var id = bid || aktiv;
+    var b = B(id);
     if (!b) { return; }
     var r = b.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
     if (!r) { return; }
-    andraByggnad('ta bort rum ' + nyckel + ' ' + r.namn, bid, function (data) {
+    // `andraFlera` av samma skäl som i `taBortPlan`: kopplingarna till installationerna i
+    // rummet försvinner i samma steg som installationerna.
+    andraFlera('ta bort rum ' + nyckel + ' ' + r.namn, function (andring) {
+      var data = andring.byggnad(id);
       data.rum = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) !== nyckel; });
+      var borttagna = data.installationer.filter(function (i) { return i.rum === nyckel; });
       data.installationer = data.installationer.filter(function (i) { return i.rum !== nyckel; });
+      rensaKopplingar(andring.tillstand(id), borttagna);
+      rensaInlastaInst(data, [nyckel], 'Rummet ' + nyckel + ' är borttaget.');
       if (data.inlasning && data.inlasning.infordaRum) {
         data.inlasning.infordaRum = data.inlasning.infordaRum
           .filter(function (k) { return k !== nyckel; });
       }
+    });
+  }
+
+  // Kopplingarna och de avvikande texterna för installationer som försvunnit, bort i samma
+  // steg (beslut 87 och berättelse 68). Delad av `taBortPlan`, `taBortRum` och `taBortInst`,
+  // så att de tre aldrig kan börja skilja sig på vad en borttagning betyder för planeringen.
+  function rensaKopplingar(st, borttagna) {
+    if (!st || !borttagna.length) { return; }
+    var idn = {};
+    borttagna.forEach(function (i) { idn[i.id] = true; });
+    st.kopplingar = (st.kopplingar || []).filter(function (k) { return !idn[k.inst]; });
+    Object.keys(st.instTexter || {}).forEach(function (nyckel) {
+      Object.keys(idn).forEach(function (instId) {
+        if (nyckel.indexOf(instId) >= 0) { delete st.instTexter[nyckel]; }
+      });
+    });
+  }
+
+  // Inlästa installationsrader som pekade på ett rum som försvunnit blir **oplacerade** i
+  // stället för att tigande försvinna – samma regel som för en rumsrad vars plan tas bort
+  // (beslut 83): planeraren har en rad i sin fil, och ett rum eller en installation som
+  // försvinner utan besked är något hon aldrig får veta om.
+  //
+  // Gruppen *klart* städas också: den är nycklad på id, och en installation som inte finns
+  // ska inte räknas som införd.
+  function rensaInlastaInst(data, rumNycklar, skal) {
+    if (!data.inlasning) { return; }
+    var kvar = {};
+    (data.installationer || []).forEach(function (i) { kvar[i.id] = true; });
+    if (data.inlasning.infordaInst) {
+      data.inlasning.infordaInst = data.inlasning.infordaInst
+        .filter(function (id) { return kvar[id]; });
+    }
+    (data.inlasning.inst || []).forEach(function (r) {
+      if (rumNycklar.indexOf(r.falt.rum) < 0) { return; }
+      r.falt.rum = '';
+      r.fragor = (r.fragor || []).filter(function (f) { return f.slag !== 'rum'; });
+      r.fragor.push({ slag: 'rum', forslag: null,
+        text: skal + ' Välj vilket rum installationen sitter i.' });
     });
   }
 
@@ -1256,6 +1353,15 @@
             return k === nyckel ? nyNyckel : k;
           });
         }
+        // En inläst **installationsrad** som pekar på rummet skrivs om likadant: dess svar
+        // eller förslag är rummets nyckel, och ett rum som bytt nummer hade annars lämnat
+        // raden pekande på ett rum som inte finns.
+        ((data.inlasning || {}).inst || []).forEach(function (r2) {
+          if (r2.falt.rum === nyckel) { r2.falt.rum = nyNyckel; }
+          (r2.fragor || []).forEach(function (f) {
+            if (f.slag === 'rum' && f.forslag === nyckel) { f.forslag = nyNyckel; }
+          });
+        });
       }
     });
     return nyNyckel;
@@ -1266,6 +1372,340 @@
     var i = pa.indexOf(r);
     if (i < 0) { return false; }
     return foreRum ? pa[i + 1] === foreRum : i === pa.length - 1;
+  }
+
+  // ------------------------------------------------------------------
+  // Steg 4: installationerna (beslut 81, 86, 87 och 109)
+  // ------------------------------------------------------------------
+  // Samma form som steg 2 och 3, av samma skäl: ett godtagande är ett steg, *Godta alla* är
+  // **ett** steg, och en rad som blir klar förs in i byggnaden i samma steg som den blir
+  // klar. Det som skiljer är vad som kan fattas – en installation pekas ut av sitt **id** och
+  // sitter i ett **rum**, och dess **installationstyp** avgör vilka åtgärder som går att
+  // koppla (beslut 81).
+  //
+  // Därför är en okänd typ en fråga **utan förslag**, till skillnad från en okänd rumstyp som
+  // får *Övrigt rum*: en felfärgad rumstyp gör modellen schematisk, men en felgissad
+  // installationstyp gör att planeraren kopplar fel tillsyn – eller ingen.
+  function godtaInst(key, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
+    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
+    andraByggnad('godta förslag: ' + instRadNamn(rad), bid, function (data) {
+      godtaInstRader(data, [key]);
+    });
+  }
+  function godtaAllaInst(bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var nycklar = inlasningsdel(b, 'inst')
+      .filter(function (r) { return DP.Inlasning.status(r) === 'forslag'; })
+      .map(function (r) { return r.key; });
+    if (!nycklar.length) { return; }
+    andraByggnad('godta alla ' + nycklar.length + ' förslag i Installationer', bid,
+      function (data) { godtaInstRader(data, nycklar); });
+  }
+  // Installationen i klartext för historikens rad: beteckningen och benämningen, det
+  // planeraren känner igen den på. Mediaspelarens lista ska gå att läsa utan att gissa.
+  function instRadNamn(rad) {
+    var f = rad.falt;
+    var namn = f.namn || (DP.Inlasning.fraga(rad, 'benamning') || {}).forslag || '';
+    var delar = [];
+    if (f.beteckning) { delar.push(f.beteckning); }
+    if (namn) { delar.push(namn); }
+    return delar.length ? delar.join(' ') : 'installation ' + f.id;
+  }
+
+  // Godtagandet inuti ett steg, som `godtaRader` för plan och `godtaRumRader` för rum.
+  function godtaInstRader(data, nycklar) {
+    var rader = inlasningsdel(data, 'inst');
+    var blevKlara = [];
+    nycklar.forEach(function (key) {
+      var rad = rader.filter(function (r) { return r.key === key; })[0];
+      if (!rad) { return; }
+      DP.Inlasning.godta(rad);
+      if (DP.Inlasning.status(rad) === 'klar') { blevKlara.push(rad); }
+    });
+    if (!blevKlara.length) { return; }
+    var klaraNycklar = blevKlara.map(function (r) { return r.key; });
+    data.inlasning.inst = rader.filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
+    data.inlasning.infordaInst = (data.inlasning.infordaInst || [])
+      .concat(blevKlara.map(function (r) { return r.falt.id; }));
+    forInInst(data, blevKlara);
+  }
+
+  // Besvara en fråga på en installationsrad: planeraren väljer rum eller installationstyp.
+  // Samma väg som ett godtagande, så en rad som blir klar förs in i byggnaden i samma steg.
+  //
+  // Väljer hon typen kan benämningsförslaget bli meningsfullt för första gången: en rad utan
+  // benämning hade inget att heta förrän typen fanns, och då får den typens namn – precis som
+  // ett plan som får sin beteckning får ett benämningsförslag (se `svaraPlan`).
+  function svaraInst(key, slag, varde, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
+    if (!rad) { return; }
+    var v = String(varde == null ? '' : varde).trim();
+    if (!v) { return; }
+    if (slag === 'typ' && !DP.installationstyper[v]) { return; }
+    if (slag === 'rum' && !b.rum.some(function (r) { return DP.rumNyckel(r.plan, r.nr) === v; })) { return; }
+    andraByggnad('svara för inläst installation: ' + instSvarText(slag, v), bid, function (data) {
+      var r2 = inlasningsdel(data, 'inst').filter(function (x) { return x.key === key; })[0];
+      if (!r2) { return false; }
+      DP.Inlasning.besvara(r2, slag, v);
+      if (slag === 'typ' && !r2.falt.namn && !DP.Inlasning.fraga(r2, 'benamning')) {
+        var tnamn = (DP.installationstyper[v] || {}).namn || v;
+        r2.fragor.push({ slag: 'benamning', forslag: tnamn,
+          text: 'Installationen saknar benämning – föreslås bli ' + tnamn + '.' });
+      }
+      if (DP.Inlasning.status(r2) === 'klar') { godtaInstRader(data, [key]); }
+    });
+  }
+  // Svaret i klartext för historiken. Slaget är systemets ord; planeraren ska läsa vad hon
+  // gjorde, inte vilket fält koden kallar det.
+  function instSvarText(slag, varde) {
+    if (slag === 'rum') { return 'rum ' + varde; }
+    if (slag === 'typ') {
+      return 'installationstyp ' + ((DP.installationstyper[varde] || {}).namn || varde);
+    }
+    if (slag === 'benamning') { return 'benämning ' + varde; }
+    return slag + ' ' + varde;
+  }
+
+  // Vad steget Installationer har att säga: de signifikanta installationerna per plan och rum,
+  // i den ordning modellen visar dem. Som `rumStatus` bor den här och inte i vyn (beslut 61),
+  // så att steglistan, panelen och modellen aldrig kan säga olika saker om samma installation.
+  //
+  // Grupperingen är **plan → rum → installationer**, samma ordning som byggnadsträdet och
+  // modellen: planeraren letar efter en släckare där hon vet att den sitter, inte i en lista
+  // sorterad på id.
+  function instStatus(bid) {
+    var b = B(bid);
+    if (!b) { return { plan: [], antal: 0, klar: false, utanTyp: 0 }; }
+    var sig = b.installationer.filter(function (i) { return i.signifikant; });
+    var perRum = {};
+    sig.forEach(function (i) {
+      if (!perRum[i.rum]) { perRum[i.rum] = []; }
+      perRum[i.rum].push(i);
+    });
+    var plan = b.plan.map(function (p) {
+      var rum = b.rum.filter(function (r) { return r.plan === p.id; })
+        .map(function (r) {
+          var nyckel = DP.rumNyckel(r.plan, r.nr);
+          return {
+            nyckel: nyckel, nr: r.nr, namn: r.namn,
+            inst: (perRum[nyckel] || []).map(function (i) {
+              var typ = DP.installationstyper[i.typ];
+              return {
+                id: i.id, typ: i.typ, typNamn: typ ? typ.namn : i.typ,
+                benamning: i.benamning, beteckning: i.beteckning || '',
+                fabrikat: i.fabrikat || '', modell: i.modell || '',
+                externtId: i.externtId || '', datum: i.datum || '',
+                rum: nyckel
+              };
+            })
+          };
+        });
+      // **Alla** rum står med, också de utan installationer: ett rum är den plats en
+      // installation dras till (berättelse 50), och ett rum som inte syns går inte att dra
+      // till – samma skäl som att steg 3 visar plan utan rum. Att ett tomt rum säger "inga
+      // installationer" är dessutom ett svar: planeraren ser att hon inte glömt något.
+      return { id: p.id, namn: p.namn, rum: rum,
+        antal: rum.reduce(function (s, r) { return s + r.inst.length; }, 0) };
+    });
+    // Installationer vars rum inte finns i byggnaden. Två helt olika saker ser likadana ut
+    // här, och att blanda ihop dem vore att säga fel sak till planeraren:
+    //
+    //   **väntande**  Rummet är ett rumsförslag i steg 3 som ännu inte godtagits. Raden var
+    //                 klar – den hade ingen fråga att svara på – och installationen syns så
+    //                 fort rummet gör det (beslut 110). Det är inget fel, och ska inte heta
+    //                 så: planeraren har ett steg kvar att ta i steg 3, inte ett misstag att
+    //                 rätta i steg 4.
+    //   **hemlösa**   Rummet finns inte och är inte på väg. Det händer om ett rum tagits bort
+    //                 på en väg som inte tog installationerna med sig. Att tiga om dem hade
+    //                 betytt att planeraren inte ser dem alls.
+    var kanda = {};
+    plan.forEach(function (p) {
+      p.rum.forEach(function (r) { r.inst.forEach(function (i) { kanda[i.id] = true; }); });
+    });
+    // De rum inläsningens egna förslag skulle ge om de godtogs – samma uträkning som
+    // `lasInArk` gör när installationerna matchas, och av samma skäl.
+    var paVag = {};
+    inlasningsdel(b, 'rum').forEach(function (r) {
+      var p = r.falt.plan || (DP.Inlasning.fraga(r, 'plan') || {}).forslag;
+      var nr = r.falt.nr || (DP.Inlasning.fraga(r, 'nr') || {}).forslag;
+      if (p && nr) { paVag[DP.rumNyckel(p, nr)] = true; }
+    });
+    var utanRum = sig.filter(function (i) { return !kanda[i.id]; });
+    var vantande = utanRum.filter(function (i) { return paVag[i.rum]; });
+    var hemlosa = utanRum.filter(function (i) { return !paVag[i.rum]; });
+    return {
+      plan: plan, antal: sig.length, hemlosa: hemlosa, vantande: vantande,
+      klar: sig.length > 0,
+      // Antal **övriga** installationer, det modellen visar vid sidan av de signifikanta
+      // (berättelse 57). De genereras ur rumstypen och är ingen individ någon planerar
+      // tillsyn för, så de räknas bara – planeraren ska se att de finns.
+      ovriga: ovrigaFor(b).length
+    };
+  }
+  // De övriga installationerna byggnaden får i modellen (berättelse 57). De räknas här ur den
+  // **räknade formen** och inte ur tillståndet (beslut 71): de hör till hur byggnaden ritas
+  // och inte till vad planeraren bestämt om den.
+  function ovrigaFor(b) {
+    var form = DP.Planlosning.form(b);
+    return ((form && form.installationer) || []).filter(function (i) { return !i.signifikant; });
+  }
+
+  // Byt installationstyp på en installation som redan ligger i byggnaden (beslut 81). Typen
+  // avgör vilka åtgärder som går att koppla, så ett byte kan göra en koppling meningslös –
+  // men kopplingarna rörs **inte** här: att de syns som saknade i steg 5 är hela poängen
+  // (beslut 94), och en koppling som försvann tyst hade planeraren aldrig fått veta om.
+  function sattInstTyp(instId, typ, bid) {
+    var b = B(bid);
+    if (!b || !DP.installationstyper[typ]) { return; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i || i.typ === typ) { return; }
+    andraByggnad('byt installationstyp på ' + (i.beteckning || i.benamning) + ' till ' +
+      DP.installationstyper[typ].namn, bid, function (data) {
+      var m = data.installationer.filter(function (x) { return x.id === instId; })[0];
+      if (!m) { return false; }
+      m.typ = typ;
+      // Benämningen följer typen bara när den **var** typens namn: ett "Handbrandsläckare 3"
+      // planeraren skrivit är hennes, men ett namn systemet satte ur den gamla typen hade
+      // blivit fel så fort typen byttes.
+      var gammal = (DP.installationstyper[i.typ] || {}).namn;
+      if (gammal && m.benamning === gammal) { m.benamning = DP.installationstyper[typ].namn; }
+    });
+  }
+
+  // Ta bort en installation (beslut 87, berättelse 68). Kopplingarna till den försvinner i
+  // samma steg: en koppling som pekar på en installation som inte finns är ingen tillsyn, och
+  // steg 5 hade räknat den som gjord. Avvikande texter på installationsnivå följer med av
+  // samma skäl.
+  //
+  // Att det går genom `andraFlera` och inte `andraByggnad`: borttagningen rör både byggnadens
+  // data (installationen) och dess planering (kopplingarna), och de två ska vara ett steg –
+  // ett ◀ ska ta tillbaka både installationen och dess tillsyn.
+  function taBortInst(instId, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    if (!b) { return; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i) { return; }
+    andraFlera('ta bort ' + (i.beteckning || i.benamning), function (andring) {
+      var data = andring.byggnad(id);
+      data.installationer = data.installationer.filter(function (x) { return x.id !== instId; });
+      if (data.inlasning && data.inlasning.infordaInst) {
+        data.inlasning.infordaInst = data.inlasning.infordaInst
+          .filter(function (k) { return k !== instId; });
+      }
+      rensaKopplingar(andring.tillstand(id), [i]);
+    });
+  }
+
+  // Flytta en installation till ett annat rum (beslut 87, berättelse 50 och 67). Det är
+  // **samma** installation: id:t består, och kopplade åtgärder och avvikande texter pekar på
+  // id:t och följer därför med utan att något behöver flyttas.
+  //
+  // Därför är flytten en ändring av byggnadens data och inget mer – till skillnad från en
+  // borttagning, som river kopplingarna.
+  function flyttaInst(instId, malRum, bid) {
+    var b = B(bid);
+    if (!b) { return null; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i) { return null; }
+    var mal = String(malRum || '').trim();
+    var r = b.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === mal; })[0];
+    if (!r || i.rum === mal) { return null; }
+    andraByggnad('flytta ' + (i.beteckning || i.benamning) + ' till ' + mal + ' ' + r.namn,
+      bid, function (data) {
+        var m = data.installationer.filter(function (x) { return x.id === instId; })[0];
+        if (!m) { return false; }
+        m.rum = mal;
+        // Platsen i rummet räknas av planlösningen ur rummets rektangel (beslut 78), så en
+        // ritad plats som följde med till ett annat rum hade lagt installationen utanför
+        // väggarna. De handritade byggnadernas installationer bär en sådan plats.
+        delete m.x;
+        delete m.z;
+        delete m.h;
+      });
+    return mal;
+  }
+
+  // Lägg till en installation för hand (berättelse 50). Förslagen är inläsningens: typen läses
+  // ur benämningen och id:t kommer från systemet när planeraren inte har ett (beslut 81), så
+  // en installation hon skriver in själv blir densamma som en som kom ur filen.
+  //
+  // Svaret är installationens id, eller null när uppgifterna inte räcker. Vyn frågar
+  // `instHinder()` först och visar beskedet medan planeraren skriver, som i steg 1–3.
+  function laggTillInst(upp, bid) {
+    var b = B(bid);
+    if (!b) { return null; }
+    var o = upp || {};
+    var rum = String(o.rum || '').trim();
+    var namn = String(o.benamning || '').trim();
+    var typ = o.typ && DP.installationstyper[o.typ] ? o.typ : DP.installationstypFor(namn);
+    if (instHinder(o, bid)) { return null; }
+    var tagna = {};
+    ordning().forEach(function (id2) {
+      B(id2).installationer.forEach(function (i) { if (i.id) { tagna[String(i.id)] = true; } });
+    });
+    var id = String(o.id || '').trim() || DP.Inlasning.nyttInstId(tagna);
+    // Installationen byggs av **inläsningens** `instFranRad` och inte här, av samma skäl som
+    // ett rum: de två vägarna ska ge samma installation, och en ny valfri uppgift som lades
+    // till på bara ett ställe hade gett en byggnad som ser olika ut beroende på hur
+    // uppgifterna kom in.
+    var ny = DP.Inlasning.instFranRad({
+      falt: { id: id, typ: typ, rum: rum, namn: namn,
+        beteckning: String(o.beteckning || '').trim(),
+        fabrikat: String(o.fabrikat || '').trim(), modell: String(o.modell || '').trim(),
+        externtId: String(o.externtId || '').trim(), datum: String(o.datum || '').trim() }
+    });
+    var r = b.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === rum; })[0];
+    andraByggnad('lägg till ' + (ny.beteckning ? ny.beteckning + ' ' : '') + ny.benamning +
+      ' i ' + rum + ' ' + (r ? r.namn : ''), bid, function (data) {
+      data.installationer.push(ny);
+    });
+    return id;
+  }
+
+  // Går installationen att lägga till? Beskedet är i klartext och kommer medan planeraren
+  // skriver, som `rumHinder` i steg 3 och namnet i steg 1 (beslut 103).
+  function instHinder(upp, bid) {
+    var b = B(bid);
+    if (!b) { return ''; }
+    var o = upp || {};
+    var rum = String(o.rum || '').trim();
+    if (!rum) { return 'Välj vilket rum installationen sitter i.'; }
+    if (!b.rum.some(function (r) { return DP.rumNyckel(r.plan, r.nr) === rum; })) {
+      return 'Det finns inget rum ' + rum + ' i ' + b.namn + '.';
+    }
+    var namn = String(o.benamning || '').trim();
+    var typ = o.typ && DP.installationstyper[o.typ] ? o.typ : DP.installationstypFor(namn);
+    if (!typ) {
+      return namn
+        ? 'Benämningen ' + namn + ' känns inte igen som en installationstyp. Välj typ ur ' +
+          'listan: typen avgör vilka åtgärder du kan koppla.'
+        : 'Välj installationstyp, eller skriv en benämning systemet känner igen.';
+    }
+    var id = String(o.id || '').trim();
+    if (id) {
+      if (!/^\d{1,8}$/.test(id)) {
+        return 'Id:t är siffror, högst åtta: 00000011. Lämna det tomt så ger systemet ett.';
+      }
+      var taget = null;
+      ordning().forEach(function (id2) {
+        B(id2).installationer.forEach(function (i) {
+          if (String(i.id) === id) { taget = id2; }
+        });
+      });
+      if (taget) {
+        return 'Id:t ' + id + ' finns redan i ' + byggnadsNamn(taget) +
+          '. Id:t pekar ut installationen, så två kan inte dela det. Lämna fältet tomt så ' +
+          'ger systemet ett ledigt.';
+      }
+    }
+    return '';
   }
 
   // Vad steget Plan har att säga om inläsningen: de tre grupperna, antalen och om något
@@ -1291,7 +1731,11 @@
     // inläsningslistan hade kunnat bli gammal. Ett plan eller rum planeraren tagit bort
     // faller därför ur gruppen av sig självt.
     var klara;
-    if (flik === 'rum') {
+    if (flik === 'inst') {
+      klara = ((b.inlasning || {}).infordaInst || []).map(function (id) {
+        return (b.installationer || []).filter(function (i) { return i.id === id; })[0];
+      }).filter(Boolean);
+    } else if (flik === 'rum') {
       klara = ((b.inlasning || {}).infordaRum || []).map(function (nyckel) {
         return (b.rum || []).filter(function (r) { return DP.rumNyckel(r.plan, r.nr) === nyckel; })[0];
       }).filter(Boolean);
@@ -2659,6 +3103,9 @@
     rumStatus: rumStatus, sattRumstyp: sattRumstyp, taBortRum: taBortRum,
     laggTillRum: laggTillRum, flyttaRum: flyttaRum, rumHinder: rumHinder,
     nastaRumsnummer: nastaRumsnummer,
+    godtaInst: godtaInst, godtaAllaInst: godtaAllaInst, svaraInst: svaraInst,
+    instStatus: instStatus, sattInstTyp: sattInstTyp, taBortInst: taBortInst,
+    laggTillInst: laggTillInst, flyttaInst: flyttaInst, instHinder: instHinder,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },

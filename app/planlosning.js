@@ -396,19 +396,112 @@
     return ut;
   }
 
-  // Byggnaden med räknad form. Installationerna följer med som de är: var de sitter är rummets
-  // sak, och ett skal har inga.
+  // ------------------------------------------------------------------
+  // Installationernas plats i rummet (beslut 78, berättelse 45 och 52)
+  // ------------------------------------------------------------------
+  // En **inläst** installation bär ingen plats: filen har plan och rumsnummer och ingenting
+  // om var i rummet apparaten sitter, av samma skäl som ett rum inte har en rektangel – ingen
+  // har en ritning. Platsen räknas därför här, ur rummets rektangel och typens montage.
+  //
+  // Regeln är enkel med flit: installationerna fördelas **jämnt längs rummets vägg** i den
+  // ordning de står, och de golvstående ställs in en bit från väggen. Att placera dem exakt
+  // går inte – uppgiften finns inte – och en schematisk plats som är läsbar är vad modellen
+  // behöver: planeraren ska kunna se *att* rummet har tre handbrandsläckare och klicka på
+  // dem, inte var de hänger.
+  //
+  // Vilken vägg: den sida av rummet som ligger mot byggnadens mitt, alltså mot korridoren.
+  // Det är den vägg man ser när man kommer in, och den en släckare rimligen hänger på.
+  // `viewer._byggInstallation` väljer själv närmaste vägg ur x och z, så det som behövs här är
+  // en punkt som ligger **på** den väggen.
+  var INST_HOJD = { vagg: 1.1, fasad: 1.0, utsida: 0.9, golv: 0, tak: 0 };
+
+  function laggUtInstallationer(rum, installationer, mitt) {
+    var perRum = {};
+    installationer.forEach(function (i) {
+      if (!perRum[i.rum]) { perRum[i.rum] = []; }
+      perRum[i.rum].push(i);
+    });
+    var ut = {};
+    Object.keys(perRum).forEach(function (nyckel) {
+      var r = rum[nyckel];
+      if (!r || !r.rect) { return; }
+      var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3];
+      // Väggen mot byggnadens mitt: den sida av rummet som vetter inåt. Ett rum på södra
+      // sidan av korridoren har sin dörr i norr, ett på den norra i söder.
+      var mz = (z0 + z1) / 2;
+      var vaggZ = mz < mitt ? z1 : z0;
+      var innerZ = mz < mitt ? z1 - 0.6 : z0 + 0.6;
+      var lista = perRum[nyckel];
+      lista.forEach(function (i, k) {
+        // Jämnt fördelade längs väggen: (k + ½) av n, så att en ensam installation hamnar
+        // mitt på väggen och två på en tredjedel var.
+        var x = x0 + (x1 - x0) * (k + 0.5) / lista.length;
+        var montage = ((DP.installationstyper || {})[i.typ] || {}).montage || 'vagg';
+        var golvEllerTak = montage === 'golv' || montage === 'tak';
+        ut[i.id] = {
+          x: x,
+          z: golvEllerTak ? innerZ : vaggZ,
+          h: INST_HOJD[montage] == null ? 1.1 : INST_HOJD[montage]
+        };
+      });
+    });
+    return ut;
+  }
+
+  // Byggnaden med räknad form. Installationer som bär en egen plats – de handritade
+  // byggnadernas – lämnas orörda (beslut 101); de inlästa får sin plats räknad ur rummet.
+  // Ett skal har inga installationer: dess rum finns inte, och en installation sitter i ett rum.
   function kopia(b, plan, rum) {
     var ut = grundkopia(b);
     ut.plan = plan;
     ut.rum = rum;
-    ut.installationer = (b.installationer || []).slice();
+    // Rummen som finns i formen, slagna upp på sin nyckel: en installation vars rum inte är
+    // ritat (ett plan som bara är skal) har ingen plats att räkna, och tas inte med – viewern
+    // hade annars försökt slå upp ett rum som inte finns i sitt index.
+    var index = {};
+    rum.forEach(function (r) { if (!r.skal) { index[nyckel(r)] = r; } });
+    var utan = [], med = [];
+    (b.installationer || []).forEach(function (i) {
+      if (!index[i.rum]) { return; }
+      if (i.x != null && i.z != null) { med.push(i); } else { utan.push(i); }
+    });
+    // Byggnadens mittlinje i z: den avgör vilken vägg som är den mot korridoren. Den räknas
+    // ur rummen och inte ur byggnadstypen, eftersom rummens egna rektanglar bestämmer hur
+    // djup byggnaden faktiskt blev.
+    var z0 = Infinity, z1 = -Infinity;
+    rum.forEach(function (r) {
+      if (!r.rect) { return; }
+      z0 = Math.min(z0, r.rect[1]); z1 = Math.max(z1, r.rect[3]);
+    });
+    var mitt = isFinite(z0) ? (z0 + z1) / 2 : 0;
+    var platser = laggUtInstallationer(index, utan, mitt);
+    ut.installationer = med.concat(utan.map(function (i) {
+      var p = platser[i.id];
+      if (!p) { return i; }
+      var ny = grundkopia(i);
+      ny.x = p.x; ny.z = p.z; ny.h = p.h;
+      return ny;
+    }));
+    // De **övriga** installationerna – belysning, brytare, uttag, rökdetektor och sanitet i
+    // ett WC – genereras ur rummen (berättelse 57), men bara för en byggnad som är **räknad**:
+    // de handritade bär sina egna i `data/` och skulle få dem i dubbel uppsättning
+    // (beslut 101). De är ingen individ någon planerar tillsyn för, så de hör till hur
+    // byggnaden ritas och inte till vad planeraren bestämt om den – därför räknas de här och
+    // ligger aldrig i tillståndet (beslut 71).
+    if (!arRitad(b)) {
+      var riktiga = rum.filter(function (r) { return !r.skal && r.rect; });
+      if (riktiga.length) {
+        ut.installationer = ut.installationer.concat(
+          DP.genereraOvriga(riktiga, { mittZ: mitt }));
+      }
+    }
     return ut;
   }
 
   DP.Planlosning = {
     planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
     benamningsforslag: benamningsforslag, form: form, SKAL: SKAL,
-    laggUtRum: laggUtRum, regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad
+    laggUtRum: laggUtRum, laggUtInstallationer: laggUtInstallationer,
+    regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad
   };
 })();

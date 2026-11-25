@@ -176,6 +176,24 @@ async function lasInFil(page, fil) {
   await stegKlartPos(page, fore, 'inläsningen av ' + path.basename(fil));
 }
 
+// Ett HTML5-drag genom musen, som planeraren gör det: ner på källan, två rörelser mot målet
+// (webbläsaren startar draget på den första och skickar dragover på den andra) och väntan på
+// att målet märkts. Musknappen lämnas **uppe** till den som anropar: den vill ofta läsa
+// märket innan släppet.
+async function draTillMal(page, kalla, mal, markt, beskrivning) {
+  await mal.scrollIntoViewIfNeeded();
+  await kalla.scrollIntoViewIfNeeded();
+  const kb = await kalla.boundingBox(), mb = await mal.boundingBox();
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2);
+  await page.mouse.down();
+  // Två rörelser: webbläsaren startar draget på den första och skickar dragover på den andra.
+  // Målets **mitt** och inte dess kant: det öppna (förslag och oplacerat) ligger fast överst
+  // (beslut 112) och kan täcka en kant som ligger precis under det.
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + mb.height / 2 + 6, { steps: 6 });
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + mb.height / 2, { steps: 6 });
+  await vanta(page, markt, beskrivning);
+}
+
 // Steg 1–4 med Byggnad invändigt och Brandskydd varje månad
 async function grundplanering(page) {
   const f = page.locator('#flode');
@@ -4782,6 +4800,310 @@ async function testInlasningsmodulen(browser) {
     && returRum.rum.egna.Kommentar === 'Ny matta',
     'ett rum går tur och retur via ta ut utan skillnad (' + JSON.stringify(returRum.rum) + ')');
 
+  // ---- Fliken Installationer: rummatchning, typ ur benämning och tomt Id ----
+  // Det som prövas är de tre sakerna en installationsrad kan fattas (beslut 81 och
+  // berättelse 45–48): vilket rum den sitter i, vilken typ den är, och vilket id den har.
+  // Byggnaden har tre plan där 001 finns på två av dem, så "finns numret på flera plan" går
+  // att pröva utan att testet behöver bygga en egen matchningsregel.
+  const inst = await page.evaluate(() => {
+    const byggnad = {
+      typ: 'kasern',
+      plan: [{ id: '01', namn: 'Entréplan' }, { id: '02', namn: 'Plan 2' },
+        { id: '03', namn: 'Plan 3' }],
+      rum: [
+        { nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', nta: 96 },
+        { nr: '003', namn: 'Logement 1:1', plan: '01', rumstyp: 'logement', nta: 36 },
+        { nr: '001', namn: 'Korridor', plan: '02', rumstyp: 'korridor', nta: 96 },
+        { nr: '007', namn: 'Fläktrum', plan: '03', rumstyp: 'teknik', nta: 40 }
+      ],
+      installationer: [{ id: '00000011', typ: 'brandpost', rum: '01-001',
+        benamning: 'Brandpost 1', beteckning: 'BP01', signifikant: true }]
+    };
+    const ark = [{
+      namn: 'Installationer',
+      rader: [
+        ['Plan', 'Rum', 'Benämning', 'Installationstyp', 'Beteckning', 'Fabrikat', 'Modell',
+          'Id', 'Externt id', 'Installationsdatum', 'Kapacitet'],
+        // Klar: exakt plan och tresiffrigt nummer, benämning systemet känner igen
+        ['01', '003', 'Handbrandsläckare 3', '', 'HB03', 'Presto', 'P7kg', '00000030', '', '2024-05-02', ''],
+        // Förslag: plan skrivet P3 och numret utan nollor
+        ['P3', '7', 'Handbr.släckare 4', '', 'HB04', 'Dafo', '', '00000031', '', '', ''],
+        // Förslag: planet saknas, men 007 finns bara på ett plan (berättelse 46)
+        ['', '007', 'Luftbehandlingsaggregat 1', '', 'LB01', 'Fahoma', 'FTX1127', '', '', '', '2000 l/s'],
+        // Oplacerad: 001 finns på två plan och planet är tomt (berättelse 46)
+        ['', '001', 'Handbrandsläckare 5', '', 'HB05', '', '', '', '', '', ''],
+        // Oplacerad: benämningen känns inte igen som en installationstyp (beslut 81)
+        ['01', '003', 'Gurglande dunk', '', 'GD01', '', '', '', '', '', ''],
+        // Klar: kolumnen Installationstyp går före benämningen (beslut 109)
+        ['01', '003', 'Gurglande dunk 2', 'Tryckkärl', 'TK01', '', '', '', '', '', ''],
+        // Oplacerad: rummet finns inte i byggnaden
+        ['04', '002', 'Handbrandsläckare 6', '', 'HB06', '', '', '', '', '', ''],
+        // Samma Id som en installation som redan finns: raden är inte ny (beslut 86)
+        ['01', '001', 'Brandpost 1', '', 'BP01', '', '', '00000011', '', '', '']
+      ]
+    }];
+    const fil = DP.Inlasning.lasArk(ark);
+    const rader = DP.Inlasning.tolkaInst(fil.inst, byggnad, []);
+    return {
+      flik: DP.Inlasning.vilkenFlik(ark[0].rader[0]),
+      egna: fil.egnaKolumner.inst,
+      raknat: DP.Inlasning.raknat(rader),
+      rader: rader.map(r => ({
+        bet: r.falt.beteckning, rum: r.falt.rum, typ: r.falt.typ, id: r.falt.id,
+        namn: r.falt.namn, datum: r.falt.datum, fanns: !!r.fanns,
+        idFranSystemet: !!r.idFranSystemet,
+        status: DP.Inlasning.status(r),
+        slag: r.fragor.map(f => f.slag),
+        skal: r.fragor.map(f => f.text),
+        forslag: r.fragor.map(f => f.forslag),
+        egna: r.egna
+      }))
+    };
+  });
+  const iRad = bet => inst.rader.filter(r => r.bet === bet)[0];
+  kontroll(inst.flik === 'inst',
+    'fliken Installationer känns igen på sina kolumnrubriker (' + inst.flik + ')');
+  kontroll(inst.egna.join(',') === 'Kapacitet',
+    'en okänd kolumn i fliken Installationer blir ett eget fält (' + inst.egna.join(',')
+    + ', beslut 89)');
+  kontroll(iRad('HB03').status === 'klar' && iRad('HB03').rum === '01-003'
+    && iRad('HB03').typ === 'handbrandslackare' && iRad('HB03').datum === '2024-05-02',
+    'en rad med exakt plan och nummer är klar, typen läses ur benämningen och datumet läses in ('
+    + JSON.stringify(iRad('HB03')) + ', beslut 81 och 95)');
+  kontroll(iRad('HB04').status === 'forslag' && iRad('HB04').forslag[0] === '03-007'
+    && iRad('HB04').typ === 'handbrandslackare',
+    'plan P3 och nummer 7 tolkas förlåtande till 03-007, och "Handbr.släckare" känns igen ('
+    + iRad('HB04').forslag[0] + ')');
+  kontroll(/P3 tolkas som plan 03/.test(iRad('HB04').skal[0]),
+    'förslagets skäl står i klartext ("' + iRad('HB04').skal[0] + '", berättelse 24)');
+  kontroll(iRad('LB01').status === 'forslag' && iRad('LB01').forslag[0] === '03-007'
+    && /bara på ett plan/.test(iRad('LB01').skal[0]),
+    'en rad utan plan vars rumsnummer finns på ett enda plan blir ett förslag ("'
+    + iRad('LB01').skal[0] + '", berättelse 46)');
+  kontroll(iRad('HB05').status === 'oplacerad' && /finns på flera plan/.test(iRad('HB05').skal[0]),
+    'ett rumsnummer som finns på flera plan blir oplacerat och säger varför ("'
+    + iRad('HB05').skal[0] + '", berättelse 46)');
+  kontroll(iRad('GD01').status === 'oplacerad' && iRad('GD01').slag.indexOf('typ') >= 0
+    && iRad('GD01').forslag.every(f => f === null),
+    'en okänd installationstyp är oplacerad och inte ett förslag: typen avgör vilka åtgärder '
+    + 'som går att koppla (' + JSON.stringify(iRad('GD01').slag) + ', beslut 81)');
+  kontroll(/Välj typ ur listan/.test(iRad('GD01').skal.join(' ')),
+    'frågan om typen säger vad planeraren ska göra ("' + iRad('GD01').skal.join(' ') + '")');
+  kontroll(iRad('TK01').status === 'klar' && iRad('TK01').typ === 'tryckkarl',
+    'kolumnen Installationstyp går före benämningen (' + iRad('TK01').typ + ', beslut 109)');
+  kontroll(iRad('HB06').status === 'oplacerad' && /inget plan 04/.test(iRad('HB06').skal[0]),
+    'en installation på ett plan som inte finns är oplacerad och säger varför ("'
+    + iRad('HB06').skal[0] + '")');
+  kontroll(iRad('BP01').fanns === true && iRad('BP01').status === 'klar',
+    'samma Id som en installation som redan finns är ingen ny rad (beslut 86)');
+  // Ett tomt Id får ett id från systemet, och två tomma rader får **olika** id:n
+  const utanId = inst.rader.filter(r => r.idFranSystemet);
+  const unika = utanId.map(r => r.id).filter((v, i, a) => a.indexOf(v) === i);
+  kontroll(utanId.length === 5 && unika.length === 5,
+    'varje rad utan Id får ett eget id från systemet (' + utanId.map(r => r.bet + ':' + r.id).join(' ')
+    + ', berättelse 48)');
+  kontroll(iRad('LB01').egna.Kapacitet === '2000 l/s',
+    'det egna fältet följer med raden (' + iRad('LB01').egna.Kapacitet + ')');
+
+  // ---- En installation i ett rum som själv är ett förslag är klar (beslut 110) ----
+  // Står det i filen exakt vad rummet kommer att heta när rummets eget förslag godtas syns
+  // installationen när rummet gör det. Annars hade en fil med plan, rum och installationer i
+  // samma inläsning gett oplacerade installationer till varje rum som själv var ett förslag.
+  const blivande = await page.evaluate(() => {
+    const byggnad = { typ: 'kasern', plan: [{ id: '01', namn: 'Entréplan' }], rum: [],
+      installationer: [] };
+    const rader = DP.Inlasning.tolkaInst(
+      [{ plan: '01', rum: '005', benamning: 'Handbrandsläckare 1', beteckning: 'HB01' }],
+      byggnad, ['01-005']);
+    return { status: DP.Inlasning.status(rader[0]), rum: rader[0].falt.rum,
+      skal: rader[0].fragor.map(f => f.text).join(' ') };
+  });
+  kontroll(blivande.status === 'klar' && blivande.rum === '01-005',
+    'en installation i ett rum som är ett förslag i samma inläsning är klar ('
+    + blivande.status + ' i ' + blivande.rum + ', beslut 110 och berättelse 45)');
+
+  // …och den **väntar** sedan på rummet i stället för att räknas som hemlös. Att raden var
+  // klar betyder att planeraren inte har någon fråga att svara på i steg 4 – men rummet är
+  // ett förslag i steg 3, och tills hon godtar det sitter installationen ingenstans. Ett
+  // grönt steg 4 ovanför ett rött steg 3 hade sagt att installationerna är på plats medan
+  // deras rum ännu är en gissning.
+  const vantar = await page.evaluate(() => {
+    // En byggnad där plan 01 är klart men rum 01-005 bara är ett förslag (NTA saknas), och
+    // en installation som pekar på just det rummet.
+    DP.Plan.skapaByggnad({ namn: 'Väntprov', typ: 'kasern', omrade: 'kasernomradet' });
+    DP.Plan.lasInArk([
+      { namn: 'Plan', rader: [['Plan', 'Benämning'], ['01', 'Entréplan']] },
+      { namn: 'Rum', rader: [['Plan', 'Rum', 'Benämning', 'NTA'], ['01', '005', 'Logement 1:1', '']] },
+      { namn: 'Installationer', rader: [['Plan', 'Rum', 'Benämning', 'Beteckning', 'Fabrikat'],
+        ['01', '005', 'Handbrandsläckare 1', 'HB01', 'Presto']] }
+    ], 'vantprov.xlsx');
+    const st = DP.Plan.instStatus();
+    return {
+      vantande: st.vantande.map(i => i.beteckning + '@' + i.rum),
+      hemlosa: st.hemlosa.map(i => i.beteckning + '@' + i.rum),
+      steg: DP.Plan.byggnadsSteg(),
+      // Och när rummet godtas är installationen på plats och båda stegen gröna
+      efter: (function () {
+        DP.Plan.godtaAllaRum();
+        const s2 = DP.Plan.instStatus();
+        return { vantande: s2.vantande.length, hemlosa: s2.hemlosa.length,
+          steg: DP.Plan.byggnadsSteg(),
+          modell: DP.Planlosning.form(DP.Plan.byggnad()).installationer
+            .filter(i => i.signifikant).length };
+      })()
+    };
+  });
+  kontroll(vantar.vantande.join(' ') === 'HB01@01-005' && vantar.hemlosa.length === 0,
+    'en installation vars rum ännu är ett förslag **väntar** och är inte hemlös ('
+    + (vantar.vantande.join(' ') || 'ingen') + ', hemlösa: ' + vantar.hemlosa.length + ')');
+  kontroll(vantar.steg[3] === false && vantar.steg[4] === false,
+    'steg 4 blir inte grönt medan en installation väntar på sitt rum (steg 3: '
+    + vantar.steg[3] + ', steg 4: ' + vantar.steg[4] + ', beslut 110)');
+  kontroll(vantar.efter.vantande === 0 && vantar.efter.steg[3] === true
+    && vantar.efter.steg[4] === true && vantar.efter.modell === 1,
+    'när rummet godtas är installationen på plats, båda stegen gröna och den syns i modellen ('
+    + JSON.stringify(vantar.efter) + ', berättelse 45)');
+
+  // ---- Fliken Installationer tur och retur via ta ut ----
+  // Rummets nyckel delas upp i kolumnerna Plan och Rum på väg ut, och sätts ihop igen på väg
+  // in: den som fyller i filen möter samma två kolumner hon möter i fastighetssystemet.
+  const returInst = await page.evaluate(() => {
+    const byggnad = {
+      typ: 'kasern',
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '003', namn: 'Logement 1:1', plan: '01', rumstyp: 'logement', nta: 36 }],
+      installationer: [
+        { id: '00000030', typ: 'handbrandslackare', rum: '01-003',
+          benamning: 'Handbrandsläckare 3', beteckning: 'HB03', fabrikat: 'Presto',
+          modell: 'P7kg', externtId: 'L410233', datum: '2024-05-02', signifikant: true,
+          egna: { Kapacitet: '6 kg' } },
+        // En övrig installation ska **inte** stå i filen (beslut 81)
+        { typ: 'vagguttag', rum: '01-003', x: 1, z: 2, h: 0.3, signifikant: false }
+      ]
+    };
+    const ark = DP.Inlasning.tillArk(byggnad);
+    const flik = ark.filter(f => f.namn === 'Installationer')[0];
+    const fil = DP.Inlasning.lasArk(ark);
+    const rader = DP.Inlasning.tolkaInst(fil.inst,
+      { typ: 'kasern', plan: byggnad.plan, rum: byggnad.rum, installationer: [] }, []);
+    return {
+      rubriker: flik.rader[0], rad: flik.rader[1], antal: flik.rader.length - 1,
+      status: DP.Inlasning.status(rader[0]),
+      inst: DP.Inlasning.instFranRad(rader[0])
+    };
+  });
+  kontroll(returInst.antal === 1,
+    'bara den signifikanta installationen tas ut i filen (' + returInst.antal + ', beslut 81)');
+  kontroll(returInst.rubriker.join(',') === 'Plan,Rum,Benämning,Installationstyp,Beteckning,'
+    + 'Fabrikat,Modell,Id,Externt id,Installationsdatum,Kapacitet',
+    'fliken Installationer tas ut med sina kolumner och den egna sist ('
+    + returInst.rubriker.join(',') + ')');
+  kontroll(returInst.rad[0] === '01' && returInst.rad[1] === '003',
+    'rummets nyckel delas upp i kolumnerna Plan och Rum (' + returInst.rad.slice(0, 2).join('|')
+    + ', beslut 76)');
+  kontroll(returInst.rad[3] === 'Handbrandsläckare',
+    'Installationstyp tas ut som sitt namn (' + returInst.rad[3] + ', beslut 109)');
+  kontroll(returInst.status === 'klar' && returInst.inst.rum === '01-003'
+    && returInst.inst.typ === 'handbrandslackare' && returInst.inst.id === '00000030'
+    && returInst.inst.fabrikat === 'Presto' && returInst.inst.datum === '2024-05-02'
+    && returInst.inst.egna.Kapacitet === '6 kg',
+    'en installation går tur och retur via ta ut utan skillnad ('
+    + JSON.stringify(returInst.inst) + ')');
+
+  // ---- Installationstypen ur benämningen, de skrivsätt filen bär ----
+  const insttyper = await page.evaluate(() => ({
+    full: DP.installationstypFor('Handbrandsläckare 3'),
+    kort: DP.installationstypFor('Handbr.släckare 3'),
+    blc: DP.installationstypFor('BLC 1'),
+    hc: DP.installationstypFor('HC01'),
+    lb: DP.installationstypFor('LB 2'),
+    nod: DP.installationstypFor('Nödbelysningsarmatur 4'),
+    okand: DP.installationstypFor('Gurglande dunk'),
+    tom: DP.installationstypFor(''),
+    avNamn: DP.installationstypAv('Tryckkärl'),
+    avId: DP.installationstypAv('tryckkarl'),
+    avOkand: DP.installationstypAv('Gurglande dunk'),
+    // Listan planeraren väljer ur är de signifikanta typerna: ett vägguttag är ingen individ
+    signifikanta: DP.signifikantaTyper(),
+    harOvrig: DP.signifikantaTyper().indexOf('vagguttag') >= 0
+  }));
+  kontroll(insttyper.full === 'handbrandslackare' && insttyper.kort === 'handbrandslackare',
+    'både "Handbrandsläckare 3" och "Handbr.släckare 3" känns igen (beslut 81)');
+  kontroll(insttyper.blc === 'brandlarmscentral' && insttyper.hc === 'huvudcentral'
+    && insttyper.lb === 'luftbehandlingsaggregat',
+    'fastighetssystemets förkortningar känns igen (' + [insttyper.blc, insttyper.hc, insttyper.lb].join(' ') + ')');
+  kontroll(insttyper.nod === 'nodbelysning',
+    'nödbelysning blir inte en elcentral: det mest utpekande mönstret prövas först ('
+    + insttyper.nod + ')');
+  kontroll(insttyper.okand === null && insttyper.tom === null,
+    'en benämning systemet inte känner igen ger null, inte en gissning (beslut 81)');
+  kontroll(insttyper.avNamn === 'tryckkarl' && insttyper.avId === 'tryckkarl' && insttyper.avOkand === null,
+    'kolumnen Installationstyp läses både som namn och som id (beslut 109)');
+  kontroll(insttyper.signifikanta.length > 10 && !insttyper.harOvrig,
+    'listan planeraren väljer ur har bara signifikanta typer (' + insttyper.signifikanta.length
+    + ' typer, vägguttag med: ' + insttyper.harOvrig + ')');
+
+  // ---- Installationernas plats i rummet räknas av planlösningen (beslut 78) ----
+  // En inläst installation bär ingen plats: filen har plan och rumsnummer och ingenting om
+  // var i rummet apparaten sitter. Platsen räknas ur rummets rektangel, och tre släckare i
+  // samma rum ska ligga på olika ställen – annars står de i varandra i modellen.
+  const platser = await page.evaluate(() => {
+    const b = {
+      typ: 'kasern', namn: 'Provkasern',
+      konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
+      stil: { tak: 'platt' },
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [
+        { nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', nta: 96 },
+        { nr: '002', namn: 'Logement 1:1', plan: '01', rumstyp: 'logement', nta: 36 }
+      ],
+      installationer: [
+        { id: 'a', typ: 'handbrandslackare', rum: '01-002', benamning: 'A', signifikant: true },
+        { id: 'b', typ: 'handbrandslackare', rum: '01-002', benamning: 'B', signifikant: true },
+        { id: 'c', typ: 'luftbehandlingsaggregat', rum: '01-002', benamning: 'C', signifikant: true },
+        // Ett rum som inte finns: installationen kan inte placeras och ska inte följa med
+        { id: 'd', typ: 'handbrandslackare', rum: '09-009', benamning: 'D', signifikant: true }
+      ]
+    };
+    const form = DP.Planlosning.form(b);
+    const sig = form.installationer.filter(i => i.signifikant);
+    const rum2 = form.rum.filter(r => r.nr === '002')[0];
+    return {
+      antal: sig.length,
+      idn: sig.map(i => i.id).join(' '),
+      punkter: sig.map(i => ({ id: i.id, x: Math.round(i.x * 100) / 100, z: i.z, h: i.h })),
+      rect: rum2.rect,
+      // De övriga genereras ur rumstypen (berättelse 57)
+      ovriga: form.installationer.filter(i => !i.signifikant).length,
+      ovrigaTyper: form.installationer.filter(i => !i.signifikant)
+        .map(i => i.typ).filter((v, i2, a) => a.indexOf(v) === i2).sort().join(' ')
+    };
+  });
+  kontroll(platser.antal === 3 && platser.idn === 'a b c',
+    'en installation i ett rum som inte finns tas inte med i formen (' + platser.idn + ')');
+  kontroll(platser.punkter.every(p => p.x > platser.rect[0] && p.x < platser.rect[2]),
+    'installationerna ligger inom sitt rums rektangel ('
+    + platser.punkter.map(p => p.id + ':' + p.x).join(' ') + ' i ' + platser.rect.join(',') + ')');
+  kontroll(new Set(platser.punkter.map(p => p.x)).size === 3,
+    'tre installationer i samma rum ligger på olika ställen, inte i varandra ('
+    + platser.punkter.map(p => p.x).join(' ') + ')');
+  kontroll(platser.punkter.filter(p => p.id === 'a')[0].h > 0
+    && platser.punkter.filter(p => p.id === 'c')[0].h === 0,
+    'en väggmonterad installation hamnar på vägghöjd och en golvstående på golvet (beslut 78)');
+  kontroll(platser.ovriga > 0 && /lysrorsarmatur/.test(platser.ovrigaTyper),
+    'de övriga installationerna genereras ur rummen (' + platser.ovriga + ' st: '
+    + platser.ovrigaTyper + ', berättelse 57)');
+  // De handritade byggnaderna bär sina egna övriga i `data/` och ska inte få dem i dubbel
+  // uppsättning (beslut 101).
+  const ritad = await page.evaluate(() => {
+    const b = DP.Plan.byggnad('kasern1');
+    const form = DP.Planlosning.form(b);
+    return { fore: b.installationer.length, efter: form.installationer.length };
+  });
+  kontroll(ritad.fore === ritad.efter,
+    'en handritad byggnad får inga genererade övriga ovanpå sina egna (' + ritad.fore + ' → '
+    + ritad.efter + ', beslut 101)');
+
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
@@ -5276,8 +5598,10 @@ async function testStegRum(browser) {
   // arean är värre än inget tal.
   kontroll(gront.rumSt.bra === null,
     'BRA summeras inte när bara ett rum har den (' + gront.rumSt.bra + ', beslut 79)');
-  kontroll(/Inläsning pågår/.test(gront.status),
-    'byggnaden står som "Inläsning pågår" tills installationerna finns (' + gront.status + ')');
+  // Filen bar också en rad i fliken Installationer, och den läses in i samma steg (beslut 70):
+  // med alla fyra stegen gröna är byggnaden klar för Planering (berättelse 7 och 64).
+  kontroll(/Klar för Planering/.test(gront.status),
+    'byggnaden är klar för Planering när alla fyra stegen är gröna (' + gront.status + ')');
   await bild(page, 'byggnad-steg3-gront');
 
   // ---- Rumstypen går att byta med ett klick (beslut 80) ----
@@ -5620,6 +5944,493 @@ async function testStegRum(browser) {
   await page.close();
 }
 
+
+// Steget Installationer genom hela sidan, och vägen vidare till Planering: läs in alla tre
+// flikarna, godta, dra en oplacerad installation till ett rum, välj en okänd typ, ångra och
+// gör om, se "Klar för Planering" – och möt snabbstarten i Planering (biljett #39,
+// berättelse 22, 45–50, 57 och 64–65).
+//
+// Det som prövas är planerarens hela väg med en riktig .xlsx skriven utanför appen. Går
+// typigenkänningen eller rummatchningen fel får installationerna fel tillsyn, och det märks
+// först när någon faktiskt planerar en inläst byggnad.
+async function testStegInstallationer(browser) {
+  console.log('Steget Installationer och vidare till Planering (beslut 81, 86, 87, 88 och 109)');
+  const page = await nySida(browser, URL_INDEX);
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('.val[data-typ="kasern"]').click();
+  await bf.locator('input[data-falt="namn"]').fill('Kasern 6');
+  await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+  await vanta(page, () => DP.Plan.byggnad().namn === 'Kasern 6', 'byggnaden skapad');
+
+  // ---- En fil med alla tre flikarna i samma inläsning (beslut 70, berättelse 16) ----
+  // Skrivsätten är med flit olika, som i fastighetssystemet: en installation med exakt plan
+  // och nummer, en med planet skrivet P2, en utan plan vars nummer bara finns på ett plan,
+  // en vars nummer finns på två plan, en med en benämning systemet inte känner igen, och en
+  // utan Id.
+  const fil = skrivArk('inst-ifylld.xlsx', {
+    Plan: [
+      ['Plan', 'Benämning'],
+      ['01', 'Entréplan'],
+      ['02', 'Plan 2']
+    ],
+    Rum: [
+      ['Plan', 'Rum', 'Benämning', 'Rumstyp', 'NTA', 'NTV', 'BRA', 'BTA', 'Temperaturreglerad'],
+      ['01', '001', 'Korridor', '', '96', '', '', '', 'Ja'],
+      ['01', '002', 'Logement 1:1', '', '36', '', '', '', 'Ja'],
+      ['01', '003', 'Fläktrum', '', '40', '400', '', '', 'Nej'],
+      ['02', '001', 'Korridor', '', '96', '', '', '', 'Ja'],
+      ['02', '002', 'Logement 2:1', '', '36', '', '', '', 'Ja']
+    ],
+    Installationer: [
+      ['Plan', 'Rum', 'Benämning', 'Installationstyp', 'Beteckning', 'Fabrikat', 'Modell',
+        'Id', 'Externt id', 'Installationsdatum', 'Kapacitet'],
+      // Klar: exakt plan och nummer, benämning systemet känner igen
+      ['01', '001', 'Brandlarmscentral 1', '', 'BLC01', 'Securia', 'BC-400', '00000211',
+        'L410233', '2023-04-11', ''],
+      // Klar: tomt Id får ett id från systemet (berättelse 48)
+      ['01', '002', 'Handbrandsläckare 1', '', 'HB01', 'Presto', 'P7kg', '', '', '2024-05-02', ''],
+      // Förslag: planet skrivet P2 och numret utan nollor
+      ['P2', '2', 'Handbr.släckare 2', '', 'HB02', 'Presto', 'P7kg', '00000213', '', '', ''],
+      // Förslag: planet saknas, men 003 finns bara på ett plan (berättelse 46)
+      ['', '003', 'Luftbehandlingsaggregat 1', '', 'LB01', 'Fahoma', 'FTX1127', '00000214',
+        '', '', '2000 l/s'],
+      // Oplacerad: 001 finns på två plan och planet är tomt (berättelse 46)
+      ['', '001', 'Brandpost 1', '', 'BP01', 'Nordhydrant', 'NH-25', '00000215', '', '', ''],
+      // Oplacerad: benämningen känns inte igen som en installationstyp (beslut 81)
+      ['01', '003', 'Gurglande dunk', '', 'GD01', '', '', '00000216', '', '', '']
+    ]
+  });
+  // Steg 4 öppnas innan filen läses in: det är där planeraren står när hon fyller i
+  // installationerna, och steglistan är hennes väg dit.
+  await bf.locator('.steg-kort[data-bsteg="4"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="4"].oppen'),
+    'steg 4 öppet');
+  await lasInFil(page, fil);
+
+  const inlast = await page.evaluate(() => {
+    const st = DP.Plan.inlasningStatus('inst');
+    const sig = DP.Plan.byggnad().installationer.filter(i => i.signifikant);
+    return {
+      raknat: st.raknat,
+      plan: DP.Plan.byggnad().plan.map(p => p.id),
+      rum: DP.Plan.byggnad().rum.length,
+      inst: sig.map(i => (i.beteckning || '–') + ':' + i.typ + ':' + i.rum),
+      forslag: st.grupper.forslag.map(r => r.falt.beteckning),
+      skal: st.grupper.forslag.map(r => r.fragor.map(f => f.text).join(' ')),
+      oplacerade: st.grupper.oplacerad.map(r => r.falt.beteckning),
+      oplaceratSkal: st.grupper.oplacerad.map(r => r.fragor.map(f => f.text).join(' ')),
+      historik: DP.Plan.historik().lista.slice(-1)[0],
+      steg: DP.Plan.byggnadsSteg(),
+      // Modellen visar bara det som är klart (berättelse 55): de två klara installationerna
+      // ritas, förslagen och det oplacerade inte.
+      modellSig: DP.viewer.b.installationer.filter(i => i.signifikant).length,
+      // De övriga genereras ur rumstypen (berättelse 57)
+      modellOvriga: DP.viewer.b.installationer.filter(i => !i.signifikant).length,
+      // Och de har en plats inne i sitt rum
+      platser: DP.viewer.b.installationer.filter(i => i.signifikant)
+        .map(i => i.rum + '@' + Math.round(i.x * 10) / 10)
+    };
+  });
+  kontroll(inlast.plan.join(' ') === '01 02' && inlast.rum === 5,
+    'plan och rum kom in i samma inläsning (' + inlast.plan.join(' ') + ', ' + inlast.rum + ' rum)');
+  kontroll(inlast.raknat.klar === 2 && inlast.raknat.forslag === 2 && inlast.raknat.oplacerad === 2,
+    'installationsraderna delas i klart, förslag och oplacerat ('
+    + JSON.stringify(inlast.raknat) + ')');
+  kontroll(inlast.inst.length === 2 && inlast.inst.some(i => /^BLC01:brandlarmscentral:01-001/.test(i)),
+    'de klara installationerna förs in i byggnaden med sin typ och sitt rum ('
+    + inlast.inst.join(' | ') + ', beslut 81)');
+  kontroll(inlast.skal.some(s => /P2 tolkas som plan 02/.test(s)),
+    'planet P2 matchas förlåtande och säger det i klartext ("'
+    + inlast.skal.filter(s => /P2/.test(s))[0] + '", beslut 77)');
+  kontroll(inlast.skal.some(s => /bara på ett plan/.test(s)),
+    'en rad utan plan vars rumsnummer finns på ett enda plan blir ett förslag ("'
+    + inlast.skal.filter(s => /ett plan/.test(s))[0] + '", berättelse 46)');
+  kontroll(inlast.oplaceratSkal.some(s => /finns på flera plan/.test(s)),
+    'ett rumsnummer som finns på flera plan blir oplacerat ("'
+    + inlast.oplaceratSkal.filter(s => /flera/.test(s))[0] + '", berättelse 46)');
+  kontroll(inlast.oplaceratSkal.some(s => /Välj typ ur listan/.test(s)),
+    'en okänd installationstyp måste väljas och är inte ett förslag ("'
+    + inlast.oplaceratSkal.filter(s => /typ/.test(s))[0] + '", beslut 81)');
+  kontroll(/läs in inst-ifylld\.xlsx/.test(inlast.historik),
+    'hela filen – plan, rum och installationer – är **ett** steg i historiken ("'
+    + inlast.historik + '")');
+  kontroll(inlast.steg[3] === true && inlast.steg[4] === false,
+    'steg 3 är grönt men steg 4 inte: förslag och oplacerat ligger kvar (beslut 83)');
+  kontroll(inlast.modellSig === 2,
+    'modellen visar bara de klara installationerna (' + inlast.modellSig
+    + ', berättelse 55)');
+  kontroll(inlast.modellOvriga > 10,
+    'de övriga installationerna läggs till automatiskt ur rumstyperna ('
+    + inlast.modellOvriga + ' st, berättelse 57)');
+  kontroll(inlast.platser.length === 2 && inlast.platser.every(p => /@\d/.test(p)),
+    'installationerna har en plats räknad ur sitt rum (' + inlast.platser.join(' ')
+    + ', beslut 78)');
+  // Ett tomt Id fick ett id från systemet, och det är ett annat än fastighetssystemets
+  const systemId = await page.evaluate(() => (DP.Plan.byggnad().installationer
+    .filter(i => i.beteckning === 'HB01')[0] || {}).id);
+  kontroll(/^9\d{7}$/.test(systemId),
+    'en rad utan Id fick ett id från systemet (' + systemId + ', berättelse 48)');
+  await bild(page, 'byggnad-steg4-inlasning');
+
+  // ---- Godta alla: ett steg, och ett ångra tar tillbaka hela godtagandet ----
+  const foreAlla = await historiklangd(page);
+  await bf.locator('.steg-kort[data-bsteg="4"] button', { hasText: 'Godta alla' }).click();
+  await stegKlart(page, foreAlla, 'Godta alla i Installationer');
+  const godtagna = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('inst').raknat,
+    inst: DP.Plan.byggnad().installationer.filter(i => i.signifikant)
+      .map(i => i.beteckning + ':' + i.rum),
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    steg4: DP.Plan.byggnadsSteg()[4]
+  }));
+  kontroll(godtagna.raknat.forslag === 0 && godtagna.inst.length === 4,
+    'Godta alla för in båda förslagen på en gång (' + godtagna.inst.length + ' installationer)');
+  kontroll(godtagna.inst.some(i => i === 'HB02:02-002'),
+    'HB02 hamnade i 02-002, rummet systemet föreslog (' + godtagna.inst.join(' | ') + ')');
+  kontroll(godtagna.inst.some(i => i === 'LB01:01-003'),
+    'LB01 hamnade i 01-003, det enda rummet med nummer 003 (' + godtagna.inst.join(' | ') + ')');
+  kontroll(/godta alla 2 förslag i Installationer/.test(godtagna.historik),
+    'Godta alla är **ett** steg i historiken ("' + godtagna.historik + '")');
+  kontroll(godtagna.steg4 === false,
+    'bocken dröjer så länge de två oplacerade raderna ligger kvar (berättelse 30)');
+
+  await angra(page);
+  const angrat = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('inst').raknat,
+    antal: DP.Plan.byggnad().installationer.filter(i => i.signifikant).length
+  }));
+  kontroll(angrat.raknat.forslag === 2 && angrat.antal === 2,
+    'ett ångra tar tillbaka hela godtagandet (' + angrat.antal + ' installationer, '
+    + angrat.raknat.forslag + ' förslag igen)');
+  await gorOm(page);
+  kontroll(await page.evaluate(() =>
+    DP.Plan.byggnad().installationer.filter(i => i.signifikant).length) === 4,
+    'gör om lägger tillbaka dem');
+
+  // ---- Den oplacerade brandposten dras till ett rum (berättelse 50) ----
+  // Draget går genom `svaraInst`, samma väg som knappen på raden, så rummet prövas likadant.
+  const oplaceradFore = await page.evaluate(() => ({
+    antal: DP.Plan.inlasningStatus('inst').raknat.oplacerad,
+    dragbar: !!document.querySelector('#byggnadsflode .bf-inlrad.oplacerad.dragbar')
+  }));
+  kontroll(oplaceradFore.antal === 2 && oplaceradFore.dragbar,
+    'de oplacerade raderna ligger kvar och den med okänt rum går att dra ('
+    + oplaceradFore.antal + ')');
+  const foreDrag = await historiklangd(page);
+  // Radens nyckel slås upp i tillståndet: en locator med `hasText` går inte att rulla fram,
+  // och `data-inlrad` är den selektor raden faktiskt bär.
+  const bpKey = await page.evaluate(() => (DP.Plan.inlasningStatus('inst').grupper.oplacerad
+    .filter(r => r.falt.beteckning === 'BP01')[0] || {}).key);
+  const bp = bf.locator('.bf-inlrad[data-inlrad="' + bpKey + '"]');
+  const malrum = bf.locator('.bf-instrum[data-instrum="02-001"]');
+  await draTillMal(page, bp, malrum,
+    () => !!document.querySelector('#byggnadsflode .bf-instrum[data-instrum="02-001"].malrum'),
+    'rummet 02-001 märkt som mål');
+  kontroll(await bf.locator('.bf-instrum.malrum').count() === 1,
+    'rummet märks som mål medan installationen dras (beslut 106)');
+  await page.mouse.up();
+  await stegKlart(page, foreDrag, 'dra brandposten till 02-001');
+  const draget = await page.evaluate(() => ({
+    oplacerade: DP.Plan.inlasningStatus('inst').raknat.oplacerad,
+    bp: (DP.Plan.byggnad().installationer.filter(i => i.beteckning === 'BP01')[0] || {}).rum,
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    market: document.querySelectorAll('#byggnadsflode .bf-instrum.malrum').length
+  }));
+  kontroll(draget.oplacerade === 1 && draget.bp === '02-001',
+    'brandposten hamnade i det rum hon drog den till (' + draget.bp + ')');
+  kontroll(/rum 02-001/.test(draget.historik),
+    'draget är ett steg i historiken med text i klartext ("' + draget.historik + '")');
+  kontroll(draget.market === 0, 'märket är borta när installationen släppts');
+
+  // ---- Den okända typen väljs ur listan: steget blir grönt (beslut 81, berättelse 47) ----
+  const foreTyp = await historiklangd(page);
+  const gd = bf.locator('.bf-inlrad.oplacerad', { hasText: 'Gurglande dunk' }).first();
+  kontroll(await gd.locator('.bf-typval button').count() > 10,
+    'den okända typen svaras med en knapp per installationstyp');
+  await gd.locator('.bf-typval button', { hasText: 'Tryckkärl' }).first().click();
+  await stegKlart(page, foreTyp, 'välja installationstyp');
+  const gront = await page.evaluate(() => ({
+    st: DP.Plan.inlasningStatus('inst'),
+    steg: DP.Plan.byggnadsSteg(),
+    status: DP.Plan.byggnadStatus(),
+    gd: DP.Plan.byggnad().installationer.filter(i => i.beteckning === 'GD01')[0] || {},
+    instSt: DP.Plan.instStatus(),
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    modellSig: DP.viewer.b.installationer.filter(i => i.signifikant).length
+  }));
+  kontroll(gront.st.klar === true && gront.steg[4] === true,
+    'steg 4 får grön bock när bara klart återstår (beslut 81 och 83)');
+  kontroll(gront.gd.typ === 'tryckkarl' && gront.gd.rum === '01-003',
+    'installationen fick den typ planeraren valde (' + gront.gd.typ + ' i ' + gront.gd.rum + ')');
+  kontroll(/installationstyp Tryckkärl/.test(gront.historik),
+    'valet är ett steg i historiken med typens namn i klartext ("' + gront.historik + '")');
+  kontroll(gront.instSt.antal === 6 && gront.instSt.plan.length === 2,
+    'alla sex installationerna står under sitt plan och rum (' + gront.instSt.antal + ' på '
+    + gront.instSt.plan.length + ' plan)');
+  kontroll(gront.instSt.ovriga > 10,
+    'steget räknar också de övriga installationerna (' + gront.instSt.ovriga
+    + ', berättelse 57)');
+  kontroll(gront.modellSig === 6,
+    'alla sex syns i modellen när de är klara (' + gront.modellSig + ', berättelse 55)');
+  // Byggnadsträdet räknar de övriga ur **formen**, där de genererade ligger: hade det läst
+  // tillståndet hade det sagt "0 övriga" om en byggnad där modellen visar trettio.
+  const tradet = await page.evaluate(() =>
+    (document.querySelector('#trad .sammanfattning') || {}).textContent || '');
+  kontroll(/6 signifikanta installationer/.test(tradet) && !/\b0 övriga/.test(tradet),
+    'byggnadsträdet räknar både de signifikanta och de genererade övriga ("'
+    + tradet.replace(/\s+/g, ' ').slice(0, 90) + '", berättelse 57)');
+  // Alla fyra stegen gröna: byggnaden är klar för Planering (berättelse 7 och 64)
+  kontroll(/Klar för Planering/.test(gront.status),
+    'byggnaden står som "Klar för Planering" när alla fyra stegen är gröna (' + gront.status
+    + ', berättelse 7)');
+  await bild(page, 'byggnad-steg4-gront');
+
+  // Modellen utan tak, så att installationerna syns i rummen
+  await page.locator('#t-tak').click();
+  await page.locator('#t-rontgen').click();
+  await bild(page, 'byggnad-steg4-modell');
+  await page.locator('#t-tak').click();
+  await page.locator('#t-rontgen').click();
+
+  // ---- Installationstypen går att byta på raden, och kopplingarna rörs inte (beslut 94) ----
+  const foreByte = await historiklangd(page);
+  const rad = bf.locator('.bf-instrad', { hasText: 'Handbrandsläckare 1' }).first();
+  await rad.locator('button', { hasText: 'Byt typ' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-instrad .bf-typval'),
+    'typvalet på raden');
+  await bf.locator('.bf-instrad .bf-typval button', { hasText: 'Brandpost' }).first().click();
+  await stegKlart(page, foreByte, 'byta installationstyp');
+  const bytt = await page.evaluate(() => {
+    const i = DP.Plan.byggnad().installationer.filter(x => x.beteckning === 'HB01')[0] || {};
+    return { typ: i.typ, benamning: i.benamning,
+      historik: DP.Plan.historik().lista.slice(-1)[0] };
+  });
+  kontroll(bytt.typ === 'brandpost',
+    'installationstypen byttes på raden (' + bytt.typ + ', beslut 81)');
+  kontroll(bytt.benamning === 'Handbrandsläckare 1',
+    'benämningen planeraren skrev står kvar (' + bytt.benamning + ')');
+  kontroll(/byt installationstyp/.test(bytt.historik),
+    'bytet är ett steg i historiken ("' + bytt.historik + '")');
+  await angra(page);
+  kontroll(await page.evaluate(() => (DP.Plan.byggnad().installationer
+    .filter(x => x.beteckning === 'HB01')[0] || {}).typ) === 'handbrandslackare',
+    'ett ångra tar tillbaka typen');
+
+  // ---- Lägg till en installation för hand (berättelse 50) ----
+  const foreNy = await historiklangd(page);
+  await bf.locator('.steg-kort[data-bsteg="4"] button', { hasText: 'Lägg till installation' })
+    .first().click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode input[data-falt="inst-benamning"]'),
+    'formuläret för en ny installation');
+  await bf.locator('input[data-falt="inst-benamning"]').fill('Nödbelysningsarmatur 1');
+  // Typen läses ur benämningen medan hon skriver: hon ska se *vilken* typ systemet läste
+  await vanta(page, () => {
+    const n = document.querySelector('#byggnadsflode .bf-notis');
+    return !!n && /Nödbelysningsarmatur/.test(n.textContent);
+  }, 'förslaget om typen');
+  await bf.locator('input[data-falt="inst-beteckning"]').fill('NB01');
+  await bf.locator('.bf-rumval button', { hasText: '01-001' }).first().click();
+  await bf.locator('.steg-kort[data-bsteg="4"] .knapprad.hoger button', { hasText: 'Lägg till installation' })
+    .click();
+  await stegKlart(page, foreNy, 'lägga till en installation för hand');
+  const nyInst = await page.evaluate(() => {
+    const i = DP.Plan.byggnad().installationer.filter(x => x.beteckning === 'NB01')[0] || {};
+    return { typ: i.typ, rum: i.rum, id: i.id, benamning: i.benamning,
+      antal: DP.Plan.instStatus().antal,
+      historik: DP.Plan.historik().lista.slice(-1)[0],
+      modell: DP.viewer.b.installationer.filter(x => x.id === i.id).length };
+  });
+  kontroll(nyInst.typ === 'nodbelysning' && nyInst.rum === '01-001',
+    'installationen fick typen ur benämningen och rummet hon valde ('
+    + nyInst.typ + ' i ' + nyInst.rum + ', beslut 81)');
+  kontroll(/^9\d{7}$/.test(nyInst.id),
+    'id:t kom från systemet (' + nyInst.id + ', berättelse 48)');
+  kontroll(nyInst.antal === 7 && nyInst.modell === 1,
+    'installationen står i steget och i modellen (' + nyInst.antal + ' st)');
+  kontroll(/lägg till NB01 Nödbelysningsarmatur 1 i 01-001/.test(nyInst.historik),
+    'tillägget är ett steg i historiken ("' + nyInst.historik + '")');
+
+  // ---- Ta bort en installation: kopplingarna försvinner med den (beslut 87) ----
+  // Planeringen skapas först, så att det finns kopplingar att pröva mot. Snabbstarten är
+  // vägen dit (berättelse 65) – ingen planering skapas av sig själv.
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet');
+  const snabb = await page.evaluate(() => ({
+    harPlanering: DP.Plan.state().ronder.length,
+    knapp: [...document.querySelectorAll('#flode .snabbstart button')]
+      .map(b => b.textContent).join(' | ')
+  }));
+  kontroll(snabb.harPlanering === 0,
+    'ingen planering har skapats av sig själv (' + snabb.harPlanering
+    + ' ronder, berättelse 65)');
+  kontroll(/standardplanering för kasern/.test(snabb.knapp),
+    'snabbstarten erbjuder byggnadstypens standardplanering ("' + snabb.knapp + '")');
+  await page.locator('#flode .snabbstart button', { hasText: 'standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.state().ronder.length > 0, 'standardplaneringen');
+  const planerad = await page.evaluate(() => ({
+    ronder: DP.Plan.state().ronder.length,
+    steg: DP.Plan.stegStatus(DP.Plan.state()),
+    kopplingar: DP.Plan.state().kopplingar.filter(k => k.inst !== 'BYGGNAD').length,
+    klar: DP.Plan.byggnadKlar(DP.Plan.aktivId())
+  }));
+  kontroll(planerad.ronder === 5 && planerad.steg[5] === true,
+    'standardplaneringen ger kasernens fem ronder och ett grönt steg 5 ('
+    + planerad.ronder + ' ronder, steg 5: ' + planerad.steg[5] + ', berättelse 22 och 64)');
+  kontroll(planerad.kopplingar > 0,
+    'de inlästa installationerna fick kopplade åtgärder (' + planerad.kopplingar + ')');
+  kontroll(planerad.klar === true,
+    'byggnaden är klar för Balansering: alla sex stegen gröna (beslut 39)');
+
+  // Nu tillbaka till Byggnad och ta bort en installation: kopplingarna ska följa med bort
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet igen');
+  const foreBort = await historiklangd(page);
+  const blcId = await page.evaluate(() => (DP.Plan.byggnad().installationer
+    .filter(i => i.beteckning === 'BLC01')[0] || {}).id);
+  const koppladeFore = await page.evaluate(id =>
+    DP.Plan.state().kopplingar.filter(k => k.inst === id).length, blcId);
+  kontroll(koppladeFore > 0,
+    'brandlarmscentralen har kopplade åtgärder innan den tas bort (' + koppladeFore + ')');
+  await bf.locator('.bf-instrad', { hasText: 'Brandlarmscentral 1' }).first()
+    .locator('button', { hasText: 'Ta bort' }).click();
+  await stegKlart(page, foreBort, 'ta bort brandlarmscentralen');
+  const borttaget = await page.evaluate(id => ({
+    finns: DP.Plan.byggnad().installationer.some(i => i.id === id),
+    kopplingar: DP.Plan.state().kopplingar.filter(k => k.inst === id).length,
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    modell: DP.viewer.b.installationer.filter(i => i.id === id).length
+  }), blcId);
+  kontroll(borttaget.finns === false && borttaget.modell === 0,
+    'installationen är borta ur byggnaden och ur modellen');
+  kontroll(borttaget.kopplingar === 0,
+    'kopplingarna till den försvann i samma steg (' + borttaget.kopplingar
+    + ', beslut 87 och berättelse 68)');
+  kontroll(/ta bort BLC01/.test(borttaget.historik),
+    'borttagningen är ett steg i historiken ("' + borttaget.historik + '")');
+  await angra(page);
+  const angratBort = await page.evaluate(id => ({
+    finns: DP.Plan.byggnad().installationer.some(i => i.id === id),
+    kopplingar: DP.Plan.state().kopplingar.filter(k => k.inst === id).length
+  }), blcId);
+  kontroll(angratBort.finns === true && angratBort.kopplingar === koppladeFore,
+    'ett ångra tar tillbaka både installationen och dess kopplingar ('
+    + angratBort.kopplingar + ' kopplingar)');
+
+  // ---- Flytta en installation till ett annat rum: kopplingarna följer med (beslut 87) ----
+  const foreFlytt = await historiklangd(page);
+  const lbId = await page.evaluate(() => (DP.Plan.byggnad().installationer
+    .filter(i => i.beteckning === 'LB01')[0] || {}).id);
+  const lbRad = bf.locator('.bf-instrad[data-inst="' + lbId + '"]');
+  const lbMal = bf.locator('.bf-instrum[data-instrum="02-002"]');
+  const lbKoppladeFore = await page.evaluate(id =>
+    DP.Plan.state().kopplingar.filter(k => k.inst === id).length, lbId);
+  await draTillMal(page, lbRad, lbMal,
+    () => !!document.querySelector('#byggnadsflode .bf-instrum[data-instrum="02-002"].malrum'),
+    'rummet 02-002 märkt som mål');
+  await page.mouse.up();
+  await stegKlart(page, foreFlytt, 'flytta luftbehandlingsaggregatet');
+  const flyttat = await page.evaluate(id => ({
+    rum: (DP.Plan.byggnad().installationer.filter(i => i.id === id)[0] || {}).rum,
+    kopplingar: DP.Plan.state().kopplingar.filter(k => k.inst === id).length,
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    // Platsen räknas om ur det nya rummet: en ritad plats som följde med hade lagt
+    // installationen utanför väggarna
+    rect: (DP.viewer.b.rum.filter(r => DP.rumBeteckning(r) === '02-002')[0] || {}).rect,
+    x: (DP.viewer.b.installationer.filter(i => i.id === id)[0] || {}).x
+  }), lbId);
+  kontroll(flyttat.rum === '02-002',
+    'installationen flyttades till det rum hon drog den till (' + flyttat.rum + ')');
+  kontroll(flyttat.kopplingar === lbKoppladeFore,
+    'kopplade åtgärder följde med: det är samma installation (' + flyttat.kopplingar
+    + ', beslut 87 och berättelse 67)');
+  kontroll(flyttat.x > flyttat.rect[0] && flyttat.x < flyttat.rect[2],
+    'platsen räknades om ur det nya rummet (' + Math.round(flyttat.x * 10) / 10 + ' i '
+    + (flyttat.rect || []).join(',') + ')');
+  kontroll(/flytta LB01 till 02-002/.test(flyttat.historik),
+    'flytten är ett steg i historiken ("' + flyttat.historik + '")');
+
+  // ---- Ta ut filen igen, nu ifylld, och läs in den tur och retur (berättelse 17) ----
+  const igen = await taUtFil(page, 'inst-ifylld-ut.xlsx');
+  const utArk = lasArkFil(igen.fil);
+  const instFore = await page.evaluate(() => DP.Plan.byggnad().installationer
+    .filter(i => i.signifikant).map(i => i.id + '|' + i.typ + '|' + i.rum + '|' + i.benamning)
+    .sort());
+  // Sex ur filen plus den planeraren lade till för hand.
+  kontroll(utArk.Installationer.length === 8,
+    'filen tas ut med alla sju installationerna ifyllda ('
+    + (utArk.Installationer.length - 1) + ' rader)');
+  kontroll((utArk.Installationer[0] || []).indexOf('Installationstyp') >= 0
+    && (utArk.Installationer[0] || []).indexOf('Kapacitet') >= 0,
+    'Installationstyp är ifylld och den egna kolumnen följer med ut ('
+    + (utArk.Installationer[0] || []).join(',') + ', beslut 89 och 109)');
+  kontroll(utArk.Installationer.some(r => r[3] === 'Luftbehandlingsaggregat' && r[10] === '2000 l/s'),
+    'typens namn och det egna fältets värde följer med ut igen');
+  // Bara signifikanta: de övriga genereras ur rumstypen och ska inte stå i filen (beslut 81).
+  // Provet går på **typen** och inte på benämningen: "Nödbelysningsarmatur" är en signifikant
+  // typ, och ett prov på ordet "armatur" hade fällt den.
+  const ovrigaTyper = await page.evaluate(() => Object.keys(DP.installationstyper)
+    .filter(id => DP.installationstyper[id].kategori === 'ovrig')
+    .map(id => DP.installationstyper[id].namn));
+  kontroll(!utArk.Installationer.some(r => ovrigaTyper.indexOf(String(r[3])) >= 0),
+    'de övriga installationerna står inte i filen (beslut 81)');
+
+  const foreRetur = await historiklangd(page);
+  await lasInFil(page, igen.fil);
+  const retur = await page.evaluate(() => ({
+    inst: DP.Plan.byggnad().installationer.filter(i => i.signifikant)
+      .map(i => i.id + '|' + i.typ + '|' + i.rum + '|' + i.benamning).sort(),
+    st: DP.Plan.inlasningStatus('inst'),
+    steg4: DP.Plan.byggnadsSteg()[4]
+  }));
+  kontroll(retur.inst.join(' ') === instFore.join(' '),
+    'filen läses in tur och retur utan skillnad (' + retur.inst.length + ' installationer)');
+  kontroll(retur.st.raknat.forslag === 0 && retur.st.raknat.oplacerad === 0 && retur.steg4 === true,
+    'ingenting nytt att ta ställning till: alla installationer fanns redan (beslut 86)');
+  kontroll(retur.st.raknat.klar === 7,
+    'alla sju räknas som klara också andra gången filen läses in (' + retur.st.raknat.klar + ')');
+
+  // ---- Planering går att öppna innan Byggnad är klar (berättelse 64) ----
+  // En ny byggnad utan installationer: steg 5 kan inte bli grönt, och Planering ska säga det
+  // i stället för att bara stå tom.
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('.val[data-typ="garage"]').click();
+  await bf.locator('input[data-falt="namn"]').fill('Garage 9');
+  await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+  await vanta(page, () => DP.Plan.byggnad().namn === 'Garage 9', 'den tomma byggnaden skapad');
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet för den tomma');
+  const tom = await page.evaluate(() => ({
+    status: DP.Plan.byggnadStatus(),
+    kopplingsSt: DP.Plan.kopplingsStatus(DP.Plan.state()),
+    snabbstart: !!document.querySelector('#flode .snabbstart')
+  }));
+  kontroll(tom.snabbstart,
+    'Planering går att öppna för en byggnad som inte är klar i Byggnad (berättelse 64)');
+  kontroll(tom.kopplingsSt.klar === false,
+    'steg 5 kan inte bli grönt utan installationer (beslut 88 och berättelse 64)');
+  kontroll(/Väntar på inläsningsfil/.test(tom.status),
+    'byggnaden står som "Väntar på inläsningsfil" (' + tom.status + ')');
+
+  // ---- Huvudvyn ryms på skärmen med steg 4 öppet ----
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const ryms = await page.evaluate(() => ({
+    sida: document.documentElement.scrollHeight <= window.innerHeight + 1,
+    hojd: document.documentElement.scrollHeight, fonster: window.innerHeight
+  }));
+  kontroll(ryms.sida,
+    'huvudvyn ryms utan att sidan scrollar med steg 4 öppet (' + ryms.hojd + ' av '
+    + ryms.fonster + ' px)');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -5647,6 +6458,7 @@ async function testStegRum(browser) {
     await testInlasningsmodulen(browser);
     await testInlasningsfilenPlan(browser);
     await testStegRum(browser);
+    await testStegInstallationer(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

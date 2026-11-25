@@ -125,6 +125,23 @@
 
   // ---------------- Generering av ej signifikanta installationer ----------------
   // Standardutrustning per rum: belysning, brytare, uttag och rökdetektor, plus sanitet i WC/dusch.
+  //
+  // Vilket slags rum det är läses ur **rumstypen** när rummet har en, och ur benämningen när
+  // det inte har det (beslut 80). De handritade byggnadernas rum i `data/` bär bara en
+  // benämning – "Korridor", "WC" – medan ett inläst rum bär `rumstyp` och en fri benämning
+  // som "Korr." eller "WC/D". En regel som bara läste benämningen hade gett en inläst
+  // kasern korridorer med uttag mot fel vägg och WC utan sanitet.
+  function slag(r) {
+    if (r.rumstyp === 'korridor') { return 'korridor'; }
+    if (r.rumstyp === 'wcdusch') { return 'wc'; }
+    if (r.rumstyp === 'trapphus') { return 'trapphus'; }
+    if (r.rumstyp) { return 'rum'; }
+    if (r.namn === 'Trapphus') { return 'trapphus'; }
+    if (r.namn.indexOf('Korridor') === 0) { return 'korridor'; }
+    if (r.namn.indexOf('WC') === 0) { return 'wc'; }
+    return 'rum';
+  }
+
   DP.genereraOvriga = function (rum, opts) {
     opts = opts || {};
     var lista = [];
@@ -137,7 +154,8 @@
       var w = x1 - x0, d = z1 - z0, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
       // Belysning: ungefär en armatur per 3 m
       var nx = Math.max(1, Math.round(w / 3)), nz = Math.max(1, Math.round(d / 3));
-      if (r.namn === 'Trapphus') {
+      var sl = slag(r);
+      if (sl === 'trapphus') {
         ovr('lysrorsarmatur', r, mx, mz, 0);
         ovr('vaggarmatur', r, x0, z0 + d * 0.5, 2.2);
       } else {
@@ -149,12 +167,12 @@
       // Brytare vid väggen mot korridoren (mot byggnadens mittlinje), uttag mot motsatt vägg
       var dorrZ = (cz !== undefined && mz < cz) ? z1 : z0;
       var andraZ = dorrZ === z1 ? z0 : z1;
-      if (r.namn.indexOf('Korridor') === 0) { dorrZ = z0; andraZ = z1; }
+      if (sl === 'korridor') { dorrZ = z0; andraZ = z1; }
       ovr('vaggbrytare', r, x0 + Math.min(0.6, w / 3), dorrZ, 1.1);
       ovr('vagguttag', r, x0 + w * 0.3, andraZ, 0.3);
       ovr('vagguttag', r, x0 + w * 0.7, andraZ, 0.3);
       if (opts.rokdetektor !== false) { ovr('rokdetektor', r, mx + 0.4, mz + 0.3, 0); }
-      if (r.namn.indexOf('WC') === 0) {
+      if (sl === 'wc') {
         ovr('toalettstol', r, x0 + 1.0, andraZ, 0);
         ovr('toalettstol', r, x0 + 2.2, andraZ, 0);
         ovr('handfat', r, x1, mz - 0.6, 0.8);

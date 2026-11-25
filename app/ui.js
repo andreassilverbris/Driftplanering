@@ -18,7 +18,21 @@
     // Nycklat på rummets nyckel (plan + rumsnummer): rumsnumret löper per plan och är inte
     // unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
     b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
-    b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
+    // Installationerna tas ur **formen** och inte ur tillståndet: de övriga – belysning,
+    // brytare, uttag – genereras ur rumstypen och ligger därför bara i formen (beslut 71 och
+    // berättelse 57). Läste trädet tillståndet hade det sagt "0 övriga" om en byggnad där
+    // modellen visar trettio, och planeraren hade trott att de saknades.
+    //
+    // De signifikanta är desamma i båda: formen räknar bara fram var de sitter. Det är de
+    // **ur tillståndet** som används, eftersom informationskortet och planeringen pekar på
+    // dem – ett objekt ur formen är en kopia, och en jämförelse på referens hade fallit.
+    modell.installationer.forEach(function (i) {
+      if (i.signifikant) { return; }
+      (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i);
+    });
+    b.installationer.forEach(function (i) {
+      if (i.signifikant) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); }
+    });
     signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
   }
   indexera();
@@ -204,7 +218,10 @@
   function byggTrad() {
     var rot = $('#trad');
     rot.innerHTML = '';
-    var sumSig = signifikanta.length, sumOvr = b.installationer.length - sumSig;
+    // De övriga räknas ur formen, där de genererade ligger (berättelse 57): en byggnad som
+    // läses in har inga övriga i tillståndet, men modellen visar dem.
+    var sumSig = signifikanta.length;
+    var sumOvr = modell.installationer.filter(function (i) { return !i.signifikant; }).length;
     var sum = el('div', 'sammanfattning');
     sum.innerHTML = '<b>' + b.namn + '</b> · ' + b.plan.length + ' plan · ' + b.rum.length + ' rum<br>' +
       (b.beskrivning ? '<span class="liten-text">' + b.beskrivning + '</span><br>' : '') +

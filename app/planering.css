@@ -628,3 +628,37 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 /* Typvalet och planvalet ligger på raden och radbryter: en knapp per typ är ett klick, och
    en lista som försvinner utanför panelen är en lista planeraren inte hittar. */
 .bf-typval, .bf-planval { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 100%; margin-top: 4px; }
+
+/* ---- Byggnadsflödet steg 4: installationerna per plan och rum (beslut 81 och 87) ---- */
+/* Grupperingen är plan → rum → installationer, samma ordning som byggnadsträdet och
+   modellen: planeraren letar efter en släckare där hon vet att den sitter. */
+.bf-planinst { margin-bottom: 10px; border-radius: 10px; }
+/* Rummet är droppmålet i sin helhet och inte en plats mellan två rader: ordningen inom
+   rummet betyder ingenting – platsen i rummet räknar planlösningen fram (beslut 78).
+   Därför ett märke runt rummet och ingen linje, som i steg 2 och 3. */
+.bf-instrum { padding: 5px 6px 2px; border: 1px solid transparent; border-radius: 8px; margin-bottom: 4px; }
+.bf-instrum.malrum { box-shadow: 0 0 0 2px var(--accent); background: var(--accent-svag); }
+.bf-instrumhuvud { font-size: 11px; color: var(--dov); margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
+.bf-instrumhuvud b { color: var(--text); font-weight: 600; }
+.bf-instrad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 3px; flex-wrap: wrap; cursor: grab; }
+.bf-instrad:hover { border-color: #b8cff8; }
+.bf-instrad .bf-btext { flex: 1 1 140px; }
+.bf-instrad.dras { opacity: .45; }
+/* Rumsvalet: knapparna grupperade per plan, så att "01-003 Logement 1:1" läses med sitt
+   plan framför sig i stället för som en lista planeraren måste leta i. */
+.bf-rumval { display: flex; flex-direction: column; gap: 5px; flex: 1 1 100%; margin-top: 4px; }
+.bf-rumvalplan { display: flex; flex-direction: column; gap: 2px; }
+.bf-rumvalplan .etikett { font-size: 10px; color: var(--dov); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+/* Formuläret för en ny installation: fem fält i ett rutnät, som steg 3:s fyra. */
+.bf-instform { margin-bottom: 8px; }
+/* Sex fält i två rader: benämningen bredast, de valfria smalare. Ett rutnät som radbryter
+   av sig självt hade flyttat fälten när panelen blev smalare, och då måste planeraren leta. */
+.bf-instfalt { display: grid; grid-template-columns: 1fr 80px 90px; gap: 8px; align-items: end; margin-top: 6px; }
+/* Ett rum utan installationer står med: det är den plats en installation dras till
+   (berättelse 50), och ett rum som inte syns går inte att dra till. */
+.bf-instrumtom { color: var(--dov); font-style: italic; }
+/* Typvalet inne i en oplacerad rad får egen höjdgräns och egen rullning, av samma skäl som
+   gruppen själv fick det (beslut 112): tjugofem typknappar hade annars fyllt hela den fasta
+   gruppen överst, och då finns ingen lista med rum kvar att dra en installation till –
+   löftet hade ätit upp det det skulle tjäna. */
+.bf-inlrad .bf-typval, .bf-inlrad .bf-rumval { max-height: 76px; overflow-y: auto; }

@@ -33,7 +33,7 @@
     { n: 1, titel: 'Byggnadstyp och namn', kropp: steg1 },
     { n: 2, titel: 'Plan', kropp: steg2 },
     { n: 3, titel: 'Rum', kropp: steg3 },
-    { n: 4, titel: 'Installationer', kropp: stegKommer }
+    { n: 4, titel: 'Installationer', kropp: steg4 }
   ];
 
   // Flödet är stängt tills planeraren väljer *Skapa ny byggnad* eller öppnar ett steg: utan
@@ -63,7 +63,16 @@
     // sida, `planOver` planet när pekaren står på en planrubrik och inget rum.
     rumdrag: null,
     nyttRum: { plan: '', nr: '', namn: '', nta: '', ntv: '' },
-    laggerTillRum: false
+    laggerTillRum: false,
+    // Steg 4: installationen vars typ byts på sin rad (samma mönster som `rumstyp`), den som
+    // dras, och det som skrivs innan installationen läggs till. `instdrag` bär antingen `id`
+    // (en installation som ligger i byggnaden) eller `inlkey` (en oplacerad inläst rad), och
+    // `rumOver` rummet pekaren står på.
+    insttyp: null,
+    instdrag: null,
+    nyInst: { rum: '', benamning: '', beteckning: '', typ: '', fabrikat: '', modell: '',
+      datum: '', externtId: '' },
+    laggerTillInst: false
   };
 
   function el(tag, cls, html) {
@@ -171,7 +180,9 @@
         (b.rum.length ? antal(b.rum.length, 'rum', 'rum') : 'Inga rum ännu');
     }
     var sig = b.installationer.filter(function (i) { return i.signifikant; }).length;
-    return sig ? antal(sig, 'signifikant installation', 'signifikanta installationer') : 'Inga installationer ännu';
+    return aterstar('inst') ||
+      (sig ? antal(sig, 'signifikant installation', 'signifikanta installationer')
+        : 'Inga installationer ännu');
   }
   function antal(n, ett, flera) { return n + ' ' + (n === 1 ? ett : flera); }
   // Vad som återstår i en flik, i klartext – eller tomt när ingenting gör det.
@@ -457,7 +468,9 @@
       // Vad filen gav, i klartext: hur många rader i det här steget som kom in, och vad som
       // ligger kvar i den flik som inte är byggd ännu – annars hade planeraren undrat var
       // hennes installationer tog vägen.
-      var sort = flik === 'rum' ? ['rum klart', 'rum klara'] : ['plan klart', 'plan klara'];
+      var sort = flik === 'rum' ? ['rum klart', 'rum klara']
+        : flik === 'inst' ? ['installation klar', 'installationer klara']
+          : ['plan klart', 'plan klara'];
       var txt2 = 'Läst in <b>' + inl.fil.namn + '</b>';
       var delar = [];
       if (inl.raknat.klar) { delar.push(antal(inl.raknat.klar, sort[0], sort[1])); }
@@ -465,10 +478,6 @@
       if (inl.raknat.oplacerad) { delar.push(antal(inl.raknat.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
       if (delar.length) { txt2 += ': ' + delar.join(', '); }
       txt2 += '.';
-      if (inl.fil.inst) {
-        txt2 += ' Filen har också ' + antal(inl.fil.inst, 'rad', 'rader') + ' i fliken ' +
-          'Installationer – de läses in i steg 4, som inte är byggt ännu.';
-      }
       if ((inl.fil.ignorerade || []).length) {
         txt2 += ' Bladet ' + inl.fil.ignorerade.join(', ') + ' kändes inte igen på sina ' +
           'kolumnrubriker och lästes inte.';
@@ -524,7 +533,9 @@
       h.appendChild(el('div', 'liten-rubrik',
         'Förslag (' + inl.grupper.forslag.length + ')'));
       h.appendChild(knapp('Godta alla', 'knapp liten-knapp', function () {
-        if (flik === 'rum') { P.godtaAllaRum(); } else { P.godtaAllaPlan(); }
+        if (flik === 'inst') { P.godtaAllaInst(); }
+        else if (flik === 'rum') { P.godtaAllaRum(); }
+        else { P.godtaAllaPlan(); }
       }, 'För in alla ' + inl.grupper.forslag.length + ' förslagen på en gång. ◀ tar tillbaka ' +
          'hela godtagandet.'));
       w.appendChild(h);
@@ -549,30 +560,56 @@
     rad.appendChild(el('span', 'bf-planbet', beteckningFor(r, flik)));
     var txt = el('div', 'bf-btext');
     txt.appendChild(el('span', 'bf-bnamn', namnEllerForslag(r)));
+    // En installationsrad säger också vilken typ den blir och var den hamnar: typen avgör
+    // vilka åtgärder planeraren kan koppla (beslut 81), och det ska hon se innan hon godtar.
+    if (flik === 'inst') { txt.appendChild(el('span', 'bf-bstatus', instUnderrad(r))); }
     r.fragor.forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
     rad.appendChild(txt);
     var verktyg = el('div', 'bf-planverktyg');
     verktyg.appendChild(knapp('Godta', 'knapp sekundar liten-knapp', function () {
-      if (flik === 'rum') { P.godtaRum(r.key); } else { P.godtaPlan(r.key); }
+      if (flik === 'inst') { P.godtaInst(r.key); }
+      else if (flik === 'rum') { P.godtaRum(r.key); }
+      else { P.godtaPlan(r.key); }
     }, 'För in förslaget. ◀ tar tillbaka det.'));
     rad.appendChild(verktyg);
     return rad;
   }
-  // Det raden kommer att heta i modellen: planets beteckning, eller rummets plan + nummer
-  // (beslut 76). Är någon av dem ett förslag visas förslaget – planeraren ska se vad raden
-  // blir innan hon godtar, inte efteråt.
+  // Det raden kommer att heta i modellen: planets beteckning, rummets plan + nummer
+  // (beslut 76), eller installationens beteckning och det rum den hamnar i. Är någon av dem
+  // ett förslag visas förslaget – planeraren ska se vad raden blir innan hon godtar, inte
+  // efteråt.
   function beteckningFor(r, flik) {
+    if (flik === 'inst') {
+      // Installationens beteckning är det planeraren känner igen den på (HB01); saknas den
+      // är det rummet som pekar ut var den sitter.
+      if (r.falt.beteckning) { return r.falt.beteckning; }
+      var rum = r.falt.rum || (DP.Inlasning.fraga(r, 'rum') || {}).forslag;
+      return rum || '–';
+    }
     if (flik !== 'rum') { return r.falt.id; }
     var plan = r.falt.plan || (DP.Inlasning.fraga(r, 'plan') || {}).forslag;
     var nr = r.falt.nr || (DP.Inlasning.fraga(r, 'nr') || {}).forslag;
     return plan && nr ? DP.rumNyckel(plan, nr) : (nr || '–');
   }
-  // Namnet raden får: det egna om det finns, annars förslaget. Planeraren ska se vad planet
-  // eller rummet kommer att heta innan hon godtar, inte efteråt.
+  // Namnet raden får: det egna om det finns, annars förslaget. Planeraren ska se vad planet,
+  // rummet eller installationen kommer att heta innan hon godtar, inte efteråt.
   function namnEllerForslag(r) {
     if (r.falt.namn) { return r.falt.namn; }
     var f = DP.Inlasning.fraga(r, 'benamning');
     return f && f.forslag ? f.forslag : '(utan benämning)';
+  }
+  // Det en installationsrad säger under sitt namn: typen och var den hamnar. Typen är det
+  // viktigaste (beslut 81), och är den okänd står frågan om den bland skälen.
+  function instUnderrad(r) {
+    var delar = [];
+    if (r.falt.typ) {
+      delar.push((DP.installationstyper[r.falt.typ] || {}).namn || r.falt.typ);
+    }
+    var rum = r.falt.rum || (DP.Inlasning.fraga(r, 'rum') || {}).forslag;
+    if (rum) { delar.push('i ' + rum); }
+    if (r.idFranSystemet) { delar.push('id ' + r.falt.id + ' från systemet'); }
+    else if (r.falt.id) { delar.push('id ' + r.falt.id); }
+    return delar.join(' · ');
   }
 
   // En oplacerad rad: varje fråga som saknar förslag får något att svara med. En plan-rad kan
@@ -598,16 +635,86 @@
       });
       rad.addEventListener('dragend', function () { ui.rumdrag = null; rita(); });
     }
+    // En oplacerad **installationsrad** går att dra till ett rum i listan nedanför
+    // (berättelse 50), vid sidan av knapparna på raden – samma mönster som en oplacerad
+    // rumsrad, och båda vägarna går genom `svaraInst`.
+    if (flik === 'inst' && DP.Inlasning.fraga(r, 'rum')) {
+      rad.draggable = true;
+      rad.classList.add('dragbar');
+      rad.addEventListener('dragstart', function (e) {
+        ui.instdrag = { inlkey: r.key, rumOver: null };
+        rad.classList.add('dras');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', r.key);
+        }
+      });
+      rad.addEventListener('dragend', function () { ui.instdrag = null; rita(); });
+    }
     var txt = el('div', 'bf-btext');
     txt.appendChild(el('span', 'bf-bnamn',
       (flik === 'rum' ? beteckningFor(r, flik) + ' ' : '') + (r.falt.namn || '(utan benämning)')));
+    if (flik === 'inst') { txt.appendChild(el('span', 'bf-bstatus', instUnderrad(r))); }
     r.fragor.forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
     rad.appendChild(txt);
     var saknas = r.fragor.filter(function (f) { return f.forslag == null; })[0];
     if (!saknas) { return rad; }
+    if (flik === 'inst') { svarsverktygInst(rad, r, saknas); return rad; }
     if (flik === 'rum') { svarsverktygRum(rad, r, saknas); return rad; }
     if (saknas.slag === 'id') { svarsverktygPlan(rad, r); }
     return rad;
+  }
+
+  // Svaret på en installationsrads obesvarade fråga. De två som finns är var den sitter och
+  // vilken typ den är, och båda svaras med **knappar** i stället för ett fält: ett rum heter
+  // "01-003 Logement 1:1" och en typ "Handbrandsläckare", och det finns ingenting att skriva.
+  function svarsverktygInst(rad, r, saknas) {
+    if (saknas.slag === 'typ') { return typvalsrad(rad, r); }
+    if (saknas.slag === 'rum') { return rumvalsrad(rad, r); }
+  }
+
+  // En knapp per installationstyp. Listan är de **signifikanta** typerna (beslut 81): en
+  // övrig installation är ingen individ och ska inte gå att välja här.
+  function typvalsrad(rad, r) {
+    var val = el('div', 'bf-typval');
+    DP.signifikantaTyper().forEach(function (id) {
+      val.appendChild(knapp(DP.installationstyper[id].namn, 'knapp sekundar liten-knapp',
+        function () { P.svaraInst(r.key, 'typ', id); },
+        'Installationstypen avgör vilka åtgärder du kan koppla. ◀ tar tillbaka valet.'));
+    });
+    rad.appendChild(val);
+  }
+
+  // En knapp per rum, grupperade per plan: en byggnad kan ha många rum, och "01-003 Logement
+  // 1:1" utan sitt plan hade varit en lista planeraren måste läsa igenom. Finns inget rum
+  // säger raden det i klartext i stället för att visa en tom rad.
+  function rumvalsrad(rad, r) {
+    var b = P.byggnad();
+    var w = el('div', 'bf-rumval');
+    var nagot = false;
+    (b ? b.plan.slice().reverse() : []).forEach(function (p) {
+      var pa = b.rum.filter(function (x) { return x.plan === p.id; });
+      if (!pa.length) { return; }
+      nagot = true;
+      var grupp = el('div', 'bf-rumvalplan');
+      grupp.appendChild(el('span', 'etikett', p.id + ' ' + p.namn));
+      var knappar = el('div', 'bf-planval');
+      pa.forEach(function (x) {
+        var nyckel = DP.rumNyckel(x.plan, x.nr);
+        knappar.appendChild(knapp(nyckel + ' ' + x.namn, 'knapp sekundar liten-knapp',
+          function () { P.svaraInst(r.key, 'rum', nyckel); },
+          'Lägg installationen i ' + nyckel + ' ' + x.namn + '. ◀ tar tillbaka det.'));
+      });
+      grupp.appendChild(knappar);
+      w.appendChild(grupp);
+    });
+    if (!nagot) {
+      rad.appendChild(el('div', 'bf-fel',
+        'Byggnaden har inga rum att lägga installationen i. Läs in fliken Rum eller fyll i ' +
+        'steg 3 först.'));
+      return;
+    }
+    rad.appendChild(w);
   }
 
   // Beteckningsfältet för en plan-rad utan beteckning.
@@ -1221,14 +1328,354 @@
     });
   }
 
-  // Steg 4 byggs i den följande biljetten i spåret. Det syns med sitt läge, så att planeraren
-  // ser hela vägen framför sig – ett tomt steg som inte finns hade gjort flödet kortare än
-  // det är.
-  function stegKommer(kropp) {
+  // ------------------------------------------------------------------
+  // Steg 4: Installationer (beslut 81, 86, 87, 109 och 111)
+  // ------------------------------------------------------------------
+  // De **signifikanta** installationerna grupperade per plan och rum, i samma ordning som
+  // byggnadsträdet och modellen: planeraren letar efter en släckare där hon vet att den
+  // sitter, inte i en lista sorterad på id.
+  //
+  // Det som skiljer steget från steg 3 är **installationstypen**. Den avgör vilka åtgärder
+  // som går att koppla (beslut 81), så en okänd typ är ingenting systemet gissar om: raden
+  // blir oplacerad, och planeraren väljer typen ur listan innan steget blir grönt. Ett rum
+  // med fel rumstyp blir felfärgat i modellen; en installation med fel typ får fel tillsyn.
+  function steg4(kropp) {
+    var b = P.byggnad();
+    if (!b) { return; }
+    var st = P.instStatus();
+
     kropp.appendChild(el('p', 'forklar',
-      'Här läser du in de signifikanta installationerna, eller lägger till dem för hand.'));
-    kropp.appendChild(el('div', 'bf-notis', 'Steget är inte byggt ännu.'));
+      'En <b>signifikant installation</b> registreras som individ med eget id och ska ha ' +
+      'minst en kopplad åtgärd – det är dem du planerar tillsyn för i Planering. Fliken ' +
+      '<b>Installationer</b> har bara dem: en installation behöver bara <b>plan och ' +
+      'rumsnummer</b> för att hamna i rätt rum. <b>Installationstypen</b> läser systemet ur ' +
+      'benämningen, och en typ det inte känner igen måste du välja själv: typen avgör vilka ' +
+      'åtgärder du kan koppla. Övriga installationer – belysning, brytare, uttag – lägger ' +
+      'systemet till själv utifrån rumstypen.'));
+
+    filrad(kropp, b, 'inst');
+    inlasningsgrupper(kropp, b, 'inst');
+
+    if (!b.rum.length) {
+      kropp.appendChild(el('div', 'bf-notis',
+        'Byggnaden har inga rum ännu. Installationerna sitter i rum, så fyll i steg 3 först – ' +
+        'antingen för hand eller genom att läsa in fliken Rum.'));
+      return;
+    }
+    if (!st.antal) {
+      kropp.appendChild(el('div', 'bf-notis',
+        'Inga installationer ännu. Läs in fliken <b>Installationer</b> ur inläsningsfilen: ' +
+        'varje rad behöver plan, rumsnummer och en benämning. Lämnar du <b>Id</b> tomt ger ' +
+        'systemet ett. Så fort en installation är klar syns den i modellen till höger – ' +
+        'slå på <b>Röntgen</b> för att se dem genom väggarna. Du kan också lägga till dem ' +
+        'för hand här nedan.'));
+    } else {
+      kropp.appendChild(instSummarad(st));
+    }
+    // Installationer som **väntar på sitt rum**: raden i filen var klar, men rummet är ett
+    // förslag i steg 3 som ännu inte godtagits (beslut 110). Det är inget fel, och ska inte se
+    // ut som ett – planeraren har ett steg kvar att ta i steg 3, inte ett misstag att rätta
+    // här. Därför en notis och inte en felruta, och texten pekar dit hon ska.
+    if ((st.vantande || []).length) {
+      kropp.appendChild(el('div', 'bf-notis',
+        antal(st.vantande.length, 'installation väntar', 'installationer väntar') +
+        ' på sitt rum: ' + st.vantande.map(function (i) {
+          return (i.beteckning || i.benamning) + ' i ' + i.rum;
+        }).join(', ') + '. Rummet är ett <b>förslag i steg 3</b> – godta det, så syns ' +
+        (st.vantande.length === 1 ? 'installationen' : 'installationerna') + ' i modellen.'));
+    }
+    // Installationer vars rum inte finns och inte är på väg: de kan inte stå under något
+    // plan, och att tiga om dem hade betytt att planeraren inte ser dem alls.
+    if ((st.hemlosa || []).length) {
+      kropp.appendChild(el('div', 'bf-fel',
+        antal(st.hemlosa.length, 'installation', 'installationer') + ' sitter i ett rum som ' +
+        'inte finns: ' + st.hemlosa.map(function (i) {
+          return (i.beteckning || i.benamning) + ' i ' + i.rum;
+        }).join(', ') + '. Lägg tillbaka rummet i steg 3, eller ta bort installationen.'));
+    }
+    var lista = el('div', 'bf-instlista');
+    st.plan.slice().reverse().forEach(function (p) { lista.appendChild(planensInst(p)); });
+    // Släpps draget utanför ett mål nollställs det här, som i steg 3.
+    lista.addEventListener('dragend', function () { ui.instdrag = null; rita(); });
+    kropp.appendChild(lista);
+    laggTillInstFormular(kropp, st);
   }
+
+  // Antalen överst: de signifikanta är de planeraren planerar tillsyn för, och de övriga är
+  // de modellen fyller byggnaden med (berättelse 57). Att de står vid sidan av varandra är
+  // hela pedagogiken: planeraren ska se att hon inte behöver fylla i 200 vägguttag.
+  function instSummarad(st) {
+    var w = el('div', 'bf-summa');
+    summafalt(w, 'Signifikanta', st.antal);
+    summafalt(w, 'Övriga', st.ovriga);
+    summafalt(w, 'Rum med installationer', st.plan.reduce(function (s, p) {
+      return s + p.rum.filter(function (r) { return r.inst.length; }).length;
+    }, 0));
+    return w;
+  }
+
+  // Ett plan med sina rum och deras installationer. Två saker händer här, som i steg 3:
+  //
+  //   * Installationstypen går att byta med ett klick (beslut 81): systemet läste den ur
+  //     benämningen, och en gissning planeraren inte kan rätta är värre än ingen gissning.
+  //   * Varje rad går att **dra** till ett annat rum (beslut 87 och berättelse 50). Det är
+  //     samma installation: id:t består, och kopplade åtgärder följer med.
+  //
+  // Rummet är droppmålet och inte installationsraden: en installation sitter i ett rum, och
+  // ordningen inom rummet betyder ingenting – platsen i rummet räknar planlösningen fram.
+  // Därför finns ingen linje här, som det gör i steg 2 och 3; rummet märks i sin helhet.
+  function planensInst(p) {
+    var w = el('section', 'bf-planinst');
+    w.dataset.instplan = p.id;
+    var h = el('div', 'bf-grupphuvud');
+    h.appendChild(el('div', 'liten-rubrik', p.id + ' ' + p.namn +
+      ' <span class="bf-planareor">' + antal(p.antal, 'installation', 'installationer') +
+      '</span>'));
+    w.appendChild(h);
+    p.rum.forEach(function (r) { w.appendChild(rummetsInst(r)); });
+    return w;
+  }
+
+  // Ett rum med sina installationer. Rummet är droppmålet – hela rutan, så att den går att
+  // träffa också när installationsraderna ligger tätt.
+  function rummetsInst(r) {
+    var w = el('div', 'bf-instrum');
+    w.dataset.instrum = r.nyckel;
+    if (ui.instdrag && ui.instdrag.rumOver === r.nyckel) { w.classList.add('malrum'); }
+    w.appendChild(el('div', 'bf-instrumhuvud',
+      '<span class="bf-planbet">' + r.nyckel + '</span> <b>' + r.namn + '</b>' +
+      (r.inst.length ? '' : ' <span class="bf-instrumtom">inga installationer</span>')));
+    r.inst.forEach(function (i) { w.appendChild(instrad(i, r)); });
+    w.addEventListener('dragover', function (e) {
+      if (!ui.instdrag) { return; }
+      e.preventDefault();
+      if (ui.instdrag.rumOver !== r.nyckel) {
+        ui.instdrag.rumOver = r.nyckel;
+        // Märket flyttas på de rutor som redan står där, och listan ritas **inte** om: att
+        // byta ut DOM mitt i ett drag tar bort noden webbläsaren drar över (beslut 105).
+        flyttaInstMarket();
+      }
+    });
+    w.addEventListener('drop', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      slappInst(r.nyckel);
+    });
+    return w;
+  }
+
+  // En installationsrad: beteckningen, benämningen, typen och uppgifterna ur filen.
+  function instrad(i, r) {
+    var rad = el('div', 'bf-instrad');
+    rad.dataset.inst = i.id;
+    // Raden går inte att dra medan typvalet står öppet: ett klick på en typknapp hade
+    // startat ett drag i stället för att välja typen.
+    rad.draggable = ui.insttyp !== i.id;
+    if (ui.instdrag && ui.instdrag.id === i.id) { rad.classList.add('dras'); }
+    rad.appendChild(el('span', 'bf-planbet', i.beteckning || '–'));
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', i.benamning));
+    var delar = [i.typNamn];
+    if (i.fabrikat || i.modell) { delar.push([i.fabrikat, i.modell].filter(Boolean).join(' ')); }
+    if (i.datum) { delar.push('installerad ' + i.datum); }
+    delar.push('id ' + i.id);
+    if (i.externtId) { delar.push('externt id ' + i.externtId); }
+    txt.appendChild(el('span', 'bf-bstatus', delar.join(' · ')));
+    rad.appendChild(txt);
+    var verktyg = el('div', 'bf-planverktyg');
+    if (ui.insttyp === i.id) {
+      // Typvalet ligger **på installationens rad**, som rumstypvalet gör i steg 3: planeraren
+      // ska se typen ändras där uppgiften står och inte i en ruta ovanpå sidan.
+      var val = el('div', 'bf-typval');
+      DP.signifikantaTyper().forEach(function (id) {
+        val.appendChild(knapp(DP.installationstyper[id].namn,
+          'knapp liten-knapp' + (id === i.typ ? '' : ' sekundar'), function () {
+            ui.insttyp = null;
+            P.sattInstTyp(i.id, id);
+          }, 'Typen avgör vilka åtgärder du kan koppla i Planering steg 5.'));
+      });
+      rad.appendChild(val);
+      verktyg.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+        ui.insttyp = null; rita();
+      }));
+    } else {
+      verktyg.appendChild(knapp('Byt typ', 'knapp sekundar liten-knapp', function () {
+        ui.insttyp = i.id;
+        rita();
+      }, 'Byt installationstyp. Den avgör vilka åtgärder du kan koppla i Planering steg 5; ' +
+         'kopplingar som inte gäller den nya typen syns som saknade där.'));
+      verktyg.appendChild(knapp('Ta bort', 'knapp sekundar liten-knapp', function () {
+        P.taBortInst(i.id);
+      }, 'Tar bort installationen och dess kopplade åtgärder. ◀ tar den tillbaka.'));
+    }
+    rad.appendChild(verktyg);
+    rad.addEventListener('dragstart', function (e) {
+      ui.instdrag = { id: i.id, rumOver: null };
+      // Raden bleknar direkt, utan omritning: en omritning mitt i ett drag tar bort den nod
+      // webbläsaren drar, och då slutar den skicka dragover.
+      rad.classList.add('dras');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', i.id);
+      }
+    });
+    return rad;
+  }
+
+  // Märket som visar vilket rum installationen hamnar i (beslut 106), flyttat på plats i
+  // stället för ritat om – av samma skäl som linjen i steg 2 och 3. Ett rum är ett mål i sin
+  // helhet och inte en plats mellan två rader: ordningen inom rummet betyder ingenting.
+  function flyttaInstMarket() {
+    var rutor = rot.querySelectorAll('.bf-instrum');
+    [].forEach.call(rutor, function (w) {
+      w.classList.toggle('malrum',
+        !!(ui.instdrag && ui.instdrag.rumOver === w.dataset.instrum));
+    });
+  }
+
+  // Släppet. En installation som ligger i byggnaden flyttas; en oplacerad inläst rad får sitt
+  // rum, och då är det inläsningens egen väg – samma som knappen på raden.
+  function slappInst(rumNyckel) {
+    var d = ui.instdrag;
+    ui.instdrag = null;
+    if (!d) { rita(); return; }
+    if (d.inlkey) {
+      P.svaraInst(d.inlkey, 'rum', rumNyckel);
+      return;
+    }
+    if (!P.flyttaInst(d.id, rumNyckel)) { rita(); }
+  }
+
+  // ---- Lägg till en installation för hand (berättelse 50) ----
+  // Samma form som *Lägg till rum* i steg 3, och med samma förslag som inläsningen ger: typen
+  // läses ur benämningen och id:t kommer från systemet när planeraren inte har ett.
+  function laggTillInstFormular(kropp, st) {
+    if (!ui.laggerTillInst) {
+      var rad0 = el('div', 'knapprad');
+      rad0.appendChild(knapp('Lägg till installation', 'knapp sekundar liten-knapp', function () {
+        ui.laggerTillInst = true;
+        // Förvalet är det första rummet på det översta planet, det planeraren ser högst upp.
+        var forst = '';
+        var b = P.byggnad();
+        if (b && b.plan.length) {
+          var overst = b.plan[b.plan.length - 1].id;
+          var pa = b.rum.filter(function (r) { return r.plan === overst; });
+          if (pa.length) { forst = DP.rumNyckel(pa[0].plan, pa[0].nr); }
+          else if (b.rum.length) { forst = DP.rumNyckel(b.rum[0].plan, b.rum[0].nr); }
+        }
+        ui.nyInst = { rum: forst, benamning: '', beteckning: '', typ: '', fabrikat: '',
+          modell: '', datum: '', externtId: '' };
+        ui.fokus = 'inst-benamning';
+        rita();
+      }, 'Lägg till en signifikant installation som inte finns i inläsningsfilen.'));
+      kropp.appendChild(rad0);
+      return;
+    }
+    kropp.appendChild(el('div', 'liten-rubrik', 'Lägg till installation'));
+    var w = el('div', 'bf-instform');
+    // Rummet väljs med en knapp per rum, grupperade per plan: det är så planeraren tänker på
+    // var en installation sitter.
+    var rumval = el('div', 'bf-rumval');
+    var b2 = P.byggnad();
+    (b2 ? b2.plan.slice().reverse() : []).forEach(function (p) {
+      var pa = b2.rum.filter(function (x) { return x.plan === p.id; });
+      if (!pa.length) { return; }
+      var grupp = el('div', 'bf-rumvalplan');
+      grupp.appendChild(el('span', 'etikett', p.id + ' ' + p.namn));
+      var knappar = el('div', 'bf-planval');
+      pa.forEach(function (x) {
+        var nyckel = DP.rumNyckel(x.plan, x.nr);
+        knappar.appendChild(knapp(nyckel + ' ' + x.namn,
+          'knapp liten-knapp' + (nyckel === ui.nyInst.rum ? '' : ' sekundar'), function () {
+            ui.nyInst.rum = nyckel;
+            rita();
+          }, 'Lägg installationen i ' + nyckel + ' ' + x.namn + '.'));
+      });
+      grupp.appendChild(knappar);
+      rumval.appendChild(grupp);
+    });
+    w.appendChild(rumval);
+    var rutnat = el('div', 'bf-instfalt');
+    faltIn(rutnat, 'Benämning', 'inst-benamning', ui.nyInst.benamning,
+      't.ex. Handbrandsläckare 3', function (v) {
+        ui.nyInst.benamning = v;
+        // Benämningen är det typen läses ur, så ett eget typval som planeraren gjort innan
+        // hon skrev något rörs inte – men gissningen ska följa det hon skriver.
+        rita();
+      });
+    faltIn(rutnat, 'Beteckning', 'inst-beteckning', ui.nyInst.beteckning, 't.ex. HB03',
+      function (v) { ui.nyInst.beteckning = v; rita(); });
+    faltIn(rutnat, 'Fabrikat', 'inst-fabrikat', ui.nyInst.fabrikat, 'valfritt',
+      function (v) { ui.nyInst.fabrikat = v; rita(); });
+    faltIn(rutnat, 'Modell', 'inst-modell', ui.nyInst.modell, 'valfri',
+      function (v) { ui.nyInst.modell = v; rita(); });
+    faltIn(rutnat, 'Installationsdatum', 'inst-datum', ui.nyInst.datum, 't.ex. 2026-11-25',
+      function (v) { ui.nyInst.datum = v; rita(); });
+    // Externt id står med av samma skäl som de övriga valfria: en installation planeraren
+    // skriver in själv ska kunna bära allt en inläst rad kan bära (beslut 81), annars är de
+    // två vägarna inte samma väg.
+    faltIn(rutnat, 'Externt id', 'inst-externt', ui.nyInst.externtId, 'valfritt',
+      function (v) { ui.nyInst.externtId = v; rita(); });
+    w.appendChild(rutnat);
+    kropp.appendChild(w);
+
+    // Typen: den läses ur benämningen, och planeraren kan välja en annan. Valet står med
+    // även när gissningen träffade – hon ska kunna se *vilken* typ systemet läste, och rätta
+    // den utan att först lägga till installationen.
+    var last = DP.installationstypFor(ui.nyInst.benamning);
+    var gallande = ui.nyInst.typ || last;
+    kropp.appendChild(el('div', 'liten-rubrik', 'Installationstyp'));
+    var typval = el('div', 'bf-typval');
+    DP.signifikantaTyper().forEach(function (id) {
+      typval.appendChild(knapp(DP.installationstyper[id].namn,
+        'knapp liten-knapp' + (id === gallande ? '' : ' sekundar'), function () {
+          ui.nyInst.typ = id;
+          rita();
+        }, 'Typen avgör vilka åtgärder du kan koppla i Planering steg 5.'));
+    });
+    kropp.appendChild(typval);
+    if (last && !ui.nyInst.typ) {
+      kropp.appendChild(el('div', 'bf-notis',
+        'Systemet läste <b>' + DP.installationstyper[last].namn + '</b> ur benämningen. ' +
+        'Välj en annan typ om det blev fel.'));
+    }
+
+    var hinder = P.instHinder({ rum: ui.nyInst.rum, benamning: ui.nyInst.benamning,
+      typ: gallande });
+    if (hinder) { kropp.appendChild(el('div', 'bf-fel', hinder)); }
+    if (!hinder) {
+      kropp.appendChild(el('div', 'bf-notis',
+        'Installationen blir <b>' + (DP.installationstyper[gallande] || {}).namn +
+        '</b> i <b>' + ui.nyInst.rum + '</b> och får ett <b>id från systemet</b>: ' +
+        'fastighetssystemets id går att fylla i via inläsningsfilen.'));
+    }
+    var rad = el('div', 'knapprad hoger');
+    rad.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+      ui.laggerTillInst = false; rita();
+    }));
+    var lagg = knapp('Lägg till installation', 'knapp', function () {
+      if (!P.laggTillInst({ rum: ui.nyInst.rum, benamning: ui.nyInst.benamning,
+        beteckning: ui.nyInst.beteckning, typ: gallande, fabrikat: ui.nyInst.fabrikat,
+        modell: ui.nyInst.modell, datum: ui.nyInst.datum,
+        externtId: ui.nyInst.externtId })) { rita(); return; }
+      // Nästa installation är nästa sak planeraren skriver: rummet, fabrikatet och datumet
+      // står kvar – tjugo släckare i samma byggnad är samma fabrikat och samma dag – och
+      // markören går tillbaka till benämningen.
+      // Externt id är installationens eget och står **inte** kvar: fabrikat, modell och
+      // datum delas av tjugo släckare som sätts upp samma dag, men ett externt id gör det
+      // aldrig – det pekar ut en enda installation i fastighetssystemet.
+      ui.nyInst = { rum: ui.nyInst.rum, benamning: '', beteckning: '', typ: '',
+        fabrikat: ui.nyInst.fabrikat, modell: ui.nyInst.modell, datum: ui.nyInst.datum,
+        externtId: '' };
+      ui.fokus = 'inst-benamning';
+      rita();
+    });
+    lagg.disabled = !!hinder;
+    if (lagg.disabled) { lagg.title = hinder; }
+    rad.appendChild(lagg);
+    kropp.appendChild(rad);
+  }
+
 
   // ------------------------------------------------------------------
   // Flödet ritar om sig vid varje ändring och varje byggnadsbyte: statusen, bockarna och
@@ -1251,6 +1698,11 @@
     // inte i den nya, och numret är räknat på den gamlas rum.
     ui.laggerTillRum = false;
     ui.rumdrag = null;
+    // Samma för steg 4: rummet den halvskrivna installationen pekar på finns kanske inte i
+    // den nya byggnaden.
+    ui.insttyp = null;
+    ui.instdrag = null;
+    ui.laggerTillInst = false;
     rita();
   });
   rita();

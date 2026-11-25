@@ -496,6 +496,24 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     Externt id. Tomt Id ger ett id från systemet. Installationstypen föreslås ur benämningen; en okänd typ
     måste väljas ur listan innan steget blir grönt, eftersom typen avgör vilka åtgärder som går att koppla.
     Systemet ska vara förberett för fler attribut (t.ex. kapacitet, beskrivning).
+
+    *Byggt i biljett #39.* Igenkänningen ligger som en tabell i `data/installationstyper.js`, vid sidan av
+    `DP.installationstyper` och inte inuti den: typerna bor i två filer, och mönstren hör ihop med
+    varandra – tabellens **ordning är regeln**, och den går inte att läsa när den är utspridd. Det som
+    skiljer en okänd installationstyp från en okänd rumstyp är att den **inte får något förslag**: ett rum
+    med fel rumstyp blir felfärgat i modellen, men en installation med fel typ får fel tillsyn, eller
+    ingen. Raden blir därför oplacerad och planeraren väljer typen ur listan – listan är de **signifikanta**
+    typerna (`DP.signifikantaTyper()`), eftersom en övrig installation inte är en individ. Förkortningarna
+    skrivs både med och utan blanksteg före numret ("HC01" och "HC 01"), så mönstret är förkortningen följd
+    av slut, blanksteg eller siffra; `\b` räcker inte, eftersom det inte finns någon ordgräns mellan C
+    och 0. Det **tomma Id:t** får ett id från systemet som räknas uppåt från 90000001, så att ett
+    systemgivet går att skilja från fastighetssystemets åttasiffriga. De **övriga** installationerna
+    genereras av `DP.Planlosning.form()` och ligger aldrig i tillståndet: de hör till hur byggnaden ritas
+    och inte till vad planeraren bestämt om den (beslut 71). Byggnadsträdet räknar dem därför ur formen –
+    läste det tillståndet hade det sagt "0 övriga" om en byggnad där modellen visar trettio.
+    `DP.genereraOvriga` läser rummets **rumstyp** när det har en och benämningen när det inte har det:
+    de handritade rummen heter "Korridor" och "WC", medan ett inläst rum bär `rumstyp` och en fri
+    benämning som "Korr." eller "WC/D".
 82. **En mediaspelare på en fast plats för alla huvudsteg.** Den flyttar högst upp och är gemensam för
     Byggnad, Planering och Balansering. Ångra-knappen i Balansering (beslut 63) tas bort: den fanns bara för
     att mediaspelaren var dold där, och två knappar för samma sak väcker frågan vad skillnaden är.
@@ -560,9 +578,23 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     åtgärder och avvikande texter följer med. Ta bort tar bort kopplingarna. Ändrar det rondernas tid
     markeras steg 6 som ändrad förutsättning, och Balansering markeras som ändrad planering – inget annat i
     planeringen ändras av sig självt. Att **ersätta** en installation är en egen fråga (se nedan).
+
+    *Flytta och ta bort byggt i biljett #39* (utbytet hör till sin egen biljett). Skillnaden mellan de två
+    syns i hur de skrivs: en **flytt** är en ändring av byggnadens data och inget mer – det är samma
+    installation, id:t består, och kopplingarna pekar på id:t och följer med av sig själva. En
+    **borttagning** går genom `andraFlera`, eftersom den rör både byggnadens data och dess planering: en
+    koppling som pekar på en installation som inte finns är ingen tillsyn, och steg 5 hade räknat den som
+    gjord. Samma regel gäller när ett plan eller ett rum tas bort och tar installationer med sig –
+    `rensaKopplingar` delas av de tre, så att de aldrig kan börja skilja sig på vad en borttagning betyder.
+    Vid en flytt rensas installationens `x`, `z` och `h`: platsen i rummet räknas av planlösningen, och en
+    ritad plats som följde med hade lagt installationen utanför det nya rummets väggar.
 88. **Från Byggnad till Planering via den befintliga snabbstarten.** Ingen planering skapas av sig själv; i
     Planering möts man av snabbstarten med standardplaneringen eller kopiering. Planering går att öppna
     innan Byggnad är klar, men steg 5 blir inte grönt utan installationer.
+
+    *Byggt i biljett #39*, och det krävde ingen ny kod: snabbstarten läser byggnadstypens standard och
+    installationerna ur tillståndet, så en byggnad planeraren läst in möts av samma snabbstart som de
+    fyra som alltid funnits. Det är vad beslut 71 var till för.
 89. **Okända kolumner blir egna fält.** En kolumn systemet inte känner till sparas som ett *eget fält* på
     raden, visas i informationskortet och följer med ut när filen tas ut. Det är förberedelsen för fler
     attribut (kapacitet, beskrivning …): ett eget fält kan senare bli ett attribut systemet förstår.
