@@ -286,6 +286,27 @@ Skriptens ordning i `index.html` spelar roll:
   olika saker om samma utbyte. `instStatus` räknar versionerna per installationsrad
   (`antalVersioner` – ett tal, till skillnad från byggnadsdatans `versioner` som är listan), så
   steg 4 kan säga att apparaten bytts.
+- **Utbyte av många på en gång: ett steg i historiken (beslut 92 och 97, biljett #44).**
+  `DP.Plan.ersattFlera(instIdn, upp, bid)` ersätter apparaten i många installationer med
+  gemensamt fabrikat, modell och installationsdatum, och `ersattInst` är **ett specialfall av
+  den** – ett utbyte av en är ett utbyte av många med en i listan. Att de delar väg är poängen:
+  frågan efteråt, versionerna och det som händer med tillsynen ska inte kunna skilja sig
+  beroende på hur många planeraren råkade markera. Det inre per installation ligger i
+  `bytApparat(data, st, instId, o, vad, datum)`, och `vad` är `ersattStatus` räknat **före**
+  steget. Hela utbytet går genom **en** `andraByggnadOchPlanering`, så ett ◀ tar tillbaka allt;
+  tjugo anrop till `ersattInst` hade gett tjugo steg. En installation som inte går att ersätta
+  hoppas över i stället för att fälla utbytet – att nittonde släckaren inte byts för att den
+  tjugonde försvann är svårare att förstå än att nitton byttes – men de överhoppade står i
+  svaret som `hoppadeOver` med namn och skäl i klartext, och **frågan efteråt säger dem**:
+  frågan är det enda planeraren ser när hon tryckt, och markeringen är då redan borta. Svaret
+  är `{ ersatta, hoppadeOver, tappade, byterTyp }`, där `ersatta` bär id och versions-id per
+  installation, så att frågan efteråt kan blinka dem alla. `ersattFleraHinder` svarar på det som hindrar **hela** utbytet (en tom
+  markering, ett datum som saknas) och `ersattFleraStatus` på vad det skulle göra, summerat –
+  båda av samma skäl som de enskilda (beslut 61). `instAvTyp(typ, planId, bid)` är vad "alla av
+  typen …" markerar: tomt `planId` betyder hela byggnaden. Regeln bor i planeringen och inte i
+  vyn, eftersom en vy som letade i sina egna rader hade svarat fel så fort listan var rullad.
+  `instStatus` bär `typer` per plan och för byggnaden – typ, namn och antal i byggnadens egen
+  ordning – det underlag knapparna ritas ur.
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -640,6 +661,22 @@ installationen syns som saknad i steg 5 av sig självt. Efter utbytet kommer **e
 Planering*, som öppnar steg 5 och blinkar installationen i modellen. Frågan säger också vilka
 åtgärder som inte följde med. Den är vägledning och inget lås, och har därför inget Avbryt:
 planeringen är redan ändrad, och ett ◀ är vägen tillbaka.
+Fjortonde biljetten, **utbyte av många på en gång** (beslut 92 och 97, biljett #44), är byggd:
+tjugo likadana handbrandsläckare byts i **ett** steg. Planeraren markerar installationer en och
+en med en kryssruta på raden, eller som ***alla av typen …*** – knappar som står på planets
+rubrik för planet och överst för hela byggnaden, med typens namn och antal, så att hon ser vad
+hon markerar innan hon markerar det. Knapparna **växlar**: ett andra klick avmarkerar, så ett
+felklick inte kräver nio avmarkeringar. Raden överst säger hur många som är markerade och har
+knappen *Ersätt de N apparaterna*, som öppnar **samma formulär** som på raden – datum, fabrikat,
+modell, externt id och typen bakom en länk – men ifyllt **en gång** för alla. Fabrikat och modell
+står kvar som förval bara när alla markerade har samma: en blandad markering har inget gemensamt
+fabrikat, och ett förval taget ur den första hade skrivit den enas uppgifter över de nittons.
+Var och en får sin utbytta version precis som vid ett enskilt utbyte, hela utbytet är ett
+historiksteg ("Kasern 1: ersätt apparaten i 9 handbrandsläckare") och ett ◀ tar tillbaka allt.
+Frågan efteråt gäller alla de ersatta, säger vilka kopplingar som föll bort, och *Nej, visa dem i
+Planering* öppnar steg 5 med **alla** de ersatta blinkande i modellen. Markeringen rensas mot det
+som finns vid varje omritning och faller när planeraren byter byggnad: ett id som inte går att
+peka ut i steg 4 är ingen markering.
 
 Kända begränsningar:
 - Installationernas plats **i** rummet är schematisk: de fördelas jämnt längs väggen mot korridoren,
@@ -665,10 +702,9 @@ Kända begränsningar:
   (beslut 86). En fil som bara har nya rader är ett tillägg, och en fil som bara har Plan-fliken säger
   ingenting om rummen. Regeln gissar mot att något tas bort, så en fil där planeraren råkat byta ut
   *alla* rumsnummer ger inget förslag om de gamla – de står kvar och tas bort för hand.
-- **Ett utbyte gäller en installation i taget** (biljett #43). Att markera flera – "alla av typen
-  handbrandsläckare" i byggnaden eller på ett plan – och ersätta dem i ett steg (beslut 92) är
-  biljett #44. Tjugo släckare byts tills dess en i taget, med fabrikat, modell och datum ifyllda
-  på nytt för varje.
+- **Markeringen av många gäller en byggnad i taget** (biljett #44). "Alla av typen …" markerar i
+  den byggnad planeraren står i, på ett plan eller i hela byggnaden – inte i flera byggnader på
+  en gång. Markeringen faller också när hon byter byggnad: id:n är byggnadens egna.
 - En .numbers-fil går inte att läsa direkt – mini-bygget av SheetJS läser .xlsx. Planeraren exporterar
   till .xlsx i Numbers först.
 - Byggnadens **område och färg** går bara att sätta när byggnaden skapas. Namnet går att byta i

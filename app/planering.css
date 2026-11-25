@@ -703,6 +703,21 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   background: var(--accent-svag); border: 1px solid #c9dcfb; }
 .bf-ersatt .bf-instfalt { grid-template-columns: 1fr 1fr; }
 .bf-ersatt .liten-rubrik { margin-top: 0; }
+/* ---- Markera många och ersätt dem på en gång (beslut 92) ---- */
+/* Raden står överst i steg 4 och är **alltid** där: att markeringen finns ska planeraren se
+   utan att först hitta ett läge att gå in i. Tom säger den vad den är till för. */
+.bf-markering { border: 1px solid var(--linje); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; background: #fafbfd; }
+.bf-markhuvud { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--dov); }
+.bf-markantal { flex: 1 1 auto; }
+.bf-markantal b { color: var(--text); }
+/* Typknapparna radbryter, som typvalet: antalet typer beror på byggnaden, och en rad som
+   rinner ut utanför panelen är knappar planeraren inte hittar. */
+.bf-marktyper { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+.bf-marktyper .etikett { font-size: 10px; color: var(--dov); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; margin-right: 2px; }
+/* Kryssrutan ligger först på raden, före beteckningen: markeringen är det planeraren gör med
+   raden som helhet, och den ska stå där blicken börjar. */
+.bf-markkryss { flex: 0 0 auto; margin: 0; cursor: pointer; }
+.bf-instrad.markerad { border-color: var(--accent); background: var(--accent-svag); }
 /* Typvalet inne i en oplacerad rad får egen höjdgräns och egen rullning, av samma skäl som
    gruppen själv fick det (beslut 112): tjugofem typknappar hade annars fyllt hela den fasta
    gruppen överst, och då finns ingen lista med rum kvar att dra en installation till –

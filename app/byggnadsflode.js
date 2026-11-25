@@ -79,6 +79,14 @@
     // utbyte pågår.
     ersatter: null,
     nyApparat: null,
+    // *Ersätt många på en gång* (beslut 92, berättelse 76–77): de markerade installationernas
+    // id:n, i den ordning planeraren markerade dem, och `ersatterFlera` när det samlade
+    // formuläret står öppet. Markeringen lever vid sidan av `ersatter`: planeraren markerar
+    // först och ersätter sedan, och ett utbyte av en enda apparat går fortfarande den gamla
+    // vägen på raden – det är en handgrepp per sak, och tjugo kryss för en släckare hade varit
+    // ett steg i vägen.
+    markerade: [],
+    ersatterFlera: false,
     // *Ändra byggnad* i steg 1 (beslut 100 och 103): det nya namnet medan planeraren skriver
     // det. `null` betyder att hon inte döper om – samma mönster som `doper` för ett plan, och
     // av samma skäl: ändringen sker där uppgiften står och inte i en ruta ovanpå sidan.
@@ -1701,6 +1709,7 @@
         'för hand här nedan.'));
     } else {
       kropp.appendChild(instSummarad(st));
+      markeringsrad(kropp, st);
     }
     // Installationer som **väntar på sitt rum**: raden i filen var klar, men rummet är ett
     // förslag i steg 3 som ännu inte godtagits (beslut 110). Det är inget fel, och ska inte se
@@ -1744,6 +1753,300 @@
     return w;
   }
 
+  // ---- Markera många och ersätt dem på en gång (beslut 92, berättelse 76–77) ----
+  //
+  // Markeringen är en **egen rad överst** och inte ett läge planeraren går in i: tjugo
+  // handbrandsläckare byts med samma fabrikat, modell och datum, och det hon behöver är att se
+  // hur många hon valt och fylla i uppgifterna en gång. Knapparna "alla av typen …" är vägen
+  // dit som gör det värt besväret – tjugo kryss ett och ett är inte mycket bättre än tjugo
+  // utbyten ett och ett.
+  //
+  // Är ingenting markerat står raden kvar och visar vad som går att markera: att först behöva
+  // hitta en knapp som *visar* markeringen hade varit ett steg till in i något planeraren
+  // inte vet att det finns.
+  function markeringsrad(kropp, st) {
+    // Markeringen rensas mot det som **finns** vid varje omritning. Ett ◀ eller ett *Ta bort*
+    // kan ha tagit bort en markerad installation, och ett id som inte går att peka ut i steg 4
+    // är ingen markering: hade det legat kvar hade raden räknat en apparat planeraren inte
+    // ser, och hoppat över den tyst vid utbytet.
+    var finns = {};
+    st.plan.forEach(function (p) {
+      p.rum.forEach(function (r) { r.inst.forEach(function (i) { finns[i.id] = true; }); });
+    });
+    ui.markerade = ui.markerade.filter(function (id) { return finns[id]; });
+    if (!ui.markerade.length) { ui.ersatterFlera = false; }
+    var w = el('div', 'bf-markering');
+    var n = ui.markerade.length;
+    var huvud = el('div', 'bf-markhuvud');
+    huvud.appendChild(el('span', 'bf-markantal',
+      n ? '<b>' + antal(n, 'installation', 'installationer') + '</b> markerade'
+        : 'Markera installationer för att ersätta flera apparater på en gång'));
+    if (n) {
+      huvud.appendChild(knapp('Ersätt ' + (n === 1 ? 'apparaten' : 'de ' + n + ' apparaterna'),
+        'knapp liten-knapp', function () {
+          ui.ersatterFlera = true;
+          ui.ersatter = null;
+          // Fabrikat och modell står kvar som förval **bara** när alla markerade har samma:
+          // tjugo likadana släckare byts mot tjugo likadana, men en blandad markering har
+          // inget gemensamt fabrikat, och ett förval taget ur den första hade skrivit den
+          // enas uppgifter över de nittons.
+          var gem = gemensamtOm(st, ui.markerade);
+          ui.nyApparat = { fabrikat: gem.fabrikat, modell: gem.modell, datum: '',
+            externtId: '', typ: '' };
+          ui.fokus = 'ers-datum';
+          rita();
+        }, 'Ersätt apparaten i alla markerade installationer med gemensamt fabrikat, modell ' +
+           'och installationsdatum. Hela utbytet är ett steg i historiken.'));
+      huvud.appendChild(knapp('Avmarkera alla', 'lank', function () {
+        ui.markerade = [];
+        ui.ersatterFlera = false;
+        rita();
+      }));
+    }
+    w.appendChild(huvud);
+    // "Alla av typen" för hela byggnaden. Bara typer med mer än en installation står med: en
+    // enda handbrandsläckare markeras lika lätt med sitt eget kryss, och en knapp per typ hade
+    // annars gett en vägg av knappar där ingen är värd ett klick.
+    var flerTyper = (st.typer || []).filter(function (t) { return t.antal > 1; });
+    if (flerTyper.length) {
+      var rad = el('div', 'bf-marktyper');
+      rad.appendChild(el('span', 'etikett', 'Alla av typen i byggnaden'));
+      flerTyper.forEach(function (t) {
+        rad.appendChild(typknapp(t, '', 'i hela byggnaden'));
+      });
+      w.appendChild(rad);
+    }
+    if (ui.ersatterFlera && n) { w.appendChild(ersattFleraFormular(st)); }
+    kropp.appendChild(w);
+  }
+
+  // Knappen som markerar alla av en typ, i byggnaden eller på ett plan. Vilka installationer
+  // det är svarar `P.instAvTyp` på och inte vyn (beslut 61): regeln om vad "alla av typen"
+  // betyder bor i planeringen, och en vy som letade i sina egna rader hade svarat fel så fort
+  // listan var rullad eller ett rum stod stängt.
+  //
+  // Knappen **växlar**: är alla av typen redan markerade tar ett klick bort dem igen. Annars
+  // hade planeraren som klickade fel fått avmarkera nio släckare en och en.
+  function typknapp(t, planId, plats) {
+    var idn = P.instAvTyp(t.typ, planId);
+    var alla = idn.length > 0 && idn.every(function (id) { return markerad(id); });
+    return knapp(t.namn + ' (' + t.antal + ')',
+      'knapp liten-knapp' + (alla ? '' : ' sekundar'), function () {
+        if (alla) {
+          ui.markerade = ui.markerade.filter(function (id) { return idn.indexOf(id) < 0; });
+        } else {
+          idn.forEach(function (id) {
+            if (!markerad(id)) { ui.markerade.push(id); }
+          });
+        }
+        rita();
+      }, (alla ? 'Avmarkera' : 'Markera') + ' alla ' + t.namn.toLowerCase() + ' ' + plats +
+         ' (' + t.antal + ' st).');
+  }
+
+  function markerad(instId) { return ui.markerade.indexOf(instId) >= 0; }
+
+  function vaxlaMarkering(instId) {
+    if (markerad(instId)) {
+      ui.markerade = ui.markerade.filter(function (id) { return id !== instId; });
+    } else {
+      ui.markerade.push(instId);
+    }
+    // Faller den sista markeringen bort stängs formuläret: ett utbyte av ingenting är inget
+    // utbyte, och ett formulär som står kvar tomt hade frågat om något som inte går att göra.
+    if (!ui.markerade.length) { ui.ersatterFlera = false; }
+    rita();
+  }
+
+  // Det de markerade apparaterna har **gemensamt**, för förvalen i formuläret. Skiljer de sig
+  // är fältet tomt: ett tomt fält är inget svar (se `ersattInst`), och en blandad markerings
+  // apparater ska inte tyst få den förstas fabrikat.
+  function gemensamtOm(st, idn) {
+    var alla = [];
+    st.plan.forEach(function (p) {
+      p.rum.forEach(function (r) {
+        r.inst.forEach(function (i) { if (idn.indexOf(i.id) >= 0) { alla.push(i); } });
+      });
+    });
+    function lika(falt) {
+      if (!alla.length) { return ''; }
+      var f = alla[0][falt] || '';
+      return alla.every(function (i) { return (i[falt] || '') === f; }) ? f : '';
+    }
+    return { fabrikat: lika('fabrikat'), modell: lika('modell'), namn: alla.map(function (i) {
+      return (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
+    }) };
+  }
+
+  // Formuläret för de nya apparaterna när många ersätts (beslut 92). Det är **samma frågor**
+  // som på raden – datum, fabrikat, modell, externt id och typen bakom en länk – och med
+  // avsikt: ett utbyte av tjugo är ett utbyte av en gjort tjugo gånger, och två formulär som
+  // frågade olika saker hade sagt att det var två olika saker.
+  //
+  // Externt id står med men är sällan rätt att fylla i för många: det är ett id per apparat.
+  // Fältet säger det i sin platshållare i stället för att gömmas – planeraren som byter två
+  // apparater kan ha skäl, och ett fält som försvann när hon markerade en till hade varit
+  // obegripligt.
+  function ersattFleraFormular(st) {
+    var n = ui.nyApparat || {};
+    var w = el('div', 'bf-ersatt');
+    w.appendChild(el('div', 'liten-rubrik',
+      'De nya apparaterna (' + antal(ui.markerade.length, 'installation', 'installationer') + ')'));
+    var rutnat = el('div', 'bf-instfalt');
+    faltIn(rutnat, 'Installationsdatum', 'ers-datum', n.datum, 't.ex. 2026-11-25',
+      function (v) { n.datum = v; rita(); });
+    faltIn(rutnat, 'Fabrikat', 'ers-fabrikat', n.fabrikat, 'valfritt, gemensamt',
+      function (v) { n.fabrikat = v; rita(); });
+    faltIn(rutnat, 'Modell', 'ers-modell', n.modell, 'valfri, gemensam',
+      function (v) { n.modell = v; rita(); });
+    faltIn(rutnat, 'Externt id', 'ers-externt', n.externtId,
+      ui.markerade.length > 1 ? 'samma på alla – lämna tomt' : 'valfritt',
+      function (v) { n.externtId = v; rita(); });
+    w.appendChild(rutnat);
+
+    var nyTyp = n.typ || '';
+    if (n.visaTyp) {
+      w.appendChild(el('div', 'liten-rubrik', 'Installationstyp'));
+      var typval = el('div', 'bf-typval');
+      DP.signifikantaTyper().forEach(function (id) {
+        typval.appendChild(knapp(DP.installationstyper[id].namn,
+          'knapp liten-knapp' + (id === nyTyp ? '' : ' sekundar'), function () {
+            n.typ = id;
+            rita();
+          }, 'Typen avgör vilka åtgärder du kan koppla i Planering steg 5. Alla markerade ' +
+             'får den nya typen.'));
+      });
+      w.appendChild(typval);
+    } else {
+      var rad0 = el('div', 'knapprad');
+      rad0.appendChild(knapp('De nya är av en annan typ', 'lank', function () {
+        n.visaTyp = true;
+        rita();
+      }, 'Visa listan med installationstyper. Alla markerade får den nya typen, och ' +
+         'kopplingar som inte gäller den följer inte med.'));
+      w.appendChild(rad0);
+    }
+
+    var hinder = P.ersattFleraHinder(ui.markerade, { datum: n.datum, typ: n.typ });
+    if (hinder) { w.appendChild(el('div', 'bf-fel', hinder)); }
+    else {
+      w.appendChild(ersattFleraBesked(st,
+        P.ersattFleraStatus(ui.markerade, { datum: n.datum, typ: n.typ })));
+    }
+
+    var rad = el('div', 'knapprad hoger');
+    rad.appendChild(knapp('Avbryt', 'knapp sekundar', function () {
+      ui.ersatterFlera = false;
+      ui.nyApparat = null;
+      rita();
+    }));
+    var gor = knapp('Ersätt ' + antal(ui.markerade.length, 'apparat', 'apparater'), 'knapp',
+      function () {
+        // Formuläret och markeringen stängs **före** utbytet, av samma skäl som i det
+        // enskilda: ändringen ritar om steget genom prenumeranten, och ett formulär som stod
+        // kvar hade frågat om ännu ett utbyte av apparater som just bytts.
+        var idn = ui.markerade.slice();
+        var namnen = gemensamtOm(st, idn).namn;
+        ui.ersatterFlera = false;
+        ui.nyApparat = null;
+        ui.markerade = [];
+        var svar = P.ersattFlera(idn, { datum: n.datum, fabrikat: n.fabrikat,
+          modell: n.modell, externtId: n.externtId, typ: n.typ });
+        if (!svar) { rita(); return; }
+        fragaEfterUtbyteFlera(namnen, svar);
+      });
+    gor.disabled = !!hinder;
+    if (gor.disabled) { gor.title = hinder; }
+    rad.appendChild(gor);
+    w.appendChild(rad);
+    return w;
+  }
+
+  // Beskedet innan planeraren trycker, för ett utbyte av många. Samma sak sägs som för ett
+  // enskilt utbyte, men om alla på en gång: att installationerna och deras id behålls är
+  // poängen (beslut 91), och att tillsynen delvis inte följer med vid ett typbyte är det enda
+  // som kan överraska (beslut 94). Uträkningen är `P.ersattFleraStatus` och ingen egen.
+  function ersattFleraBesked(st, vad) {
+    var html = antal(vad.antal, 'installation behåller', 'installationer behåller') +
+      ' sitt <b>id</b>, sitt rum och sin beteckning. De gamla apparaterna sparas som ' +
+      'tidigare versioner och syns när du klickar på installationen.';
+    if (vad.hoppasOver) {
+      html += ' <b>' + antal(vad.hoppasOver, 'markerad installation', 'markerade installationer') +
+        '</b> hoppas över.';
+    }
+    if (vad.byterTyp) {
+      html += ' ' + antal(vad.byterTyp, 'av dem byter', 'av dem byter') + ' typ till <b>' +
+        DP.Dialog.esc(DP.installationstyper[vad.nyTyp].namn) + '</b>, så ' +
+        (vad.kvar
+          ? vad.kvar + ' av ' + vad.kopplade + ' kopplade åtgärder följer med'
+          : 'ingen av de ' + vad.kopplade + ' kopplade åtgärderna följer med') +
+        ' – resten syns som saknade i Planering steg 5.';
+    } else if (vad.kopplade) {
+      html += ' Tillsynen är densamma: ' +
+        antal(vad.kopplade, 'kopplad åtgärd', 'kopplade åtgärder') +
+        ' pekar på id:n och följer med.';
+    }
+    return el('div', 'bf-notis', html);
+  }
+
+  // Frågan efter ett utbyte av många (beslut 97, berättelse 81–82). Den gäller **alla** de
+  // ersatta, och *Nej* markerar dem alla i steg 5 – det är hela skillnaden mot det enskilda
+  // utbytets fråga, och skälet att den finns: tjugo frågor efter tjugo utbyten i ett steg hade
+  // varit tjugo dialoger att klicka bort.
+  function fragaEfterUtbyteFlera(namnen, svar) {
+    var n = svar.ersatta.length;
+    // Namnen räknas upp när de är få nog att läsas, och sammanfattas annars: tjugo
+    // beteckningar i en dialog är en vägg, men "HB01, HB02 och HB03" säger precis vad som
+    // hänt.
+    var vilka = namnen.length && namnen.length <= 6
+      ? ' – ' + DP.Dialog.esc(namnen.join(', ')) : '';
+    var html = '<p>Du har ersatt apparaten i <b>' +
+      antal(n, 'installation', 'installationer') + '</b>' + vilka + '. ' +
+      'Installationerna och deras id består, och de gamla apparaterna ligger kvar som ' +
+      'tidigare versioner. Hela utbytet är <b>ett steg</b> i historiken, så ett ◀ tar ' +
+      'tillbaka allt.</p>';
+    // De markerade som **inte** byttes sägs här och inte bara i beskedet före. Frågan är det
+    // enda planeraren ser när hon tryckt, och markeringen är då redan borta: att tre av tjugo
+    // står kvar utan att någon sagt det är just den tysta avvikelsen beslut 97 finns för.
+    if ((svar.hoppadeOver || []).length) {
+      html += '<p><b>' + antal(svar.hoppadeOver.length, 'markerad installation byttes',
+        'markerade installationer byttes') + ' inte</b>: ' +
+        DP.Dialog.esc(svar.hoppadeOver.map(function (h) {
+          return h.namn + ' (' + h.skal + ')';
+        }).join('; ')) + '</p>';
+    }
+    if (svar.tappade.length) {
+      var namn = {};
+      svar.tappade.forEach(function (k) {
+        var a = P.atgard(k.atgard);
+        namn[a ? a.namn : k.atgard] = true;
+      });
+      html += '<p><b>' + antal(svar.tappade.length, 'koppling följde', 'kopplingar följde') +
+        ' inte med</b>, eftersom de nya apparaterna är av en annan typ: ' +
+        DP.Dialog.esc(Object.keys(namn).join(', ')) + '. Installationerna syns nu som ' +
+        'saknade i steg 5.</p>';
+    }
+    html += '<p>Ska de nya ha samma tillsyn som förut?</p>';
+    DP.Dialog.visa({
+      titel: n === 1 ? 'Ska den nya ha samma tillsyn som förut?'
+        : 'Ska de nya ha samma tillsyn som förut?',
+      html: html,
+      bredd: 560,
+      knappar: [
+        { text: 'Ja, samma tillsyn', prim: true },
+        { text: n === 1 ? 'Nej, visa den i Planering' : 'Nej, visa dem i Planering',
+          gor: function () {
+            DP.Flode.oppnaSteg(5);
+            DP.Vyer.visa('planering');
+            // **Alla** de ersatta blinkar och inte bara den första (berättelse 82): frågan
+            // gällde hela utbytet, och planeraren ska se vilka installationer steg 5 gäller.
+            var inst = svar.ersatta.map(function (e) { return P.inst(e.id); }).filter(Boolean);
+            if (inst.length && DP.viewer) { DP.viewer.blinka(inst, 2200, 0xe07b26); }
+          } }
+      ]
+    });
+  }
+
   // Ett plan med sina rum och deras installationer. Två saker händer här, som i steg 3:
   //
   //   * Installationstypen går att byta med ett klick (beslut 81): systemet läste den ur
@@ -1762,6 +2065,19 @@
       ' <span class="bf-planareor">' + antal(p.antal, 'installation', 'installationer') +
       '</span>'));
     w.appendChild(h);
+    // "Alla av typen" **på planet** (beslut 92, berättelse 76). Den ligger på planets rubrik
+    // och inte överst, eftersom det är där planeraren ser vilket plan hon menar – "alla
+    // handbrandsläckare på plan 01" är en annan sak än alla i byggnaden, och den skillnaden
+    // ska synas i var knappen står.
+    var flerTyper = (p.typer || []).filter(function (t) { return t.antal > 1; });
+    if (flerTyper.length) {
+      var rad = el('div', 'bf-marktyper');
+      rad.appendChild(el('span', 'etikett', 'Alla av typen på planet'));
+      flerTyper.forEach(function (t) {
+        rad.appendChild(typknapp(t, p.id, 'på plan ' + p.id));
+      });
+      w.appendChild(rad);
+    }
     p.rum.forEach(function (r) { w.appendChild(rummetsInst(r)); });
     return w;
   }
@@ -1942,6 +2258,24 @@
     // eller i ett fält hade startat ett drag i stället för att välja typen eller skriva.
     rad.draggable = ui.insttyp !== i.id && ui.ersatter !== i.id;
     if (ui.instdrag && ui.instdrag.id === i.id) { rad.classList.add('dras'); }
+    // Kryssrutan för att markera installationen (beslut 92). Den är en riktig kryssruta och
+    // ingen knapp: planeraren känner igen vad den gör innan hon klickar, och en markering av
+    // tjugo är tjugo kryss hon ser allihop.
+    var kryss = el('input', 'bf-markkryss');
+    kryss.type = 'checkbox';
+    kryss.checked = markerad(i.id);
+    kryss.dataset.markera = i.id;
+    kryss.title = 'Markera för att ersätta flera apparater på en gång.';
+    // Kryssrutan ligger inuti en rad som går att dra, och ett klick i den hade startat ett
+    // drag i stället för att kryssa. `stopPropagation` på själva klicket räcker inte: draget
+    // startar på mousedown.
+    kryss.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    kryss.addEventListener('click', function (e) {
+      e.stopPropagation();
+      vaxlaMarkering(i.id);
+    });
+    rad.appendChild(kryss);
+    if (markerad(i.id)) { rad.classList.add('markerad'); }
     rad.appendChild(el('span', 'bf-planbet', i.beteckning || '–'));
     var txt = el('div', 'bf-btext');
     txt.appendChild(el('span', 'bf-bnamn', i.benamning));
@@ -2210,6 +2544,9 @@
     // aldrig öppnat.
     ui.ersatter = null;
     ui.nyApparat = null;
+    // Markeringen är installations-id i den byggnad hon stod i, och de finns inte i den nya.
+    ui.markerade = [];
+    ui.ersatterFlera = false;
     rita();
   });
   rita();

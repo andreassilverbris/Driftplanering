@@ -7654,6 +7654,287 @@ async function testUtbyte(browser) {
   await page.close();
 }
 
+// Utbyte av många installationer på en gång (beslut 92 och 97, berättelse 76–77, biljett #44).
+//
+// Det som prövas är att **ett** utbyte av många gör samma sak som många enskilda utbyten, men i
+// ett enda historiksteg: "alla handbrandsläckare på plan 01" markerar rätt installationer, var
+// och en får sin utbytta version, ett ◀ tar tillbaka allt, och frågan efteråt gäller alla de
+// ersatta – där *Nej* markerar dem alla i steg 5.
+async function testUtbyteFlera(browser) {
+  console.log('Utbyte av många installationer på en gång (beslut 92, biljett #44)');
+
+  // Kasern 1 med standardplanering: den har handbrandsläckare på flera plan, så skillnaden
+  // mellan "alla på planet" och "alla i byggnaden" går att pröva på riktiga data.
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  await page.evaluate(() => DP.Plan.andra('Standardplanering för provet',
+    st => DP.Flode.skrivStandard(st, 'kasern1')));
+  await vanta(page, () => DP.Plan.byggnadKlar('kasern1'), 'Kasern 1 klar i alla sex stegen');
+
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+  await bf.locator('.steg-kort[data-bsteg="4"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="4"].oppen'),
+    'steg 4 öppet');
+
+  // ------------------------------------------------------------------
+  // "Alla handbrandsläckare på plan 01" markerar rätt installationer
+  // ------------------------------------------------------------------
+  // Vilka de är läses ur planeringen och inte ur raderna: regeln om vad "alla av typen"
+  // betyder bor i `instAvTyp` (beslut 61), och testet ska pröva att vyn använder den.
+  const vantade = await page.evaluate(() => ({
+    paPlan: DP.Plan.instAvTyp('handbrandslackare', '01'),
+    iByggnaden: DP.Plan.instAvTyp('handbrandslackare', ''),
+    // Alla handbrandsläckare i byggnaden sitter inte på plan 01, annars prövar markeringen
+    // ingen skillnad.
+    typerPaPlan: DP.Plan.instStatus().plan.filter(p => p.id === '01')[0].typer
+      .map(t => t.typ + ':' + t.antal)
+  }));
+  kontroll(vantade.paPlan.length > 1 && vantade.iByggnaden.length > vantade.paPlan.length,
+    'Kasern 1 har handbrandsläckare på plan 01 (' + vantade.paPlan.length + ') och fler i '
+    + 'byggnaden (' + vantade.iByggnaden.length + ')');
+
+  // Planeraren klickar knappen på planets rubrik. Den säger typens namn och antalet, så att
+  // hon vet vad hon markerar innan hon markerar det.
+  const planknapp = bf.locator('.bf-planinst[data-instplan="01"] .bf-marktyper button',
+    { hasText: 'Handbrandsläckare' });
+  kontroll(await planknapp.count() === 1,
+    'plan 01 har en knapp "alla av typen" för handbrandsläckare ('
+    + vantade.typerPaPlan.join(', ') + ')');
+  await planknapp.click();
+  await vanta(page, () => document.querySelectorAll('#byggnadsflode .bf-instrad.markerad').length > 1,
+    'installationerna markerade');
+  const markerade = await page.evaluate(() => [].map.call(
+    document.querySelectorAll('#byggnadsflode .bf-markkryss:checked'), k => k.dataset.markera));
+  kontroll(JSON.stringify(markerade.slice().sort()) === JSON.stringify(vantade.paPlan.slice().sort()),
+    'exakt handbrandsläckarna på plan 01 är markerade (' + markerade.length + ' st, '
+    + 'berättelse 76)');
+  const antalsText = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode .bf-markantal') || {}).textContent || '');
+  kontroll(new RegExp(vantade.paPlan.length + ' installationer').test(antalsText),
+    'raden överst säger hur många som är markerade ("' + antalsText.trim() + '")');
+  await bild(page, 'utbyte-flera-markerade');
+
+  // Knappen växlar: ett andra klick tar bort markeringen igen, så att ett felklick inte kräver
+  // nio avmarkeringar en och en.
+  await planknapp.click();
+  await vanta(page, () => !document.querySelectorAll('#byggnadsflode .bf-instrad.markerad').length,
+    'markeringen borta');
+  kontroll(await bf.locator('.bf-instrad.markerad').count() === 0,
+    'ett andra klick på samma knapp avmarkerar alla');
+
+  // ------------------------------------------------------------------
+  // Ett utbyte: var och en får sin version, i ett enda historiksteg
+  // ------------------------------------------------------------------
+  const fore = await page.evaluate(({ idn }) => ({
+    steg: DP.Plan.historik().lista.length,
+    versioner: idn.map(id => DP.Plan.instVersioner(id).length),
+    fabrikat: idn.map(id => (DP.Plan.inst(id) || {}).fabrikat),
+    kopplingar: DP.Plan.state().kopplingar.filter(k => idn.indexOf(k.inst) >= 0).length
+  }), { idn: vantade.paPlan });
+
+  await planknapp.click();
+  await vanta(page, () => document.querySelectorAll('#byggnadsflode .bf-instrad.markerad').length > 1,
+    'markerade igen');
+  await bf.locator('.bf-markhuvud button', { hasText: 'Ersätt' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-markering .bf-ersatt'),
+    'det samlade utbytesformuläret');
+
+  // Datumet krävs för hela utbytet, precis som för ett enskilt (beslut 95).
+  const utanDatum = await page.evaluate(() => ({
+    fel: (document.querySelector('#byggnadsflode .bf-markering .bf-ersatt .bf-fel') || {}).textContent || '',
+    avstangd: (document.querySelector('#byggnadsflode .bf-markering .bf-ersatt .knapprad.hoger button:last-child') || {}).disabled
+  }));
+  kontroll(/[Ii]nstallationsdatum/.test(utanDatum.fel) && utanDatum.avstangd === true,
+    'utan datum går utbytet inte att göra, och beskedet säger varför ("'
+    + utanDatum.fel.slice(0, 60) + '…")');
+
+  // Det gemensamma fylls i **en gång** för alla tjugo: det är hela poängen med berättelse 76.
+  await page.evaluate(() => {
+    const f = document.querySelector('#byggnadsflode .bf-markering .bf-ersatt');
+    function skriv(namn, v) {
+      const i = f.querySelector('[data-falt="' + namn + '"]');
+      i.value = v;
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    skriv('ers-datum', '2027-08-15');
+    skriv('ers-fabrikat', 'Dafo');
+    skriv('ers-modell', 'MP6');
+  });
+  const besked = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode .bf-markering .bf-ersatt .bf-notis') || {}).textContent || '');
+  kontroll(new RegExp(vantade.paPlan.length + ' installationer behåller').test(besked)
+    && /Tillsynen är densamma/.test(besked),
+    'beskedet säger att alla behåller sitt id och sin tillsyn ("' + besked.slice(0, 80) + '…")');
+  await bild(page, 'utbyte-flera-formular');
+
+  await bf.locator('.bf-markering .bf-ersatt .knapprad.hoger button', { hasText: 'Ersätt' })
+    .click();
+  await vanta(page, () => !!document.querySelector('.dlg'), 'frågan efter utbytet');
+
+  const efter = await page.evaluate(({ idn }) => ({
+    steg: DP.Plan.historik().lista.length,
+    versioner: idn.map(id => DP.Plan.instVersioner(id).length),
+    versionsIdn: idn.map(id => (DP.Plan.instVersioner(id)[0] || {}).id),
+    fabrikat: idn.map(id => (DP.Plan.inst(id) || {}).fabrikat),
+    datum: idn.map(id => (DP.Plan.inst(id) || {}).datum),
+    kopplingar: DP.Plan.state().kopplingar.filter(k => idn.indexOf(k.inst) >= 0).length,
+    text: DP.Plan.historik().lista[DP.Plan.historik().pos]
+  }), { idn: vantade.paPlan });
+
+  kontroll(efter.versioner.every(n => n === 1)
+    && efter.versionsIdn.every((v, k) => v === vantade.paPlan[k] + ':1'),
+    'var och en fick sin utbytta version med :1 (' + efter.versionsIdn.join(', ') + ')');
+  kontroll(efter.fabrikat.every(f => f === 'Dafo') && efter.datum.every(d => d === '2027-08-15'),
+    'alla fick det gemensamma fabrikatet och datumet, ifyllda en gång (berättelse 76)');
+  kontroll(efter.kopplingar === fore.kopplingar,
+    'tillsynen består: lika många kopplingar före och efter (' + efter.kopplingar + ')');
+  kontroll(efter.steg === fore.steg + 1,
+    'hela utbytet är **ett** steg i historiken (' + fore.steg + ' → ' + efter.steg
+    + ', berättelse 77)');
+  kontroll(new RegExp(vantade.paPlan.length + ' handbrandsläckare').test(efter.text),
+    'historikstegets text säger antalet och typen ("' + efter.text + '")');
+
+  // Frågan efteråt gäller **alla** de ersatta (beslut 97).
+  const fraga = await page.evaluate(() => {
+    const d = document.querySelector('.dlg');
+    return { titel: (d.querySelector('.dlg-titel') || {}).textContent || '',
+      kropp: (d.querySelector('.dlg-kropp') || {}).textContent || '',
+      knappar: [].map.call(d.querySelectorAll('button'), b => b.textContent) };
+  });
+  kontroll(/de nya/.test(fraga.titel)
+    && new RegExp(vantade.paPlan.length + ' installationer').test(fraga.kropp)
+    && /ett steg/.test(fraga.kropp),
+    'frågan gäller alla de ersatta och säger att det är ett steg ("' + fraga.titel + '")');
+  kontroll(fraga.knappar.some(t => /Ja, samma tillsyn/.test(t))
+    && fraga.knappar.some(t => /Nej, visa dem i Planering/.test(t)),
+    'frågan har *Ja, samma tillsyn* och *Nej, visa dem i Planering* (beslut 97)');
+  await bild(page, 'utbyte-flera-fraga');
+  await page.locator('.dlg button', { hasText: 'Ja, samma tillsyn' }).click();
+  await vanta(page, () => !document.querySelector('.dlg'), 'frågan stängd');
+
+  // ------------------------------------------------------------------
+  // Ett ◀ tar tillbaka hela utbytet (berättelse 77)
+  // ------------------------------------------------------------------
+  await angra(page);
+  await vanta(page, ({ idn }) => idn.every(id => DP.Plan.instVersioner(id).length === 0),
+    'versionerna borta efter ◀', { idn: vantade.paPlan });
+  const angrat = await page.evaluate(({ idn, fabrikat }) => ({
+    versioner: idn.map(id => DP.Plan.instVersioner(id).length),
+    fabrikatTillbaka: idn.every((id, k) => (DP.Plan.inst(id) || {}).fabrikat === fabrikat[k]),
+    kopplingar: DP.Plan.state().kopplingar.filter(k => idn.indexOf(k.inst) >= 0).length
+  }), { idn: vantade.paPlan, fabrikat: fore.fabrikat });
+  kontroll(angrat.versioner.every(n => n === 0) && angrat.fabrikatTillbaka,
+    'ett ◀ tar tillbaka alla ' + vantade.paPlan.length + ' apparater i ett grepp (berättelse 77)');
+  kontroll(angrat.kopplingar === fore.kopplingar, 'tillsynen är oförändrad efter ◀');
+  await gorOm(page);
+  await vanta(page, ({ idn }) => idn.every(id => DP.Plan.instVersioner(id).length === 1),
+    'versionerna tillbaka efter ▶', { idn: vantade.paPlan });
+  kontroll(await page.evaluate(({ idn }) =>
+    idn.every(id => DP.Plan.instVersioner(id).length === 1), { idn: vantade.paPlan }),
+    'ett ▶ gör om hela utbytet i ett grepp');
+
+  // ------------------------------------------------------------------
+  // De markerade som inte går att byta hoppas över – och det sägs
+  // ------------------------------------------------------------------
+  // En markering kan bära en installation utbytet inte kan röra: en apparat som redan bytts
+  // till ett *senare* datum kan inte ersättas med ett tidigare (beslut 95). Att nittonde
+  // släckaren inte byts för att den tjugonde är sådan hade varit svårare att förstå än att
+  // nitton byttes – men att tre av tjugo står kvar utan att någon säger det är den tysta
+  // avvikelsen beslut 97 finns för.
+  const overhoppat = await page.evaluate(({ bytta }) => {
+    // En handbrandsläckare som *inte* byttes nyss, tillsammans med en som gjorde det. Den
+    // bytta har 2027-08-15, så ett utbyte daterat tidigare hindras för just den.
+    const kvar = DP.Plan.instAvTyp('handbrandslackare', '').filter(id => bytta.indexOf(id) < 0)[0];
+    const svar = DP.Plan.ersattFlera([kvar, bytta[0]], { datum: '2027-07-01', fabrikat: 'Housegard' });
+    return { kvar: kvar, ersatta: svar.ersatta.map(e => e.id),
+      hoppade: (svar.hoppadeOver || []).map(h => h.id),
+      skal: (svar.hoppadeOver || []).map(h => h.skal).join(' '),
+      namn: (svar.hoppadeOver || []).map(h => h.namn).join(' ') };
+  }, { bytta: vantade.paPlan });
+  kontroll(JSON.stringify(overhoppat.ersatta) === JSON.stringify([overhoppat.kvar])
+    && JSON.stringify(overhoppat.hoppade) === JSON.stringify([vantade.paPlan[0]]),
+    'den som går byts och den som inte går hoppas över – utbytet fälls inte av en rad');
+  kontroll(/installerad före den gamla/.test(overhoppat.skal) && overhoppat.namn.length > 0,
+    'den överhoppade bärs med namn och skäl i klartext ("' + overhoppat.namn + ': '
+    + overhoppat.skal.slice(0, 50) + '…")');
+  await angra(page);
+  await vanta(page, ({ id }) => DP.Plan.instVersioner(id).length === 0,
+    'det överhoppningsprovet ångrat', { id: overhoppat.kvar });
+
+  // ------------------------------------------------------------------
+  // *Nej* markerar alla de ersatta i steg 5 (berättelse 82)
+  // ------------------------------------------------------------------
+  // Nu ett utbyte där de nya är av en **annan typ**: då faller kopplingarna, och frågan har
+  // något att säga om tillsynen. Två handbrandsläckare på plan 02 blir brandposter.
+  const idn2 = await page.evaluate(() => DP.Plan.instAvTyp('handbrandslackare', '02'));
+  kontroll(idn2.length > 1, 'plan 02 har flera handbrandsläckare att byta typ på ('
+    + idn2.length + ')');
+  await page.evaluate(({ idn }) => {
+    // Markeringen sätts genom kryssrutorna, som planeraren gör: en och en (berättelse 76).
+    idn.forEach(id => {
+      const k = document.querySelector('#byggnadsflode .bf-markkryss[data-markera="' + id + '"]');
+      if (k) { k.click(); }
+    });
+  }, { idn: idn2 });
+  await vanta(page, ({ idn }) => document.querySelectorAll('#byggnadsflode .bf-instrad.markerad').length === idn.length,
+    'de två markerade en och en', { idn: idn2 });
+  kontroll(await bf.locator('.bf-instrad.markerad').count() === idn2.length,
+    'installationer går att markera en och en med kryssrutan (' + idn2.length + ' st)');
+
+  await bf.locator('.bf-markhuvud button', { hasText: 'Ersätt' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-markering .bf-ersatt'),
+    'formuläret öppet igen');
+  await bf.locator('.bf-markering .bf-ersatt .lank', { hasText: 'annan typ' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-markering .bf-ersatt .bf-typval'),
+    'typvalet utfällt');
+  await bf.locator('.bf-markering .bf-ersatt .bf-typval button', { hasText: 'Brandpost' })
+    .first().click();
+  await page.evaluate(() => {
+    const i = document.querySelector('#byggnadsflode .bf-markering .bf-ersatt [data-falt="ers-datum"]');
+    i.value = '2027-09-01';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const typBesked = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode .bf-markering .bf-ersatt .bf-notis') || {}).textContent || '');
+  kontroll(/byter typ till/.test(typBesked) && /Brandpost/.test(typBesked),
+    'beskedet säger att alla markerade byter typ ("' + typBesked.slice(0, 80) + '…")');
+
+  // **Positionen** och inte längden: provet med den överhoppade ångrades nyss, så ett nytt
+  // steg skriver över det som låg framför och längden står still (se `stegKlartPos`).
+  const foreTyp = await historikpos(page);
+  await bf.locator('.bf-markering .bf-ersatt .knapprad.hoger button', { hasText: 'Ersätt' })
+    .click();
+  await vanta(page, () => !!document.querySelector('.dlg'), 'frågan efter typbytet');
+  const typFraga = await page.evaluate(() => ({
+    kropp: (document.querySelector('.dlg .dlg-kropp') || {}).textContent || '',
+    steg: DP.Plan.historik().pos
+  }));
+  kontroll(/kopplingar följde inte med|koppling följde inte med/.test(typFraga.kropp)
+    && /Kontroll handbrandsläckare/.test(typFraga.kropp),
+    'frågan säger vilka kopplingar som föll bort för hela utbytet (beslut 97)');
+  kontroll(typFraga.steg === foreTyp + 1,
+    'också typbytet av många är ett steg (' + foreTyp + ' → ' + typFraga.steg + ')');
+
+  await page.locator('.dlg button', { hasText: 'Nej, visa dem i Planering' }).click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet efter *Nej*');
+  const iSteg5 = await page.evaluate(({ idn }) => ({
+    oppet: (document.querySelector('#flode .steg-kort.oppen .steg-titel') || {}).textContent || '',
+    saknas: idn.filter(id => DP.Plan.kopplingsStatus(DP.Plan.state()).saknas.some(i => i.id === id)).length,
+    blinkar: (DP.viewer.blinkar || []).length
+  }), { idn: idn2 });
+  kontroll(iSteg5.saknas === idn2.length,
+    'alla ' + idn2.length + ' ersatta syns som saknade i steg 5 ("' + iSteg5.oppet + '")');
+  // Varje blinkande installation får två objekt (kopian och glorian), så antalet är dubbelt.
+  kontroll(iSteg5.blinkar >= idn2.length,
+    'alla de ersatta är markerade i modellen (' + iSteg5.blinkar
+    + ' blinkande objekt, berättelse 82)');
+  await bild(page, 'utbyte-flera-steg5');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 // Läsa in filen mot en befintlig byggnad (beslut 86, berättelse 72–74, biljett #42).
 //
 // En ombyggnad förs in på samma sätt som en ny byggnad: filen tas ut, ändras och läses in igen.
@@ -7942,6 +8223,7 @@ async function testInlasningMotBefintlig(browser) {
     await testAndraByggnad(browser);
     await testInlasningMotBefintlig(browser);
     await testUtbyte(browser);
+    await testUtbyteFlera(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

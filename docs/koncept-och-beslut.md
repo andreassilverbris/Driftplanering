@@ -658,6 +658,19 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
 92. **Ersätta många på en gång.** I *Ändra byggnad* markeras installationer en och en eller som "alla av
     typen …" i byggnaden eller på ett plan, och *Ersätt* fyller i det gemensamma för de nya (fabrikat, modell,
     installationsdatum). Hela utbytet är **ett** steg i historiken.
+
+    *Byggt i biljett #44.* `DP.Plan.ersattFlera(instIdn, upp, bid)` är vägen, och `ersattInst` blev ett
+    **specialfall av den** – ett utbyte av en är ett utbyte av många med en i listan. Det var det
+    lastbärande valet: hade de varit två vägar hade frågan efteråt, versionshanteringen och det som
+    händer med tillsynen vid ett typbyte kunnat glida isär, och då hade samma apparat bytts olika
+    beroende på om planeraren råkade markera den eller trycka *Ersätt* på dess rad. Hela utbytet går
+    genom **en** `andraByggnadOchPlanering`; tjugo anrop till `ersattInst` hade gett tjugo steg och
+    tjugo ◀ tillbaka. `instAvTyp(typ, planId)` svarar på vad "alla av typen …" markerar, och
+    `instStatus` bär `typer` per plan och för byggnaden – regeln bor i planeringen och inte i vyn
+    (beslut 61), eftersom en vy som letade i sina egna rader hade svarat fel så fort listan var rullad.
+    Knapparna **växlar**, så ett felklick inte kräver nio avmarkeringar. En installation som inte går
+    att ersätta hoppas över i stället för att fälla utbytet: att nittonde släckaren inte byts för att
+    den tjugonde försvann är svårare att förstå än att nitton byttes.
 93. **Utbyte och rättelse via fil.** Samma Id med **senare installationsdatum** är ett förslag om *utbyte*;
     samma Id med ändrade uppgifter men samma datum är ett förslag om *rättelse* av samma version. Båda går att
     vända. (Ersätter tanken på nytt Id för utbyte, eftersom id:t består enligt beslut 91.)

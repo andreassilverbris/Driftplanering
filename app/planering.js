@@ -1919,7 +1919,14 @@
       // till – samma skäl som att steg 3 visar plan utan rum. Att ett tomt rum säger "inga
       // installationer" är dessutom ett svar: planeraren ser att hon inte glömt något.
       return { id: p.id, namn: p.namn, rum: rum,
-        antal: rum.reduce(function (s, r) { return s + r.inst.length; }, 0) };
+        antal: rum.reduce(function (s, r) { return s + r.inst.length; }, 0),
+        // Typerna på planet med antal, det "alla av typen …" på planet markerar (beslut 92).
+        // De räknas här och inte i vyn av samma skäl som allt annat härlett: regeln om vilka
+        // installationer som hör till en typ bor i planeringen, och vyn ska inte behöva leta
+        // i sina egna rader för att svara på vad planeraren markerar.
+        typer: typRakning(rum.reduce(function (lista, r) {
+          return lista.concat(r.inst);
+        }, [])) };
     });
     // Installationer vars rum inte finns i byggnaden. Två helt olika saker ser likadana ut
     // här, och att blanda ihop dem vore att säga fel sak till planeraren:
@@ -1950,12 +1957,31 @@
     return {
       plan: plan, antal: sig.length, hemlosa: hemlosa, vantande: vantande,
       klar: sig.length > 0,
+      // Typerna i hela byggnaden med antal, det "alla av typen …" överst markerar. Bara de
+      // som sitter i ett rum som finns räknas: en installation som inte går att peka ut i
+      // steg 4 går inte heller att markera där.
+      typer: typRakning(plan.reduce(function (lista, p) {
+        return p.rum.reduce(function (l, r) { return l.concat(r.inst); }, lista);
+      }, [])),
       // Antal **övriga** installationer, det modellen visar vid sidan av de signifikanta
       // (berättelse 57). De genereras ur rumstypen och är ingen individ någon planerar
       // tillsyn för, så de räknas bara – planeraren ska se att de finns.
       ovriga: ovrigaFor(b).length
     };
   }
+  // Typerna i en lista med installationsrader, med antal per typ, i den ordning de först
+  // dyker upp – alltså byggnadens egen ordning och inte en alfabetisk, så att en typ står där
+  // planeraren mötte den. Den är underlaget för "alla av typen …" (beslut 92).
+  function typRakning(inst) {
+    var ordning = [];
+    var raknare = {};
+    inst.forEach(function (i) {
+      if (!raknare[i.typ]) { raknare[i.typ] = { typ: i.typ, namn: i.typNamn, antal: 0 }; ordning.push(i.typ); }
+      raknare[i.typ].antal++;
+    });
+    return ordning.map(function (t) { return raknare[t]; });
+  }
+
   // De övriga installationerna byggnaden får i modellen (berättelse 57). De räknas här ur den
   // **räknade formen** och inte ur tillståndet (beslut 71): de hör till hur byggnaden ritas
   // och inte till vad planeraren bestämt om den.
@@ -2121,6 +2147,43 @@
     return '';
   }
 
+  // Själva utbytet på **en** installation, inuti ett pågående historiksteg. Den är utbruten ur
+  // `ersattInst` därför att ett utbyte av många (beslut 92) ska göra exakt samma sak per
+  // installation som ett enskilt: tjugo släckare som byts i ett steg ska var och en få sin
+  // version och sin tillsyn behandlad likadant som den enda som byts för hand. Två uträkningar
+  // hade förr eller senare glidit isär, och då hade det enskilda utbytet och massutbytet gett
+  // olika resultat på samma apparat.
+  //
+  // `vad` är `ersattStatus` räknat **före** steget: efteråt finns de kopplingar som revs inte
+  // kvar att räkna.
+  function bytApparat(data, st, instId, o, vad, datum) {
+    var m = data.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!m) { return; }
+    m.versioner = (m.versioner || []).concat([versionAv(m, (m.versioner || []).length + 1, datum)]);
+    // Den nya apparatens uppgifter. Bara det planeraren fyllt i skrivs om: lämnar hon
+    // fabrikatet tomt är det samma fabrikat igen – tjugo släckare byts mot tjugo likadana
+    // – och ett tomt fält är inget svar, av samma skäl som en tom cell i filen (beslut 86).
+    if (o.fabrikat != null && String(o.fabrikat).trim()) { m.fabrikat = String(o.fabrikat).trim(); }
+    if (o.modell != null && String(o.modell).trim()) { m.modell = String(o.modell).trim(); }
+    if (o.externtId != null && String(o.externtId).trim()) { m.externtId = String(o.externtId).trim(); }
+    if (o.benamning != null && String(o.benamning).trim()) { m.benamning = String(o.benamning).trim(); }
+    if (o.beteckning != null && String(o.beteckning).trim()) { m.beteckning = String(o.beteckning).trim(); }
+    m.datum = datum;
+    if (vad.nyTyp !== m.typ) {
+      m.typ = vad.nyTyp;
+      // Kopplingarna som inte gäller den nya typen, och deras avvikande texter, bort i
+      // samma steg. `rensaKopplingar` tar allt på installationen och går därför inte att
+      // använda: här ska en del av kopplingarna stå kvar.
+      st.kopplingar = (st.kopplingar || []).filter(function (k) {
+        return k.inst !== instId || vad.behalls[k.atgard];
+      });
+      Object.keys(st.instTexter || {}).forEach(function (nyckel) {
+        var delar = nyckel.split('|');
+        if (delar[1] === instId && !vad.behalls[delar[0]]) { delete st.instTexter[nyckel]; }
+      });
+    }
+  }
+
   // Ersätt apparaten i en installation (beslut 91–95, berättelse 75 och 78–80).
   //
   // Installationen är **platsen och uppgiften** och bär planeringen; apparaten är den sak som
@@ -2141,52 +2204,185 @@
   // Svaret är `{ version, tappade }` – versionens id och de kopplingar som inte följde med – så
   // att vyn kan ställa frågan efter utbytet (beslut 97) utan att räkna om något själv. Null när
   // uppgifterna inte räcker.
+  //
+  // Den är **ett specialfall av `ersattFlera`** och inte en egen väg: ett utbyte av en är ett
+  // utbyte av många med en i listan, och det är poängen – frågan efteråt, versionerna och det
+  // som händer med tillsynen ska inte kunna skilja sig beroende på hur många planeraren råkade
+  // markera.
   function ersattInst(instId, upp, bid) {
+    var svar = ersattFlera([instId], upp, bid);
+    if (!svar || !svar.ersatta.length) { return null; }
+    return { version: svar.ersatta[0].version, tappade: svar.tappade };
+  }
+
+  // Ersätt apparaten i **många** installationer på en gång, som ett enda steg i historiken
+  // (beslut 92 och 97, berättelse 76–77). Tjugo likadana handbrandsläckare byts med gemensamt
+  // fabrikat, modell och installationsdatum, och var och en får sin utbytta version precis som
+  // vid ett enskilt utbyte.
+  //
+  // Att det är **ett** steg och inte tjugo är hela skillnaden: ett ◀ ska ta tillbaka hela
+  // utbytet. Tjugo anrop till `ersattInst` hade gett tjugo steg, och planeraren hade fått
+  // trycka ◀ tjugo gånger för att komma tillbaka dit hon stod.
+  //
+  // De installationer som inte går att ersätta hoppas över i stället för att fälla hela
+  // utbytet: listan kan bära ett id som tagits bort i en annan flik av samma session, och att
+  // nittonde släckaren inte byts för att den tjugonde försvann hade varit svårare att förstå
+  // än att nitton byttes. Hindret som gäller **alla** – ett datum som saknas eller är fel
+  // skrivet – svarar `ersattFleraHinder` på, innan planeraren trycker.
+  //
+  // Svaret är `{ ersatta, hoppadeOver, tappade, byterTyp }`: en rad per ersatt installation med
+  // dess versions-id, de markerade som hoppades över med skälet i klartext, och de kopplingar
+  // som inte följde med slagna ihop – det frågan efteråt (beslut 97) behöver för att säga
+  // "3 åtgärder följde inte med" om hela utbytet. Null när ingenting gick att ersätta.
+  //
+  // De överhoppade står i svaret och inte bara i förhandsbeskedet: frågan efteråt är det enda
+  // planeraren ser när hon tryckt, och markeringen är då redan borta. Att tre av tjugo inte
+  // byttes utan att någon sa det är just den tysta avvikelsen beslut 97 finns för att undvika.
+  function ersattFlera(instIdn, upp, bid) {
     var id = bid || aktiv;
     var b = B(id);
     if (!b) { return null; }
-    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
-    if (!i || ersattHinder(instId, upp, id)) { return null; }
     var o = upp || {};
     var datum = String(o.datum || '').trim();
-    var n = (i.versioner || []).length + 1;
-    // Vad utbytet gör räknas **före** ändringen: efteråt finns de kopplingar som revs inte att
-    // räkna. Det är samma uträkning vyns förhandsbesked läser, så beskedet och frågan efteråt
-    // kan aldrig säga olika saker om samma utbyte.
-    var vad = ersattStatus(instId, upp, id);
-    var nyTyp = vad.nyTyp;
-    var behalls = vad.behalls;
-    var namn = (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
-    andraByggnadOchPlanering('ersätt apparaten i ' + namn +
-      (nyTyp !== i.typ ? ' med ' + DP.installationstyper[nyTyp].namn : ''), id,
-      function (data, st) {
-        var m = data.installationer.filter(function (x) { return x.id === instId; })[0];
-        if (!m) { return false; }
-        m.versioner = (m.versioner || []).concat([versionAv(m, n, datum)]);
-        // Den nya apparatens uppgifter. Bara det planeraren fyllt i skrivs om: lämnar hon
-        // fabrikatet tomt är det samma fabrikat igen – tjugo släckare byts mot tjugo likadana
-        // – och ett tomt fält är inget svar, av samma skäl som en tom cell i filen (beslut 86).
-        if (o.fabrikat != null && String(o.fabrikat).trim()) { m.fabrikat = String(o.fabrikat).trim(); }
-        if (o.modell != null && String(o.modell).trim()) { m.modell = String(o.modell).trim(); }
-        if (o.externtId != null && String(o.externtId).trim()) { m.externtId = String(o.externtId).trim(); }
-        if (o.benamning != null && String(o.benamning).trim()) { m.benamning = String(o.benamning).trim(); }
-        if (o.beteckning != null && String(o.beteckning).trim()) { m.beteckning = String(o.beteckning).trim(); }
-        m.datum = datum;
-        if (nyTyp !== m.typ) {
-          m.typ = nyTyp;
-          // Kopplingarna som inte gäller den nya typen, och deras avvikande texter, bort i
-          // samma steg. `rensaKopplingar` tar allt på installationen och går därför inte att
-          // använda: här ska en del av kopplingarna stå kvar.
-          st.kopplingar = (st.kopplingar || []).filter(function (k) {
-            return k.inst !== instId || behalls[k.atgard];
-          });
-          Object.keys(st.instTexter || {}).forEach(function (nyckel) {
-            var delar = nyckel.split('|');
-            if (delar[1] === instId && !behalls[delar[0]]) { delete st.instTexter[nyckel]; }
-          });
-        }
+    // Vad varje utbyte gör räknas **före** steget, av samma skäl som i det enskilda utbytet:
+    // efteråt finns de rivna kopplingarna inte att räkna. Det är samma uträkning vyns
+    // förhandsbesked läser (beslut 61).
+    var poster = [];
+    var hoppadeOver = [];
+    (instIdn || []).forEach(function (instId) {
+      var hinder = ersattHinder(instId, upp, id);
+      var vad = hinder ? null : ersattStatus(instId, upp, id);
+      if (!vad) {
+        hoppadeOver.push({ id: instId, namn: instNamn(b, instId),
+          skal: hinder || 'Installationen finns inte längre.' });
+        return;
+      }
+      poster.push({ instId: instId, vad: vad });
+    });
+    if (!poster.length) { return null; }
+    var tappade = [];
+    var byterTyp = false;
+    poster.forEach(function (p) {
+      tappade = tappade.concat(p.vad.tappade);
+      if (p.vad.byterTyp) { byterTyp = true; }
+    });
+    andraByggnadOchPlanering(ersattText(b, poster, byterTyp), id, function (data, st) {
+      poster.forEach(function (p) {
+        bytApparat(data, st, p.instId, o, p.vad, datum);
       });
-    return { version: vad.version, tappade: vad.tappade };
+    });
+    return {
+      ersatta: poster.map(function (p) {
+        return { id: p.instId, version: p.vad.version, tappade: p.vad.tappade };
+      }),
+      hoppadeOver: hoppadeOver, tappade: tappade, byterTyp: byterTyp
+    };
+  }
+
+  // Installationens namn som planeraren känner igen det: beteckningen och benämningen, som på
+  // raden i steg 4. Tomt id eller en installation som inte finns ger id:t, så att ett besked
+  // om den alltid pekar på något.
+  function instNamn(b, instId) {
+    var i = (b.installationer || []).filter(function (x) { return x.id === instId; })[0];
+    if (!i) { return instId; }
+    return (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
+  }
+
+  // Historikstegets text. Ett utbyte av **en** apparat nämner den vid namn, som förut; ett
+  // utbyte av många säger antalet och typen – "ersätt apparaten i 9 handbrandsläckare" – för
+  // en lista på tjugo beteckningar går inte att läsa i mediaspelaren.
+  function ersattText(b, poster, byterTyp) {
+    var forst = b.installationer.filter(function (x) { return x.id === poster[0].instId; })[0];
+    var nyTyp = poster[0].vad.nyTyp;
+    var till = byterTyp && nyTyp !== forst.typ ? ' med ' + DP.installationstyper[nyTyp].namn : '';
+    if (poster.length === 1) {
+      return 'ersätt apparaten i ' +
+        (forst.beteckning ? forst.beteckning + ' ' : '') + forst.benamning + till;
+    }
+    // Är alla av samma typ heter de sitt typnamn i plural; blandar planeraren typer är
+    // "installationer" det enda sanna ordet.
+    var typer = {};
+    poster.forEach(function (p) {
+      var i = b.installationer.filter(function (x) { return x.id === p.instId; })[0];
+      if (i) { typer[i.typ] = true; }
+    });
+    var namn = Object.keys(typer).length === 1 && DP.installationstyper[forst.typ]
+      ? DP.installationstyper[forst.typ].namn.toLowerCase()
+      : 'installationer';
+    return 'ersätt apparaten i ' + poster.length + ' ' + namn + till;
+  }
+
+  // Hindret som gäller **hela** utbytet, i klartext. Det som saknas eller är fel skrivet i
+  // formuläret – datumet framför allt (beslut 95) – gäller alla de markerade på en gång, och
+  // beskedet ska komma medan planeraren skriver, som `ersattHinder`.
+  //
+  // Att den finns vid sidan av `ersattHinder` är därför att markeringen själv kan vara hindret:
+  // en tom markering är inget utbyte, och den enskilda installationens hinder ("finns inte
+  // längre") säger inget om de övriga nitton.
+  function ersattFleraHinder(instIdn, upp, bid) {
+    var idn = instIdn || [];
+    if (!idn.length) { return 'Markera minst en installation att ersätta.'; }
+    var hinder = idn.map(function (instId) { return ersattHinder(instId, upp, bid); })
+      .filter(Boolean);
+    // Hindrar samma sak alla – ett datum som saknas – är det det beskedet planeraren ska få,
+    // och inte "19 av 20 går inte att ersätta".
+    if (hinder.length === idn.length) { return hinder[0]; }
+    // Hindrar det bara några är utbytet ändå möjligt, och då är det inget hinder: de som går
+    // byts. **Hur många** som hoppas över säger `ersattFleraStatus().hoppasOver` i beskedet
+    // före, och `ersattFlera().hoppadeOver` i frågan efteråt – ett hinder är en spärr, och
+    // det här är ett besked.
+    return '';
+  }
+
+  // Vad ett utbyte av många skulle göra, slaget ihop: antalet, versionerna, hur många som
+  // byter typ och vilka kopplingar som inte följer med. Det är `ersattStatus` summerad, och
+  // bor här av samma skäl som den (beslut 61) – vyns besked före och frågan efteråt ska räkna
+  // på samma sätt.
+  function ersattFleraStatus(instIdn, upp, bid) {
+    var idn = (instIdn || []).filter(function (instId) {
+      return !ersattHinder(instId, upp, bid);
+    });
+    var poster = idn.map(function (instId) { return ersattStatus(instId, upp, bid); })
+      .filter(Boolean);
+    var tappade = [];
+    var kopplade = 0;
+    var kvar = 0;
+    var byterTyp = 0;
+    // Typen de **byter till** är den planeraren valt, och tas därför ur de poster som faktiskt
+    // byter typ – inte ur den första i listan. Står den första kvar på sin egen typ, därför
+    // att den redan var av den valda sorten, hade den första postens `nyTyp` namngett fel typ
+    // i beskedet: "2 av dem byter typ till Handbrandsläckare" om ett byte till Brandpost.
+    var till = '';
+    poster.forEach(function (p) {
+      tappade = tappade.concat(p.tappade);
+      kopplade += p.kopplade;
+      kvar += p.kvar.length;
+      if (p.byterTyp) { byterTyp++; if (!till) { till = p.nyTyp; } }
+    });
+    return { antal: poster.length, hoppasOver: (instIdn || []).length - poster.length,
+      versioner: poster.map(function (p) { return p.version; }),
+      nyTyp: till || (poster.length ? poster[0].nyTyp : ''), byterTyp: byterTyp,
+      kopplade: kopplade, kvar: kvar, tappade: tappade };
+  }
+
+  // De installationer "alla av typen …" markerar (beslut 92, berättelse 76). Markeringen är
+  // **data och inte DOM**: vilka installationer som är av en typ i en byggnad eller på ett plan
+  // vet byggnaden, och vyn ska inte behöva leta i sina egna rader för att svara på det.
+  //
+  // `planId` tomt betyder hela byggnaden. Ordningen är byggnadens egen, så markeringen följer
+  // den ordning steg 4 och modellen visar installationerna i.
+  function instAvTyp(typ, planId, bid) {
+    var b = B(bid);
+    if (!b) { return []; }
+    var paPlan = {};
+    if (planId) {
+      b.rum.forEach(function (r) {
+        if (r.plan === planId) { paPlan[DP.rumNyckel(r.plan, r.nr)] = true; }
+      });
+    }
+    return b.installationer.filter(function (i) {
+      return i.signifikant && i.typ === typ && (!planId || paPlan[i.rum]);
+    }).map(function (i) { return i.id; });
   }
 
   // Versionerna av en installation, nyast först: det planeraren vill se är den som satt där
@@ -3748,6 +3944,8 @@
     instStatus: instStatus, sattInstTyp: sattInstTyp, taBortInst: taBortInst,
     laggTillInst: laggTillInst, flyttaInst: flyttaInst, instHinder: instHinder,
     ersattInst: ersattInst, ersattHinder: ersattHinder, ersattStatus: ersattStatus,
+    ersattFlera: ersattFlera, ersattFleraHinder: ersattFleraHinder,
+    ersattFleraStatus: ersattFleraStatus, instAvTyp: instAvTyp,
     instVersioner: instVersioner,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
