@@ -4056,6 +4056,89 @@ async function testPlanlosningen(browser) {
     'sidorna delas mitt i nummerordningen, så rundan håller när ett rum dominerar ('
     + dominerar.map(d => d.nr + (d.syd ? ':syd' : ':norr')).join(' ') + ')');
 
+  // ---- BRA och BTA räknade ur modellen och märkta *beräknad* (beslut 79, berättelse 43) ----
+  // Fristående prov på uträkningen: en kasern med tre lika rum på ett plan, utan BRA och BTA
+  // i rummen. Då är det modellen som svarar, och svaret ska gå att härleda för hand – annars
+  // kan planeraren inte lita på det tal hon jämför mot fastighetssystemets.
+  const areor = await page.evaluate(() => {
+    const PL = DP.Planlosning;
+    // Samma byggnad två gånger: en gång utan rummens egna BRA och BTA, en gång med.
+    function bygg(extra) {
+      return {
+        namn: 'Areaprov', typ: 'kasern', stil: { tak: 'platt' },
+        konstanter: { FRIHOJD: 3.1, BJALKLAG: 0.2 },
+        plan: [{ id: '01', namn: 'Entréplan' }, { id: '02', namn: 'Plan 2' }],
+        rum: [
+          Object.assign({ nr: '001', namn: 'Logement', plan: '01', rumstyp: 'logement', nta: 36 }, extra(1)),
+          Object.assign({ nr: '002', namn: 'Logement', plan: '01', rumstyp: 'logement', nta: 36 }, extra(2)),
+          Object.assign({ nr: '001', namn: 'Kontor', plan: '02', rumstyp: 'kontor', nta: 24 }, extra(3))
+        ],
+        installationer: []
+      };
+    }
+    const utan = PL.areor(bygg(() => ({})));
+    const med = PL.areor(bygg(() => ({ bra: 40, bta: 44 })));
+    // Ett plan har rummens tal, det andra inte: märkningen ska vara per plan, och byggnadens
+    // summa beräknad så fort något plan räknades ur modellen.
+    const halvt = PL.areor(bygg(n => n === 3 ? { bra: 26, bta: 29 } : {}));
+    // Ett plan utan rum är ett skal, och skalet är typens standardstorlek och inte en
+    // uppgift om byggnaden: då finns ingen area att räkna.
+    const skal = PL.areor({
+      namn: 'Tom', typ: 'kasern', plan: [{ id: '01', namn: 'Entréplan' }], rum: [], installationer: []
+    });
+    // Planets omslutande rektangel, så att talen går att räkna efter för hand.
+    const form = PL.form(bygg(() => ({})));
+    const p1 = form.rum.filter(r => r.plan === '01');
+    const ram = {
+      x: Math.max(...p1.map(r => r.rect[2])) - Math.min(...p1.map(r => r.rect[0])),
+      z: Math.max(...p1.map(r => r.rect[3])) - Math.min(...p1.map(r => r.rect[1]))
+    };
+    return { utan, med, halvt, skal, ram, tj: PL.VAGG_TJ };
+  });
+  const p01 = areor.utan.plan.filter(p => p.id === '01')[0];
+  // BRA är planets omslutande rektangel: rummens rektanglar har NTA som yta och ligger kant
+  // i kant, så rektangeln är nettoytan plus innerväggarna och det regeln lämnat mellan dem.
+  // BTA är samma rektangel utökad en halv väggtjocklek runt om – viewern ritar ytterväggen
+  // centrerad på rummets kant, så halva väggen ligger innanför BRA och halva utanför.
+  const vantadBra = Math.round(areor.ram.x * areor.ram.z * 10) / 10;
+  const vantadBta = Math.round((areor.ram.x + areor.tj) * (areor.ram.z + areor.tj) * 10) / 10;
+  kontroll(p01.bra === vantadBra && p01.bta === vantadBta,
+    'BRA och BTA räknas ur planets rektangel – innanför och utanför ytterväggarna (BRA '
+    + p01.bra + ' mot ' + vantadBra + ', BTA ' + p01.bta + ' mot ' + vantadBta + ')');
+  // BRA rymmer alltid nettoarean: ett BRA under NTA är geometriskt omöjligt.
+  kontroll(areor.utan.plan.every(p => p.bra == null || p.nta == null || p.bra >= p.nta),
+    'BRA är aldrig mindre än NTA – den rymmer nettoarean och innerväggarna ('
+    + areor.utan.plan.map(p => p.id + ': ' + p.bra + '/' + p.nta).join(' ') + ')');
+  kontroll(p01.braBeraknad && p01.btaBeraknad && areor.utan.braBeraknad && areor.utan.btaBeraknad,
+    'arean märks beräknad när rummen saknar BRA och BTA');
+  kontroll(p01.bta > p01.bra,
+    'BTA är större än BRA: den mäts utanför ytterväggarna (' + p01.bta + ' > ' + p01.bra + ')');
+  kontroll(areor.utan.nta === 96 && p01.nta === 72,
+    'NTA är rummens summa per plan och byggnad och räknas aldrig ur modellen ('
+    + p01.nta + ' / ' + areor.utan.nta + ')');
+
+  // Har alla rum BRA och BTA är talet deras, utan märkning: det kom ur fastighetssystemet.
+  kontroll(areor.med.bra === 120 && areor.med.bta === 132,
+    'BRA och BTA summeras ur rummen när alla rum har dem (' + areor.med.bra + ' / ' + areor.med.bta + ')');
+  kontroll(!areor.med.braBeraknad && !areor.med.btaBeraknad,
+    'rummens egna tal märks inte beräknad');
+
+  // Ett plan med rummens tal och ett utan: märkningen följer planet, och byggnadens summa
+  // är beräknad eftersom ett av planen räknades ur modellen.
+  const h01 = areor.halvt.plan.filter(p => p.id === '01')[0];
+  const h02 = areor.halvt.plan.filter(p => p.id === '02')[0];
+  kontroll(h01.braBeraknad && !h02.braBeraknad && h02.bra === 26,
+    'märkningen är per plan: det plan vars rum har BRA behåller sitt tal ('
+    + h01.bra + ' beräknad, ' + h02.bra + ' ur rummen)');
+  kontroll(areor.halvt.braBeraknad && areor.halvt.bra === Math.round((h01.bra + h02.bra) * 10) / 10,
+    'byggnadens summa är planens, och beräknad så fort något plan räknades ur modellen ('
+    + areor.halvt.bra + ')');
+
+  // Ett plan som bara är skal har ingen area: skalet är typens standardstorlek, inte ett mått.
+  kontroll(areor.skal.plan[0].bra === null && areor.skal.plan[0].bta === null
+    && areor.skal.bra === null && areor.skal.bta === null,
+    'ett plan som bara är skal får ingen beräknad area – skalet är ingen uppgift om byggnaden');
+
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
@@ -5585,7 +5668,13 @@ async function testStegRum(browser) {
     steg3: DP.Plan.byggnadsSteg()[3],
     status: DP.Plan.byggnadStatus(),
     // Areasummorna per plan och byggnad (beslut 79)
-    rumSt: DP.Plan.rumStatus()
+    rumSt: DP.Plan.rumStatus(),
+    // Det planeraren faktiskt läser i summaraden: märkningen ska stå i vyn och inte bara
+    // i `rumStatus`, annars är talet omärkt där det räknas.
+    summa: Array.prototype.map.call(document.querySelectorAll('#byggnadsflode .bf-summafalt'),
+      f => f.querySelector('.etikett').textContent + '=' + f.querySelector('.varde').textContent),
+    planareor: Array.prototype.map.call(document.querySelectorAll('#byggnadsflode .bf-planareor'),
+      f => f.textContent)
   }));
   kontroll(gront.st.klar === true && gront.steg3 === true,
     'steg 3 får grön bock när bara klart återstår (beslut 83 och berättelse 30)');
@@ -5594,10 +5683,42 @@ async function testStegRum(browser) {
   kontroll(gront.rumSt.nta > 0 && gront.rumSt.plan.length === 3,
     'NTA summeras per plan och byggnad (' + gront.rumSt.nta + ' m² på '
     + gront.rumSt.plan.length + ' plan, beslut 79)');
-  // BRA och BTA summeras bara när alla rum har dem: ett tal som är hälften av den verkliga
-  // arean är värre än inget tal.
-  kontroll(gront.rumSt.bra === null,
-    'BRA summeras inte när bara ett rum har den (' + gront.rumSt.bra + ', beslut 79)');
+  // BRA och BTA summeras inte ur **hälften** av rummen: ett tal som är hälften av den
+  // verkliga arean är värre än inget tal. Här saknar de flesta rummen BRA, så arean räknas
+  // i stället fram ur modellen och märks *beräknad* (beslut 79, berättelse 43).
+  const p02 = gront.rumSt.plan.filter(p => p.id === '02')[0];
+  const p00 = gront.rumSt.plan.filter(p => p.id === '00')[0];
+  kontroll(p02.bra > p02.nta && p02.braBeraknad === true,
+    'BRA räknas ur modellen och märks beräknad när rummen saknar den (' + p02.bra
+    + ' m² mot NTA ' + p02.nta + ' m², beslut 79)');
+  kontroll(p02.bta > p02.bra && p02.btaBeraknad === true,
+    'BTA är modellens yta utanför ytterväggarna och alltså större än BRA ('
+    + p02.bta + ' > ' + p02.bra + ')');
+  // Fläktrummet på plan 00 har BRA och BTA i filen: då är talet fastighetssystemets och
+  // märks inte, också när grannplanen räknas ur modellen.
+  kontroll(p00.bra === 44 && !p00.braBeraknad,
+    'ett plan vars rum har BRA i filen behåller sitt tal omärkt (' + p00.bra + ' m²)');
+  // Plan 01 är kasernens korridorsplan: korridoren fyller remsan mellan rumsraderna och är
+  // mindre än sin NTA, så modellens rektangel täcker inte rummen. Då är ett streck det
+  // ärliga svaret – ett BRA under NTA är geometriskt omöjligt. Byggnadens summa faller med
+  // planet, eftersom en summa som saknar ett plan är mindre än den verkliga.
+  const p01 = gront.rumSt.plan.filter(p => p.id === '01')[0];
+  kontroll(p01.bra === null && p01.bta === null,
+    'ett plan där modellens rektangel inte täcker rummens NTA får inget beräknat tal ('
+    + p01.bra + ', NTA ' + p01.nta + ' m²)');
+  kontroll(gront.rumSt.bra === null && gront.rumSt.bta === null,
+    'byggnadens summa faller när ett plan saknar tal (' + gront.rumSt.bra + ')');
+  // Summaraden i vyn: NTA omärkt, och BRA och BTA som streck när de inte går att svara på.
+  kontroll(gront.summa.some(t => /^NTA=/.test(t) && !/beräknad/.test(t)),
+    'NTA står omärkt: den är rummens egen summa (' + gront.summa.join(' | ') + ')');
+  kontroll(gront.summa.some(t => t === 'BRA=–') && gront.summa.some(t => t === 'BTA=–'),
+    'summaraden visar ett streck när arean inte går att svara på ('
+    + gront.summa.join(' | ') + ')');
+  // Märkningen är **per plan**: planeraren ska se vilket plan som är systemets tal.
+  kontroll(gront.planareor.some(t => /BRA .*beräknad/.test(t))
+    && gront.planareor.some(t => /BRA 44 m²/.test(t) && !/BRA 44 m² beräknad/.test(t)),
+    'areorna står per plan, märkta beräknad bara där systemet räknade ('
+    + gront.planareor.join(' | ') + ')');
   // Filen bar också en rad i fliken Installationer, och den läses in i samma steg (beslut 70):
   // med alla fyra stegen gröna är byggnaden klar för Planering (berättelse 7 och 64).
   kontroll(/Klar för Planering/.test(gront.status),
@@ -5784,8 +5905,17 @@ async function testStegRum(browser) {
     'den oplacerade raden går att dra (' + oplaceradFore.antal + ' oplacerad)');
   const oplKalla = bf.locator('.bf-inlrad.oplacerad.dragbar').first();
   const oplMal = bf.locator('.bf-planrum[data-rumplan="02"] .bf-grupphuvud');
+  // Både källan och målet måste synas samtidigt: draget rullar inte listan av sig självt,
+  // och ett `boundingBox` för ett element utanför den synliga ytan ger en punkt pekaren
+  // aldrig når. Här rullas målet in och källans läge läses efteråt, så att testet mäter
+  // draget och inte hur långa texterna ovanför råkar vara.
   await oplMal.scrollIntoViewIfNeeded();
   const okb = await oplKalla.boundingBox(), omb = await oplMal.boundingBox();
+  const ruta = await page.evaluate(() => ({ h: window.innerHeight }));
+  kontroll(okb.y >= 0 && okb.y + okb.height <= ruta.h
+    && omb.y >= 0 && omb.y + omb.height <= ruta.h,
+    'den oplacerade raden och målplanet syns samtidigt, så draget går att göra ('
+    + Math.round(okb.y) + ' och ' + Math.round(omb.y) + ' av ' + ruta.h + ' px)');
   const foreDra = await historikpos(page);
   await page.mouse.move(okb.x + okb.width / 2, okb.y + okb.height / 2);
   await page.mouse.down();

@@ -95,7 +95,7 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Inläsningens tre grupper ritas av **samma** kod för alla tre flikarna: det som skiljer raderna är vilka frågor de bär, och det svarar `DP.Inlasning` på. I steg 4 är **rummet** droppmålet i sin helhet och inte en plats mellan två rader – ordningen inom ett rum betyder ingenting, eftersom platsen räknas fram – så där märks rummet i stället för att en linje ritas |
 | `app/inlasning.js` | `DP.Inlasning`: inläsningsfilens tolkning utan DOM. `lasArk(ark)` delar ett ark i flikarna Plan, Rum och Installationer (igenkänning på **kolumnrubrikerna**, rubrikraden hittad under tabellrubriker och tomma rader), okända kolumner blir **egna fält** (beslut 89), och `tolkaPlan(rader, befintliga)` och `tolkaRum(rader, byggnad)` ger radmodellen `{ key, rad, egna, falt, fragor }` där statusen är **härledd**: inga frågor → *klar*, alla frågor har förslag → *förslag*, annars → *oplacerad* (beslut 83). Rumsraden matchas förlåtande på plan (`planMatchning`) och rumsnummer (`nrMatchning`), rumstypen läses ur benämningen och NTA föreslås ur rumstypen (beslut 76, 77, 79 och 80). `tolkaInst(rader, byggnad, blivandeRum)` matchar en installation på **plan + rumsnummer** (`rumMatchning`): saknas planet och numret finns på ett enda plan blir det ett förslag, på flera plan oplacerat (beslut 86), installationstypen läses ur benämningen och en **okänd typ får inget förslag** (beslut 81), och ett tomt Id får ett id från systemet (`nyttInstId`). `blivandeRum` är de nycklar inläsningens egna rumsförslag ger, så en installation i ett rum som själv är ett förslag är klar och syns när rummet gör det (beslut 110). `godta`/`besvara` för in svaren, `nastaLedigaNr` svarar vid en nummerkrock (beslut 110), `tillArk(byggnad)` är filen på väg ut – där rummets nyckel delas upp i kolumnerna Plan och Rum |
 | `app/inlasningsfil.js` | `DP.Inlasningsfil`: sömmen mot .xlsx (SheetJS i `vendor/`). `las(blob, nar, fel)` ger ett ark, `taUt(ark, filnamn)` laddar ner en .xlsx. Allt annat arbetar med ark, så tolkningen går att pröva utan att en fil finns |
-| `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, `laggUtRum(byggnad, rum)` **rummens rektanglar** ur byggnadstypens regel (beslut 78), `kategoriFor(rumstyp)` modellens sort, `laggUtInstallationer` **installationernas plats i rummet** jämnt längs väggen mot korridoren (beslut 78), och `form(byggnad)` byggnaden med `elev` per plan, räknade rektanglar, **skal** för de plan som saknar rum (beslut 85) och de **övriga** installationerna genererade ur rumstyperna (berättelse 57). Handritade byggnader lämnas orörda och får inga genererade övriga ovanpå sina egna (beslut 101) |
+| `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, `laggUtRum(byggnad, rum)` **rummens rektanglar** ur byggnadstypens regel (beslut 78), `kategoriFor(rumstyp)` modellens sort, `laggUtInstallationer` **installationernas plats i rummet** jämnt längs väggen mot korridoren (beslut 78), och `form(byggnad)` byggnaden med `elev` per plan, räknade rektanglar, **skal** för de plan som saknar rum (beslut 85) och de **övriga** installationerna genererade ur rumstyperna (berättelse 57). Handritade byggnader lämnas orörda och får inga genererade övriga ovanpå sina egna (beslut 101). `areor(byggnad)` ger **BRA och BTA per plan och byggnad** ur rummens egna tal eller ur modellens rektangel, märkta `beraknad` (beslut 79) – och `VAGG_TJ`, väggtjockleken både uträkningen och viewern ritar med |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
 
@@ -153,8 +153,9 @@ Skriptens ordning i `index.html` spelar roll:
   `godtaRum(key)`, `godtaAllaRum()` (**ett** steg) och `svaraRum(key, slag, varde)` är egna
   historiksteg, `sattRumstyp(nyckel, rumstyp)` byter typ och `taBortRum(nyckel)` tar med sig
   rummets installationer. `rumStatus(bid)` ger rummen per plan i den ordning modellen ritar dem,
-  med NTA, NTV, höjden (NTV ÷ NTA), BRA, BTA och summorna – **BRA och BTA bara när alla rum har
-  dem** (beslut 79). `inlasningStatus('rum')` svarar som för Plan, med `infordaRum` nycklat på
+  med NTA, NTV, höjden (NTV ÷ NTA), BRA, BTA och summorna. NTA är rummens och räknas aldrig ur
+  modellen; **BRA och BTA är rummens när alla rum har dem och annars räknade ur modellen**, med
+  `braBeraknad`/`btaBeraknad` per plan och för byggnaden (beslut 79, se nedan). `inlasningStatus('rum')` svarar som för Plan, med `infordaRum` nycklat på
   plan + rumsnummer. En nummerkrock prövas **när raden blir klar** och inte vid inläsningen:
   planet kan självt vara ett förslag, och raden står då kvar som ett förslag med nästa lediga
   nummer (beslut 110). Tas ett plan bort blir de inlästa rumsrader som pekade på det
@@ -176,6 +177,19 @@ Skriptens ordning i `index.html` spelar roll:
   rum och lämnas orörda av planlösningen (beslut 101), så ett rum som läggs till eller dras om där
   får sin plats ur regeln medan grannarna behåller sina ritade mått – steg 3 säger det i klartext,
   och att rita om hela planet efter en varning hör till *Ändra byggnad* (biljett #41).
+- **BRA och BTA räknas ur modellen när rummen saknar dem, och märks *beräknad* (beslut 79,
+  biljett #40).** Uträkningen bor i `DP.Planlosning.areor(byggnad)` – den är geometri, och hör
+  därför där formen räknas och inte i `planering.js`. NTA är alltid rummens summa. BRA och BTA
+  är rummens när **alla** rum på planet har dem, och räknas annars fram ur planets omslutande
+  rektangel: **BRA** är rektangeln själv – ett rums rektangel har NTA som yta och rummen ligger
+  kant i kant, så den rymmer nettoarean plus innerväggarna – och **BTA** samma rektangel utökad en
+  halv väggtjocklek runt om, eftersom ytterväggen ritas centrerad på rummets kant. `VAGG_TJ` bor i
+  planlösningen och läses därifrån av viewern, eftersom två tal som ska vara samma glider isär
+  om de ligger på två ställen. Märkningen (`braBeraknad`, `btaBeraknad`) är **per plan** och inte
+  bara i botten: planeraren ska se vilket plan som är systemets tal. Byggnadens summa är planens
+  och faller när något plan med rum saknar ett tal; ett plan som bara är **skal** räknas inte.
+  Uträkningen **avstår** när rektangeln inte täcker planets NTA – ett BRA under NTA är
+  geometriskt omöjligt, och det är modellens brist (biljett #48) och inte ett mått.
 - **Installationerna kommer samma väg, och platsen i rummet är räknad (beslut 81, 86, 87 och
   109, biljett #39).** `lasInArk` tolkar nu **alla tre** flikarna i **ett** historiksteg, och
   installationerna matchas mot rummen **som de blir av inläsningen** – också mot dem som ännu
@@ -502,6 +516,15 @@ rummet räknas fram ur rummets rektangel: jämnt fördelade längs väggen mot k
 golvstående en bit in. Med alla fyra stegen gröna står byggnaden som **Klar för Planering**,
 och där möter den befintliga snabbstarten med byggnadstypens standardplanering – ingen
 planering skapas av sig själv.
+Tionde biljetten, **areorna per plan och byggnad** (beslut 79, biljett #40), är byggd: steg 3
+visar NTA, BRA och BTA både per plan och för hela byggnaden. NTA är alltid rummens summa. BRA
+och BTA summeras ur rummen när alla rum har dem – då är talet fastighetssystemets och står
+omärkt – och räknas annars fram ur modellen och märks ***beräknad***, med en rad under talen
+som säger vad ordet betyder. Uträkningen ligger i `DP.Planlosning.areor()` och går att pröva
+utan DOM: BRA är planets omslutande rektangel – rummens rektanglar har NTA som yta och ligger
+kant i kant – och BTA samma rektangel utökad en halv väggtjocklek runt om, eftersom ytterväggen
+ritas centrerad på rummets kant. Märkningen är per plan, så planeraren ser vilket plan som är
+systemets tal.
 
 Kända begränsningar:
 - Installationernas plats **i** rummet är schematisk: de fördelas jämnt längs väggen mot korridoren,
@@ -514,9 +537,10 @@ Kända begränsningar:
   får sin plats ur byggnadstypens regel medan grannarna behåller sina ritade rektanglar (beslut 101),
   så rummen kan hamna över varandra i modellen. Steg 3 säger det i klartext. Att rita om hela planet
   efter en varning hör till *Ändra byggnad* (biljett #41, berättelse 58).
-- BRA och BTA **räknas inte fram ur modellen** när rummen saknar dem (beslut 79): summan visas som
-  ett streck i stället för att märkas *beräknad*. Ett tal som är hälften av den verkliga arean är
-  värre än inget tal, så strecket är det ärliga svaret tills uträkningen finns.
+- Den **beräknade** arean uteblir på ett plan där modellens rektangel inte täcker rummens NTA
+  (beslut 79). Korridorsregeln ger korridoren remsan mellan rumsraderna, och den är sällan lika
+  stor som korridorens NTA – ett BRA under NTA är geometriskt omöjligt, så uträkningen avstår och
+  visar ett streck. Det slår på just kasernens korridorsplan. Modellens egen brist är biljett #48.
 - Byggnadstypernas planlösningsregel finns för de tre typer som har tabeller (Garage, Kasern,
   Hangar). De fyra nya typerna i beslut 72 är inte inlagda ännu.
 - Inläsning **mot en befintlig byggnad** visar ännu ingen skillnad (beslut 86): ett plan, ett rum eller

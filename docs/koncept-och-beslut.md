@@ -475,10 +475,33 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     *Byggt för rummen i biljett #37.* NTA-förslaget tas ur **rumstypens** standardvärde och inte ur
     ett gemensamt tal: en korridor är lång och ett WC litet, och ett gemensamt standardvärde hade
     gett en byggnad där allt är lika stort. Byter planeraren rumstyp på en rad som väntar på NTA
-    byts förslaget med den. NTA summeras per plan och byggnad; **BRA och BTA summeras bara när
-    alla rum har dem** och visas annars som ett streck – ett tal som är hälften av den verkliga
-    arean är värre än inget tal. Att räkna fram dem ur modellen och märka dem *beräknad* hör till
-    en senare biljett.
+    byts förslaget med den. NTA summeras per plan och byggnad och räknas **aldrig** ur modellen –
+    den är rummens tal, och modellens storlek är tvärtom en följd av den.
+
+    *Beräknad area byggd i biljett #40* (`DP.Planlosning.areor`). BRA och BTA summeras ur rummen
+    när **alla** rum på planet har dem – då är talet fastighetssystemets och står omärkt – och
+    räknas annars fram ur modellen och märks ***beräknad***. Aldrig ur hälften av rummen: ett tal
+    som är hälften av den verkliga arean är värre än inget tal, så hela planet räknas om i stället.
+    Geometrin: ett rums rektangel är satt så att dess yta **är** rummets NTA, och rummen ligger
+    kant i kant. **BRA** är därför planets omslutande rektangel själv – den rymmer nettoarean plus
+    innerväggarna och det regeln lämnat mellan rummen – och **BTA** samma rektangel utökad en halv
+    väggtjocklek runt om, eftersom viewern ritar ytterväggen centrerad på rummets kant: halva
+    väggen ligger innanför BRA och halva utanför. Att krympa BRA med ytterväggen hade gett ett BRA
+    **under** NTA på ett plan med ett enda rum, och det är geometriskt omöjligt. Väggtjockleken bor
+    i planlösningen och läses därifrån av viewern – två tal som ska vara samma glider isär om de
+    ligger på två ställen.
+
+    Märkningen är **per plan** och inte bara i botten: i ett hus där källaren saknar BRA ska
+    planeraren se vilket plan som är systemets tal och vilka som är fastighetssystemets.
+    Byggnadens summa är planens, och beräknad så fort något plan räknades ur modellen; saknar
+    något plan med rum ett tal faller summan, av samma skäl som att hälften av rummen inte
+    summeras. Ett plan som bara är **skal** räknas inte alls: skalet är byggnadstypens
+    standardstorlek och inte en uppgift om byggnaden.
+
+    Uträkningen **avstår** när modellens rektangel inte täcker planets NTA. Korridorsregeln ger
+    korridoren remsan mellan rumsraderna, och den är sällan lika stor som korridorens NTA – på
+    ett sådant plan hade BRA blivit mindre än NTA, vilket är geometriskt omöjligt. Strecket
+    pekar då på modellens egen brist, och den är skriven som biljett #48.
 80. **Rumstypen läses ur benämningen.** Ingen kolumn för rumstyp: systemet känner igen korridor, trapphus,
     WC, logement osv. ur benämningen utifrån byggnadstypens vanliga rumstyper. Det okända blir ett förslag
     *Övrigt rum* som ändras med ett klick. Rumstypen styr bara placeringen i modellen.

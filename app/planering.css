@@ -603,6 +603,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-summafalt { display: flex; flex-direction: column; gap: 1px; }
 .bf-summafalt .etikett { font-size: 10px; color: var(--dov); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
 .bf-summafalt .varde { font-size: 13px; font-weight: 600; }
+/* *beräknad* efter talet: arean kom ur modellen och inte ur filen (beslut 79). Kursiv och
+   dov – den ska läsas i samma blick som talet, men inte konkurrera med det. */
+.bf-beraknad { font-weight: 400; font-style: italic; color: var(--dov); font-size: 10px; }
+/* Noten under talen: står bara när något tal faktiskt är beräknat. */
+.bf-summanot { flex: 1 1 100%; font-size: 10px; color: var(--dov); line-height: 1.4; }
 .bf-planrum { margin-bottom: 10px; border-radius: 10px; }
 .bf-planareor { font-weight: 400; color: var(--dov); font-size: 11px; margin-left: 6px; }
 /* Rummen under sitt plan, i den ordning modellen ritar dem (beslut 78). */

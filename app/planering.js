@@ -1064,14 +1064,26 @@
   // ordning modellen ritar dem (beslut 78) – med areorna och rumstypen. Som `planStatus` bor
   // den här och inte i vyn (beslut 61).
   //
-  // Summorna per plan och byggnad är NTA:n ur rummen (beslut 79). BRA och BTA summeras bara
-  // när **alla** rum har dem: en summa av hälften av rummen är inte en area, den är ett tal
-  // som ser ut som en.
+  // Summorna per plan och byggnad kommer **alla** ur `DP.Planlosning.areor` och räknas inte
+  // om här (beslut 79). NTA är rummens; BRA och BTA är rummens när alla rum har dem – en
+  // summa av hälften av rummen är inte en area, den är ett tal som ser ut som en – och
+  // räknas annars fram ur modellen och märks **beräknad**, så att planeraren ser vad som
+  // kommer ur filen och vad systemet räknat (berättelse 43). Uträkningen bor där formen
+  // räknas och inte här: den är geometri, och två räkningar av samma sak glider isär.
   function rumStatus(bid) {
     var b = B(bid);
-    if (!b) { return { plan: [], klar: false, nta: 0, bra: null, bta: null, antal: 0 }; }
+    if (!b) {
+      return { plan: [], klar: false, nta: 0, bra: null, bta: null,
+        braBeraknad: false, btaBeraknad: false, antal: 0 };
+    }
+    var ar = DP.Planlosning.areor(b);
+    var arPlan = {};
+    ar.plan.forEach(function (p) { arPlan[p.id] = p; });
     var plan = b.plan.map(function (p) {
       var pa = b.rum.filter(function (r) { return r.plan === p.id && !r.iRum; });
+      // Planets areor kommer ur uträkningen och räknas inte om här: NTA, BRA och BTA är
+      // ett svar, och två räkningar av samma sak glider isär.
+      var planAreor = arPlan[p.id] || { nta: 0, bra: null, bta: null };
       return {
         id: p.id, namn: p.namn,
         rum: pa.map(function (r) {
@@ -1087,13 +1099,15 @@
             hojd: r.ntv && r.nta ? Math.round(r.ntv / r.nta * 10) / 10 : null
           };
         }),
-        nta: summa(pa, 'nta'), bra: summa(pa, 'bra'), bta: summa(pa, 'bta')
+        nta: planAreor.nta, bra: planAreor.bra, bta: planAreor.bta,
+        braBeraknad: planAreor.braBeraknad, btaBeraknad: planAreor.btaBeraknad
       };
     });
     var alla = b.rum.filter(function (r) { return !r.iRum; });
     return {
       plan: plan, antal: alla.length,
-      nta: summa(alla, 'nta'), bra: summa(alla, 'bra'), bta: summa(alla, 'bta'),
+      nta: ar.nta, bra: ar.bra, bta: ar.bta,
+      braBeraknad: ar.braBeraknad, btaBeraknad: ar.btaBeraknad,
       klar: alla.length > 0,
       // Är byggnaden **ritad** eller **räknad**? De fyra befintliga byggnaderna har egna
       // rektanglar och elevationer i `data/` och lämnas orörda av planlösningen (beslut 101),
@@ -1104,18 +1118,6 @@
       handritad: DP.Planlosning.arRitad(b)
     };
   }
-  // Summan av ett areafält, eller null när något rum saknar det. Att skilja "saknas" från
-  // "noll" är hela poängen: en BRA-summa som är mindre än den verkliga är värre än ingen.
-  function summa(rum, falt) {
-    if (!rum.length) { return 0; }
-    var s = 0;
-    for (var i = 0; i < rum.length; i++) {
-      if (rum[i][falt] == null) { return null; }
-      s += Number(rum[i][falt]) || 0;
-    }
-    return Math.round(s * 10) / 10;
-  }
-
   // Byt rumstyp på ett rum som redan ligger i byggnaden (beslut 80). Typen styr rummets
   // plats och färg i modellen, så ett byte är ett steg i historiken som allt annat.
   function sattRumstyp(nyckel, rumstyp, bid) {

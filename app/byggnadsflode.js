@@ -963,9 +963,10 @@
   // (beslut 78). Därför står planen uppifrån och ner som i steg 2 och i byggnadsträdet, och
   // rummen under sitt plan i samma ordning som modellen ritar dem.
   //
-  // Areasummorna per plan och byggnad står med (beslut 79). En summa som bara kan räknas för
-  // hälften av rummen visas inte alls: ett tal som ser ut som en area men är hälften av den
-  // är värre än inget tal.
+  // Areasummorna per plan och byggnad står med (beslut 79). NTA är rummens summa; BRA och BTA
+  // är rummens när alla rum har dem och annars räknade ur modellen och märkta *beräknad*
+  // (berättelse 43). En summa av **hälften** av rummen visas aldrig: ett tal som ser ut som
+  // en area men är hälften av den är värre än inget tal – då räknas hela planet ur modellen.
   function steg3(kropp) {
     var b = P.byggnad();
     if (!b) { return; }
@@ -1121,22 +1122,44 @@
   }
 
   // Areorna för hela byggnaden, överst: det planeraren jämför mot fastighetssystemets siffra.
+  //
+  // NTA är alltid rummens summa. BRA och BTA är rummens när **alla** rum har dem, och annars
+  // räknade ur modellen – och då märkta ***beräknad***, så att planeraren ser vad som kommer
+  // ur filen och vad systemet räknat (beslut 79, berättelse 43). Märkningen är hela poängen:
+  // ett beräknat tal är modellens svar på vad den här formen är, inte fastighetssystemets
+  // mått, och de två ska inte gå att blanda ihop.
   function summarad(st) {
     var w = el('div', 'bf-summa');
     summafalt(w, 'Rum', st.antal);
     summafalt(w, 'NTA', area(st.nta));
-    // BRA och BTA står med bara när alla rum har dem (beslut 79). Att de räknas fram ur
-    // modellen och märks *beräknad* hör till en senare biljett – tills dess är ett streck
-    // ärligare än ett tal ingen kan härleda.
-    summafalt(w, 'BRA', st.bra == null ? '–' : area(st.bra));
-    summafalt(w, 'BTA', st.bta == null ? '–' : area(st.bta));
+    summafalt(w, 'BRA', areamarkt(st.bra, st.braBeraknad), st.braBeraknad && BRA_TITEL);
+    summafalt(w, 'BTA', areamarkt(st.bta, st.btaBeraknad), st.btaBeraknad && BTA_TITEL);
+    // Vad *beräknad* betyder står **i** summaraden och inte i styckets förklaring överst:
+    // ordet syns bara ibland, och en mening som förklarar något som inte står där hade
+    // planeraren fått läsa förgäves. Raden är borta när inget tal är beräknat.
+    if (st.braBeraknad || st.btaBeraknad) {
+      w.appendChild(el('div', 'bf-summanot',
+        '<i>beräknad</i> = rummen saknar arean, så systemet räknade den ur modellen: ' +
+        'BRA innanför ytterväggarna, BTA utanför.'));
+    }
     return w;
+  }
+  var BRA_TITEL = 'Något rum saknar BRA, så arean är räknad ur modellen: ytan innanför ' +
+    'ytterväggarna.';
+  var BTA_TITEL = 'Något rum saknar BTA, så arean är räknad ur modellen: ytan utanför ' +
+    'ytterväggarna.';
+  // Arean med sin märkning. Ordet står **efter** talet och inte som en fotnot: planeraren
+  // läser summan och ska i samma blick se varifrån den kom.
+  function areamarkt(v, beraknad) {
+    if (v == null) { return '–'; }
+    return area(v) + (beraknad ? ' <i class="bf-beraknad">beräknad</i>' : '');
   }
   // Namnet är CSS-klassens: *område* är ett eget domänbegrepp i systemet (byggnader som
   // ligger nära varandra), och att återanvända ordet för en ruta i en summarad hade gjort
   // båda otydliga.
-  function summafalt(w, etikett, varde) {
+  function summafalt(w, etikett, varde, titel) {
     var r = el('div', 'bf-summafalt');
+    if (titel) { r.title = titel; }
     r.appendChild(el('span', 'etikett', etikett));
     r.appendChild(el('span', 'varde', String(varde)));
     w.appendChild(r);
@@ -1160,9 +1183,15 @@
     w.dataset.rumplan = p.id;
     if (ui.rumdrag && ui.rumdrag.planOver === p.id) { w.classList.add('malplan'); }
     var h = el('div', 'bf-grupphuvud');
+    // Planets areor står i rubriken: NTA ur rummen, och BRA och BTA bredvid den – märkta
+    // *beräknad* när de kom ur modellen (beslut 79). Märkningen är **per plan** och inte
+    // bara i botten: i ett hus där källaren saknar BRA ska planeraren se vilket plan som
+    // är systemets tal och vilka som är fastighetssystemets.
+    var areor = antal(p.rum.length, 'rum', 'rum') + ' · NTA ' + area(p.nta);
+    if (p.bra != null) { areor += ' · BRA ' + areamarkt(p.bra, p.braBeraknad); }
+    if (p.bta != null) { areor += ' · BTA ' + areamarkt(p.bta, p.btaBeraknad); }
     var rubrik = el('div', 'liten-rubrik', p.id + ' ' + p.namn +
-      ' <span class="bf-planareor">' + antal(p.rum.length, 'rum', 'rum') +
-      ' · NTA ' + area(p.nta) + '</span>');
+      ' <span class="bf-planareor">' + areor + '</span>');
     h.appendChild(rubrik);
     w.appendChild(h);
     if (!p.rum.length) {

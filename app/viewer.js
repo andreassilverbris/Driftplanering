@@ -8,7 +8,9 @@
 
   var DP = window.DP;
   var T = window.THREE;
-  var VAGG_TJ = 0.15;
+  // Väggtjockleken bor i planlösningen: där räknas BRA och BTA ur samma geometri
+  // (beslut 79), och två tal som ska vara samma glider isär om de ligger på två ställen.
+  var VAGG_TJ = DP.Planlosning.VAGG_TJ;
 
   var KATEGORIFARG = {
     brand:   0xd64541,

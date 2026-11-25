@@ -396,6 +396,138 @@
     return ut;
   }
 
+
+  // ------------------------------------------------------------------
+  // BRA och BTA räknade ur modellen (beslut 79, berättelse 43)
+  // ------------------------------------------------------------------
+  // NTA är alltid rummens summa: den kommer ur filen och systemet räknar inte om den.
+  // BRA och BTA finns däremot sällan per rum, och då är det modellen som kan svara – men
+  // bara på frågan *vad den här formen är*, och svaret märks därför `beraknad` så att
+  // planeraren ser skillnaden mot ett tal ur fastighetssystemet.
+  //
+  // Geometrin: ett rums rektangel är satt så att dess **yta är rummets NTA** – nettoarean,
+  // mätt innanför rummets egna väggar. Planets rum ligger kant i kant, så den omslutande
+  // rektangeln är nettoytan samlad plus de mellanrum regeln lämnat. Då följer de två
+  // areorna av den rektangeln:
+  //
+  //   * **BRA** – ytan innanför ytterväggarna – är rektangeln själv. Den är större än NTA
+  //     därför att den också rymmer innerväggarna och det som ligger mellan rummen.
+  //   * **BTA** – ytan utanför – är rektangeln utökad en halv väggtjocklek runt om, eftersom
+  //     viewern ritar ytterväggen **centrerad på rummets kant**: halva väggen ligger innanför
+  //     BRA och halva utanför.
+  //
+  // Att BRA är rektangeln och inte rektangeln minus väggarna är avsiktligt: innerväggarna
+  // har ingen egen yta i modellen (rummen ligger kant i kant), och att krympa med
+  // ytterväggen hade gett ett BRA **under** NTA på ett plan med ett enda rum – geometriskt
+  // omöjligt, eftersom BRA alltid rymmer nettoarean.
+  //
+  // Väggtjockleken är densamma som viewern ritar med. Den bor här, i uträkningen, och
+  // viewern läser den härifrån: två tal som ska vara samma och ligger på två ställen
+  // glider isär, och då stämmer inte modellen med summan planeraren jämför den mot.
+  var VAGG_TJ = 0.15;
+
+  // Ett plans omslutande rektangel ur de rum som har en plats – samma rektanglar som
+  // modellen ritas ur, så den area som räknas är den planeraren ser. Ett plan som bara är
+  // skal har ingen area att räkna: skalet är typens standardstorlek och inte en uppgift
+  // om byggnaden, och ett tal ur det hade varit en gissning som ser ut som ett mått.
+  function planRam(rum) {
+    var ram = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
+    var n = 0;
+    rum.forEach(function (r) {
+      if (!r.rect || r.skal || r.iRum) { return; }
+      ram.x0 = Math.min(ram.x0, r.rect[0]); ram.z0 = Math.min(ram.z0, r.rect[1]);
+      ram.x1 = Math.max(ram.x1, r.rect[2]); ram.z1 = Math.max(ram.z1, r.rect[3]);
+      n++;
+    });
+    return n ? ram : null;
+  }
+
+  function rund(v) { return Math.round(v * 10) / 10; }
+
+  // Areorna för en byggnad: en post per plan plus byggnadens summor, med `beraknad` som
+  // säger varifrån talet kom.
+  //
+  // Rummens egna tal väger tyngst: har **alla** rum på ett plan BRA är planets BRA deras
+  // summa, och då är talet fastighetssystemets. Saknar ett rum det räknas planet ur
+  // modellen i stället – hela planet, inte de rum som råkar ha talet, eftersom en summa av
+  // hälften av rummen är mindre än planet och inte en area alls (beslut 79).
+  //
+  // Byggnadens summa följer samma regel per nivå: har varje rum i byggnaden talet är summan
+  // rummens, annars är den summan av planens – och då är den beräknad så fort **något**
+  // plan räknades ur modellen. Det är varför märkningen är per plan och inte bara i
+  // botten: ett hus där källaren saknar BRA ska visa vilket plan som är systemets tal.
+  //
+  // Ett **beräknat** tal lämnas däremot när modellen inte bär planets NTA. Korridoren i
+  // korridorsregeln fyller remsan mellan rumsraderna och är därför sällan lika stor som sin
+  // NTA – är rummen smala blir planets rektangel mindre än rummens summa, och då hade BRA
+  // blivit mindre än NTA. Det är geometriskt omöjligt, och ett omöjligt tal är sämre än
+  // inget: samma skäl som gör att BRA inte summeras ur hälften av rummen (beslut 79).
+  // Strecket pekar då på modellens egen brist och inte på en uppgift som saknas.
+  function areor(byggnad) {
+    var b = byggnad;
+    if (!b) {
+      return { plan: [], antal: 0, nta: null, bra: null, bta: null,
+        braBeraknad: false, btaBeraknad: false };
+    }
+    // Formen – inte byggnadsdatan – eftersom rektanglarna kan vara räknade ur regeln
+    // (beslut 78) och inte ritade. Det är samma form modellen ritas ur.
+    var f = form(b) || { plan: [], rum: [] };
+    var plan = (f.plan || []).map(function (p) {
+      var pa = (f.rum || []).filter(function (r) { return r.plan === p.id && !r.iRum && !r.skal; });
+      var ram = planRam(pa);
+      var mattBra = ram ? rund((ram.x1 - ram.x0) * (ram.z1 - ram.z0)) : null;
+      var mattBta = ram ? rund((ram.x1 - ram.x0 + VAGG_TJ) * (ram.z1 - ram.z0 + VAGG_TJ)) : null;
+      var egenBra = faltsumma(pa, 'bra'), egenBta = faltsumma(pa, 'bta');
+      // Täcker modellens rektangel inte rummens NTA duger den inte som BRA – se ovan.
+      // BTA faller med den: de två är samma rektangel mätt åt var sitt håll, och ett plan
+      // med BTA men utan BRA hade sett ut som en uppgift som saknas och inte som en gräns.
+      var pNta = faltsumma(pa, 'nta');
+      if (mattBra != null && pNta != null && mattBra < pNta) { mattBra = mattBta = null; }
+      return {
+        // Ett plan utan rum har NTA noll och inte "saknas": nollan är ett svar, och
+        // ett streck hade sagt att uppgiften fattas när det bara är rummen som gör det.
+        id: p.id, namn: p.namn, antal: pa.length,
+        nta: pa.length ? pNta : 0,
+        bra: egenBra == null ? mattBra : egenBra,
+        bta: egenBta == null ? mattBta : egenBta,
+        braBeraknad: egenBra == null && mattBra != null,
+        btaBeraknad: egenBta == null && mattBta != null
+      };
+    });
+    var alla = (f.rum || []).filter(function (r) { return !r.iRum && !r.skal; });
+    var hela = {
+      plan: plan, antal: alla.length, nta: alla.length ? faltsumma(alla, 'nta') : 0,
+      bra: faltsumma(alla, 'bra'), bta: faltsumma(alla, 'bta'),
+      braBeraknad: false, btaBeraknad: false
+    };
+    // Byggnadens summa är planens – och **bara** när varje plan som har rum har ett tal.
+    // Ett plan utan tal hade annars dragit ner summan under den verkliga arean, vilket är
+    // samma fel som att summera hälften av rummen. Ett plan som bara är skal räknas inte:
+    // det har inga rum, och ingen area att sakna.
+    var medRum = plan.filter(function (p) { return p.antal > 0; });
+    ['bra', 'bta'].forEach(function (falt) {
+      if (hela[falt] != null || !medRum.length) { return; }
+      var komplett = medRum.every(function (p) { return p[falt] != null; });
+      if (!komplett) { return; }
+      hela[falt] = rund(medRum.reduce(function (s, p) { return s + p[falt]; }, 0));
+      hela[falt + 'Beraknad'] = medRum.some(function (p) { return p[falt + 'Beraknad']; });
+    });
+    return hela;
+  }
+
+  // Summan av ett areafält, eller null när något rum saknar det – samma regel som
+  // `planering.js` har för rummens egna tal, och av samma skäl: att skilja "saknas" från
+  // "noll" är hela poängen.
+  function faltsumma(rum, falt) {
+    if (!rum.length) { return null; }
+    var s = 0;
+    for (var i = 0; i < rum.length; i++) {
+      if (rum[i][falt] == null) { return null; }
+      s += Number(rum[i][falt]) || 0;
+    }
+    return rund(s);
+  }
+
   // ------------------------------------------------------------------
   // Installationernas plats i rummet (beslut 78, berättelse 45 och 52)
   // ------------------------------------------------------------------
@@ -502,6 +634,7 @@
     planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
     benamningsforslag: benamningsforslag, form: form, SKAL: SKAL,
     laggUtRum: laggUtRum, laggUtInstallationer: laggUtInstallationer,
-    regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad
+    regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad,
+    areor: areor, VAGG_TJ: VAGG_TJ
   };
 })();
