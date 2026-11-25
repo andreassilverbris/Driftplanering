@@ -3732,6 +3732,376 @@ async function testRumsnumrering(browser) {
   await page.close();
 }
 
+// Planlösningen fristående: formen räknad ur plan, rum och byggnadstypens regel (biljett #35,
+// beslut 84, 85 och 101). Modulen är utan DOM som `DP.Balansering`, så den prövas med en
+// byggnad byggd direkt i testet – ingen inläsning, ingen vy, bara räknandet.
+//
+// Det som prövas är löftena: ett plan utan rum blir ett skal, planen staplas i rätt ordning
+// med entréplanet på marken, och en handritad byggnad rörs inte (beslut 101). Går något av
+// dem förlorat ritas modellen tyst fel, och planeraren tror att byggnaden ser ut så.
+async function testPlanlosningen(browser) {
+  console.log('Planlösningen: skalet och planens ordning (beslut 84, 85 och 101)');
+  const page = await nySida(browser, URL_INDEX);
+
+  // ---- Ordningen föreslås ur beteckning och benämning (beslut 84) ----
+  const ordning = await page.evaluate(() => {
+    const PL = DP.Planlosning;
+    return {
+      // Blandade skrivsätt: källaren känns igen på benämningen, vinden på sin, och siffrorna
+      // ordnas stigande oavsett vilken ordning de kom i.
+      blandat: PL.foreslagenOrdning([
+        { id: '03', namn: 'Plan 3' }, { id: 'K', namn: 'Källare' },
+        { id: '04', namn: 'Vindsplan' }, { id: '01', namn: 'Entréplan' }
+      ]),
+      // "P1", "1" och "Plan 1" är alla plan 1 (beslut 77)
+      tal: ['P1', '1', 'Plan 1', '01'].map(x => PL.planTal(x)),
+      kallare: [PL.planTal('K'), PL.planTal('K2'), PL.planTal('Källare')],
+      // Benämningen väger tyngre än beteckningen: ett plan som heter Källarplan ligger under
+      // 01 även när det är betecknat 00, och en vind överst även med låg beteckning.
+      namnVager: PL.foreslagenOrdning([
+        { id: '01', namn: 'Entréplan' }, { id: '00', namn: 'Källarplan' }, { id: '02', namn: 'Vindsplan' }
+      ]),
+      // Ett plan utan siffra har systemet inget att ordna på – det hamnar ovanför de
+      // numrerade i stället för att gissa, och planeraren drar det på plats.
+      utanSiffra: PL.foreslagenOrdning([
+        { id: '01', namn: 'Entréplan' }, { id: 'SU', namn: 'Souterräng' }, { id: '02', namn: 'Plan 2' }
+      ]),
+      benamning: [PL.benamningsforslag('02'), PL.benamningsforslag('K')]
+    };
+  });
+  kontroll(ordning.blandat.join(' ') === 'K 01 03 04',
+    'ordningen föreslås nedifrån och upp: källare underst, vind överst (' + ordning.blandat.join(' ') + ')');
+  kontroll(ordning.tal.every(t => t === 1),
+    'P1, 1, Plan 1 och 01 tolkas alla som plan 1 (' + ordning.tal.join(', ') + ')');
+  kontroll(ordning.kallare.join(',') === '-1,-2,-1',
+    'källarplan blir negativa och hamnar under 01 (' + ordning.kallare.join(', ') + ')');
+  kontroll(ordning.namnVager.join(' ') === '00 01 02',
+    'benämningen avgör när beteckningen inte räcker (' + ordning.namnVager.join(' ') + ')');
+  kontroll(ordning.utanSiffra.join(' ') === '01 02 SU',
+    'ett plan utan siffra i beteckningen gissas inte in bland de numrerade (' + ordning.utanSiffra.join(' ') + ')');
+  kontroll(ordning.benamning[0] === 'Plan 02' && ordning.benamning[1] === 'Källarplan',
+    'ett plan utan benämning får ett förslag (' + ordning.benamning.join(', ') + ')');
+
+  // ---- Skalet ritas när rummen saknas (beslut 85) ----
+  const skal = await page.evaluate(() => {
+    const f = DP.Planlosning.form({
+      namn: 'Prov', typ: 'kasern', stil: { tak: 'sadel', sadel: { bas: 10.3, hojd: 3 } },
+      konstanter: { FRIHOJD: 3.3, BJALKLAG: 0.2 },
+      plan: [{ id: '00', namn: 'Källarplan' }, { id: '01', namn: 'Entréplan' }, { id: '02', namn: 'Plan 2' }],
+      rum: [], installationer: []
+    });
+    return {
+      plan: f.plan.map(p => ({ id: p.id, elev: p.elev })),
+      rum: f.rum.map(r => ({ plan: r.plan, skal: r.skal, rect: r.rect, utanInst: r.utanInstallationer })),
+      takbas: f.stil.sadel.bas
+    };
+  });
+  kontroll(skal.rum.length === 3 && skal.rum.every(r => r.skal),
+    'varje plan utan rum blir ett skal (' + skal.rum.length + ' skal)');
+  kontroll(skal.rum.every(r => r.rect[2] > r.rect[0] && r.rect[3] > r.rect[1]),
+    'skalet har byggnadstypens standardstorlek och inte noll yta');
+  // Entréplanet på marken, källaren under och planen över uppåt (beslut 85)
+  kontroll(skal.plan[1].elev === 0,
+    'entréplanet 01 ligger på marken (elev ' + skal.plan[1].elev + ')');
+  kontroll(skal.plan[0].elev < 0,
+    'källarplanet 00 ligger under marken (elev ' + skal.plan[0].elev.toFixed(1) + ')');
+  kontroll(skal.plan[2].elev > skal.plan[1].elev,
+    'plan 2 ligger ovanför entréplanet (elev ' + skal.plan[2].elev.toFixed(1) + ')');
+  // Taket följer byggnadens topp så länge den växer: byggnadstypens bas är måttsatt för en
+  // färdig kasern med fem plan, och ett tak som svävade hade sett ut som ett fel.
+  kontroll(skal.takbas > skal.plan[2].elev && skal.takbas < 10.3,
+    'sadeltaket ligger på den växande byggnadens topp och inte på typens (' + skal.takbas.toFixed(1) + ')');
+
+  // ---- En handritad byggnad rörs inte (beslut 101) ----
+  const kasern = await page.evaluate(() => {
+    const b = DP.Plan.byggnad('kasern1');
+    const f = DP.Planlosning.form(b);
+    return {
+      elevLika: f.plan.every((p, i) => p.elev === b.plan[i].elev),
+      rumAntal: [f.rum.length, b.rum.length],
+      skal: f.rum.filter(r => r.skal).length,
+      rektLika: f.rum.every((r, i) => r.rect.join() === b.rum[i].rect.join())
+    };
+  });
+  kontroll(kasern.elevLika, 'en handritad byggnad behåller sina elevationer');
+  kontroll(kasern.rumAntal[0] === kasern.rumAntal[1] && kasern.skal === 0,
+    'en handritad byggnad behåller sina rum och får inga skal (' + kasern.rumAntal.join(' mot ') + ')');
+  kontroll(kasern.rektLika, 'en handritad byggnads rum ligger kvar där de är ritade');
+
+  // ---- Rumshöjden ur NTV ÷ NTA (beslut 79) ----
+  const hojd = await page.evaluate(() => {
+    const f = DP.Planlosning.form({
+      namn: 'Prov', typ: 'hangar', stil: { tak: 'platt' },
+      konstanter: { FRIHOJD: 3.3, BJALKLAG: 0.2 },
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [
+        { nr: '001', namn: 'Hall', plan: '01', typ: 'hangar', rect: [0, 0, 20, 20], nta: 400, ntv: 4000 },
+        { nr: '002', namn: 'Kontor', plan: '01', typ: 'kontor', rect: [20, 0, 25, 10], nta: 50 }
+      ], installationer: []
+    });
+    return f.rum.map(r => ({ nr: r.nr, hojd: r.hojd }));
+  });
+  kontroll(hojd[0].hojd === 10, 'rumshöjden räknas som NTV ÷ NTA (' + hojd[0].hojd + ' m)');
+  kontroll(hojd[1].hojd === 3.3,
+    'ett rum utan NTV får byggnadstypens standardhöjd (' + hojd[1].hojd + ' m)');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
+// Steget Plan för hand: planen läggs till, får ordning och benämning föreslagna, syns som
+// skal i modellen och går att dra om (biljett #35, beslut 84, 85, 105, 106 och 111).
+//
+// Det som prövas är planerarens väg: hon ser byggnaden växa, ser källaren hamna fel när
+// beteckningen inte räcker, drar den på plats och ser linjen innan hon släpper. Går något av
+// det förlorat märks det först när någon försöker lägga in en riktig byggnad.
+async function testStegPlan(browser) {
+  console.log('Steget Plan för hand och skalet i modellen (beslut 84, 85, 106 och 111)');
+  const page = await nySida(browser, URL_INDEX);
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+
+  // ---- Verktygsfältets knappar är utgråade så länge det inte finns något (beslut 111) ----
+  // Prövas på en byggnad som *är* tom, innan något lagts till: en knapp som försvinner och
+  // kommer tillbaka flyttar de andra, och då måste planeraren leta varje gång.
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('.val[data-typ="kasern"]').click();
+  await bf.locator('input[data-falt="namn"]').fill('Kasern 3');
+  await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+  await vanta(page, () => DP.Plan.byggnad().namn === 'Kasern 3', 'byggnaden skapad');
+
+  const tomt = await page.evaluate(() => ({
+    utgraade: [...document.querySelectorAll('.verktyg .chip.utgraad')].map(k => k.textContent),
+    borta: document.querySelectorAll('.verktyg .chip').length,
+    rum: document.querySelector('#t-etikett').disabled,
+    rontgen: document.querySelector('#t-rontgen').disabled,
+    varfor: document.querySelector('#t-rontgen').title
+  }));
+  kontroll(tomt.utgraade.indexOf('Rumsnamn') >= 0 && tomt.utgraade.indexOf('Röntgen') >= 0,
+    'knapparna för rum och installationer är utgråade när det inte finns några (' + tomt.utgraade.join(', ') + ')');
+  kontroll(tomt.borta >= 7, 'knapparna är utgråade och inte borttagna – fältet ser likadant ut (' + tomt.borta + ' kvar)');
+  kontroll(/installationer/i.test(tomt.varfor),
+    'en utgråad knapp säger varför den är utgråad ("' + tomt.varfor + '")');
+
+  // Steg 2 öppnas av sig självt när byggnaden skapats: det är nästa sak som ska fyllas i.
+  kontroll(await bf.locator('.steg-kort[data-bsteg="2"].oppen').count() === 1,
+    'steg 2 Plan är öppet när byggnaden just skapats');
+
+  // ---- Planen läggs till för hand ----
+  // Beteckningarna läggs i fel ordning med flit, och "SU" är en beteckning systemet inte kan
+  // ordna in: den hamnar överst, vilket är poängen med att man ser skalet (beslut 111).
+  let n = 0;
+  for (const [id, namn] of [['01', 'Entréplan'], ['02', ''], ['SU', 'Souterräng']]) {
+    await bf.locator('input[data-falt="plan-id"]').fill(id);
+    await bf.locator('input[data-falt="plan-namn"]').fill(namn);
+    await bf.locator('button', { hasText: 'Lägg till plan' }).click();
+    n++;
+    await vanta(page, k => DP.Plan.byggnad().plan.length === k, 'plan ' + id + ' tillagt', n);
+  }
+
+  const efter = await page.evaluate(() => ({
+    plan: DP.Plan.byggnad().plan.map(p => p.id + ':' + p.namn),
+    historik: DP.Plan.historik().lista.slice(-3),
+    steg: DP.Plan.byggnadsSteg(),
+    status: DP.Plan.byggnadStatus(),
+    // Modellen: ett skal per plan, och ingen av dem i rumsindexet – ett skal är inget rum
+    skal: DP.viewer.b.rum.filter(r => r.skal).length,
+    rumIndex: Object.keys(DP.viewer.rumIndex).length,
+    modellPlan: DP.viewer.b.plan.map(p => p.id),
+    planKnappar: [...document.querySelectorAll('#planknappar .chip')].map(k => k.textContent),
+    tomBesked: !document.getElementById('tom-byggnad').hidden
+  }));
+  kontroll(efter.plan.join(' ') === '01:Entréplan 02:Plan 02 SU:Souterräng',
+    'planen ligger i föreslagen ordning nedifrån och upp (' + efter.plan.join(' | ') + ')');
+  kontroll(efter.plan[1] === '02:Plan 02',
+    'ett plan utan benämning fick ett förslag (' + efter.plan[1] + ')');
+  kontroll(efter.historik[0] === 'Kasern 3: lägg till plan 01 Entréplan',
+    'varje tillägg är ett steg i historiken med text i klartext ("' + efter.historik[0] + '")');
+  kontroll(efter.steg[2] === true, 'steg 2 Plan får grön bock när det finns plan');
+  kontroll(efter.status === 'Inläsning pågår',
+    'byggnaden har gått från "Väntar på inläsningsfil" till "Inläsning pågår" (' + efter.status + ')');
+  kontroll(efter.skal === 3 && efter.rumIndex === 0,
+    'varje plan syns som ett skal i modellen, och inget av dem är ett rum (' + efter.skal + ' skal, ' + efter.rumIndex + ' rum)');
+  kontroll(efter.planKnappar.join(' ') === 'SU 02 01',
+    'plan-knapparna visar planen med det översta först (' + efter.planKnappar.join(' ') + ')');
+  kontroll(!efter.tomBesked, 'beskedet om att byggnaden saknar plan är borta när planen finns');
+  // Beslut 111 och berättelse 53: med fel ordning ligger källarplanet överst i skalet, och
+  // det är just det som gör förslaget om ordningen självklart.
+  const fore = await page.evaluate(() => {
+    const p = DP.viewer.b.plan;
+    return { oversta: p[p.length - 1].id, elev: p.map(x => x.id + '@' + x.elev.toFixed(1)) };
+  });
+  kontroll(fore.oversta === 'SU',
+    'souterrängplanet ligger överst i skalet innan ordningen rättats (' + fore.elev.join(' ') + ')');
+  await bild(page, 'byggnad-steg2-skal');
+
+  // ---- Döp om ett plan på dess egen rad ----
+  // Benämningen ändras i listan och inte i en ruta ovanpå sidan: resten av flödet frågar i
+  // panelen, och planeraren ska se namnet byta plats där det står.
+  await bf.locator('.bf-planrad[data-plan="02"]').locator('button', { hasText: 'Döp om' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode [data-falt="plannamn-02"]'),
+    'fältet för benämningen');
+  kontroll(await page.evaluate(() => document.activeElement.dataset.falt === 'plannamn-02'),
+    'markören står i fältet så fort raden öppnats för omdöpning');
+  const foreNamn = await historiklangd(page);
+  await bf.locator('[data-falt="plannamn-02"]').fill('Plan två');
+  await bf.locator('.bf-planrad[data-plan="02"]').locator('button', { hasText: 'Klar' }).click();
+  await stegKlart(page, foreNamn, 'döp om plan');
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().plan.filter(p => p.id === '02')[0].namn) === 'Plan två',
+    'planet fick sin nya benämning, som ett steg i historiken');
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().plan.filter(p => p.id === '02')[0].id) === '02',
+    'beteckningen står kvar när benämningen byts – rummen pekar på den (beslut 77)');
+
+  // ---- Rullningen står kvar vid varje omritning (beslut 105) ----
+  const skroll = await page.evaluate(() => {
+    const panel = document.querySelector('.sidopanel');
+    panel.scrollTop = 120;
+    const fore = panel.scrollTop;
+    // Samma väg som en knapp: ett steg i historiken som ritar om flödet.
+    DP.Plan.sattPlanNamn('02', 'Plan 2');
+    return { fore, efter: panel.scrollTop };
+  });
+  kontroll(skroll.efter === skroll.fore,
+    'listan hoppar inte när något ändras – rullningen står kvar (' + skroll.fore + ' → ' + skroll.efter + ')');
+
+  // ---- Dra om ordningen, med en linje som visar var planet hamnar (beslut 106) ----
+  // Draget går genom musen och inte genom koden: det är linjen och släppet planeraren
+  // använder, och ett test som anropade flyttaPlan() direkt hade inte prövat någon av dem.
+  const kalla = bf.locator('.bf-planrad[data-plan="SU"]');
+  const mal = bf.locator('.bf-planrad[data-plan="01"]');
+  const kb = await kalla.boundingBox(), mb = await mal.boundingBox();
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2);
+  await page.mouse.down();
+  // Två rörelser: webbläsaren skickar dragover under vägen, och linjen ska följa med dit
+  // pekaren är – inte fastna där den först hamnade.
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + mb.height / 2, { steps: 6 });
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + mb.height - 4, { steps: 6 });
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-planrad[data-plan="01"].linje-under'),
+    'linjen under Entréplan');
+  const under = await page.evaluate(() => ({
+    linje: [...document.querySelectorAll('#byggnadsflode .bf-planrad')]
+      .filter(r => /linje-(over|under)/.test(r.className)).map(r => r.dataset.plan + ':' + (/linje-under/.test(r.className) ? 'under' : 'över')),
+    dras: [...document.querySelectorAll('#byggnadsflode .bf-planrad.dras')].map(r => r.dataset.plan)
+  }));
+  kontroll(under.linje.join(' ') === '01:under',
+    'linjen visar att planet hamnar under Entréplan innan det släpps (' + under.linje.join(' ') + ')');
+  kontroll(under.dras.join(' ') === 'SU', 'den dragna raden syns vara i rörelse');
+  await bild(page, 'byggnad-steg2-drag');
+
+  // Linjen ska följa pekaren: flyttas den till övre halvan byter linjen sida.
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + 4, { steps: 6 });
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-planrad[data-plan="01"].linje-over'),
+    'linjen ovanför Entréplan');
+  kontroll(await bf.locator('.bf-planrad[data-plan="01"].linje-over').count() === 1,
+    'linjen följer pekaren och byter sida i stället för att fastna');
+
+  // Släpp under Entréplan: souterrängplanet ska hamna underst
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + mb.height - 4, { steps: 6 });
+  const hist = await historiklangd(page);
+  await page.mouse.up();
+  await stegKlart(page, hist, 'flytta plan');
+
+  const draget = await page.evaluate(() => ({
+    plan: DP.Plan.byggnad().plan.map(p => p.id),
+    text: DP.Plan.historik().lista.slice(-1)[0],
+    nederst: DP.viewer.b.plan[0].id,
+    elev: DP.viewer.b.plan.map(p => p.id + '@' + p.elev.toFixed(1)),
+    linjer: document.querySelectorAll('#byggnadsflode .linje-over, #byggnadsflode .linje-under').length
+  }));
+  kontroll(draget.plan.join(' ') === 'SU 01 02',
+    'efter dragningen ligger souterrängplanet underst (' + draget.plan.join(' ') + ')');
+  kontroll(draget.nederst === 'SU' && parseFloat(draget.elev[0].split('@')[1]) < 0,
+    'modellen ritas om med souterrängplanet under marken (' + draget.elev.join(' ') + ')');
+  kontroll(draget.text === 'Kasern 3: flytta Souterräng under Entréplan',
+    'draget är ett steg i historiken med text i klartext ("' + draget.text + '")');
+  kontroll(draget.linjer === 0, 'linjen är borta när planet släppts');
+
+  // ---- Kameran står kvar när modellen ritas om (beslut 85) ----
+  // Löftet gäller planerarens vy: hon ska inte kastas tillbaka till översikten varje gång
+  // byggnaden ändras. Kameran får följa med när byggnaden byter storlek, men riktningen –
+  // varifrån hon tittar – ska vara densamma.
+  const kamera = await page.evaluate(() => {
+    const c = DP.viewer.camera.position, m = DP.viewer.controls.target;
+    const fore = { x: c.x, y: c.y, z: c.z, mx: m.x, my: m.y, mz: m.z };
+    DP.Plan.sattPlanNamn('01', 'Bottenplan');
+    const e = DP.viewer.camera.position, m2 = DP.viewer.controls.target;
+    return { fore, efter: { x: e.x, y: e.y, z: e.z, mx: m2.x, my: m2.y, mz: m2.z } };
+  });
+  const lika = ['x', 'y', 'z', 'mx', 'my', 'mz'].every(k => Math.abs(kamera.fore[k] - kamera.efter[k]) < 0.001);
+  kontroll(lika, 'kameran står kvar när modellen ritas om utan att byggnaden byter storlek');
+
+  // Och när byggnaden *byter* storlek: riktningen är hennes vy och ska vara densamma, men
+  // avståndet skalas om med huset. Ett oförändrat avstånd hade satt henne inuti en vägg som
+  // växte förbi henne, och det är precis vad som händer när ett plan läggs till.
+  const vaxer = await page.evaluate(() => {
+    const riktning = () => {
+      const c = DP.viewer.camera.position, m = DP.viewer.controls.target;
+      const v = { x: c.x - m.x, y: c.y - m.y, z: c.z - m.z };
+      const l = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+      return { x: v.x / l, y: v.y / l, z: v.z / l, langd: l };
+    };
+    const fore = riktning();
+    // Ett rum gör byggnaden mycket större än skalet: 60 m lång mot skalets 36.
+    DP.Plan.andraByggnad('prov', '', d => {
+      d.rum.push({ nr: '001', namn: 'Hall', plan: '01', typ: 'hangar', rect: [0, 0, 60, 30], nta: 1800 });
+    });
+    return { fore, efter: riktning() };
+  });
+  const sammaRiktning = ['x', 'y', 'z'].every(k => Math.abs(vaxer.fore[k] - vaxer.efter[k]) < 0.01);
+  kontroll(sammaRiktning,
+    'kameran tittar från samma håll när byggnaden byter storlek');
+  kontroll(vaxer.efter.langd > vaxer.fore.langd * 1.2,
+    'avståndet skalas om med byggnaden i stället för att lämna planeraren inuti en vägg (' +
+    vaxer.fore.langd.toFixed(1) + ' → ' + vaxer.efter.langd.toFixed(1) + ' m)');
+  await angra(page);
+
+  // ---- Ångra och gör om går samma väg (beslut 73) ----
+  await angra(page);
+  await angra(page);
+  const angrat = await page.evaluate(() => ({
+    plan: DP.Plan.byggnad().plan.map(p => p.id),
+    namn: DP.Plan.byggnad().plan.filter(p => p.id === '02')[0].namn,
+    lista: [...document.querySelectorAll('#byggnadsflode .bf-planrad')].map(r => r.dataset.plan)
+  }));
+  kontroll(angrat.plan.join(' ') === '01 02 SU',
+    'ångra tar tillbaka ordningen före draget (' + angrat.plan.join(' ') + ')');
+  kontroll(angrat.lista.join(' ') === 'SU 02 01',
+    'planlistan ritas om av sig själv vid ångra (' + angrat.lista.join(' ') + ')');
+  await gorOm(page);
+  await gorOm(page);
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().plan.map(p => p.id).join(' ')) === 'SU 01 02',
+    'gör om lägger tillbaka planet där det drogs');
+
+  // ---- Beteckningen är unik, och behålls precis som den skrivs (beslut 77) ----
+  await bf.locator('input[data-falt="plan-id"]').fill('01');
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-fel'), 'beskedet om beteckningen');
+  kontroll((await bf.locator('.bf-fel').innerText()).includes('redan ett plan som heter 01'),
+    'en beteckning som redan finns stoppas med ett besked medan planeraren skriver');
+  kontroll(await bf.locator('button', { hasText: 'Lägg till plan' }).isDisabled(),
+    'knappen är avstängd så länge beteckningen är upptagen');
+  // Regeln bor i planeringen och går att läsa utan DOM (beslut 61)
+  kontroll(await page.evaluate(() => !!DP.Plan.planHinder('01') && !DP.Plan.planHinder('03')),
+    'hindret svarar ur planeringen och inte ur vyn');
+  await bf.locator('input[data-falt="plan-id"]').fill('P3');
+  await bf.locator('input[data-falt="plan-namn"]').fill('');
+  const forePa = await historiklangd(page);
+  await bf.locator('button', { hasText: 'Lägg till plan' }).click();
+  await stegKlart(page, forePa, 'plan P3');
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().plan.some(p => p.id === 'P3')),
+    'beteckningen behålls precis som den skrivs – P3 blir inte 03 (beslut 77)');
+
+  // ---- Ta bort ett plan ----
+  const foreBort = await historiklangd(page);
+  await bf.locator('.bf-planrad[data-plan="P3"]').locator('button', { hasText: 'Ta bort' }).click();
+  await stegKlart(page, foreBort, 'ta bort plan');
+  kontroll(await page.evaluate(() => !DP.Plan.byggnad().plan.some(p => p.id === 'P3')),
+    'ett plan går att ta bort, som ett steg i historiken');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 async function testFristaendeFil(browser) {
   console.log('Etapp 5 – den fristående filen');
   // Filen byggs om först, så att testet prövar den kod som ligger i repot och inte en gammal
@@ -3921,6 +4291,8 @@ async function testFristaendeFil(browser) {
     await testByggnadenSomData(browser);
     await testRumsnumrering(browser);
     await testSkapaNyByggnad(browser);
+    await testPlanlosningen(browser);
+    await testStegPlan(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

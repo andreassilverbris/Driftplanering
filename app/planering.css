@@ -559,3 +559,21 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .tb-text { font-size: 13px; color: var(--dov); line-height: 1.55; }
 .bf-byggnad.bf-ny { border-style: dashed; }
 .bf-byggnad.bf-ny .bal-farg { background: var(--svag); opacity: .4; }
+
+/* Steg 2 Plan: planlistan med det översta planet högst upp, och linjen som visar var ett
+   draget plan hamnar innan det släpps (beslut 106). Linjen är en kant på raden och inget
+   eget element, så den kan aldrig hamna fel när listan rullas. */
+.bf-plan { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.bf-planrad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; cursor: grab; }
+.bf-planrad:hover { border-color: #b8cff8; }
+.bf-planrad.dras { opacity: .45; }
+.bf-planrad.linje-over { box-shadow: inset 0 3px 0 0 var(--accent); }
+.bf-planrad.linje-under { box-shadow: inset 0 -3px 0 0 var(--accent); }
+.bf-planbet { flex: 0 0 auto; min-width: 30px; text-align: center; font-weight: 700; font-size: 12px; color: var(--accent); background: var(--accent-svag); border-radius: 6px; padding: 3px 5px; }
+.bf-planrad .bf-btext { flex: 1 1 auto; }
+.bf-planverktyg { display: flex; gap: 4px; flex: 0 0 auto; }
+.bf-planform { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: end; }
+.bf-planfalt { display: flex; flex-direction: column; gap: 3px; }
+.bf-planfalt .etikett { font-size: 11px; color: var(--dov); font-weight: 600; }
+.bf-planrad.doper { cursor: default; border-color: var(--accent); }
+.bf-planrad.doper .bf-falt { padding: 4px 8px; font-size: 13px; }

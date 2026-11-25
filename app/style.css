@@ -120,6 +120,9 @@ details.rum > summary:hover button.liten { visibility: visible; }
 .grupp-namn { font-size: 11px; color: var(--svag); text-transform: uppercase; letter-spacing: .05em; margin: 0 4px; font-weight: 600; }
 .chip { border: 1px solid var(--linje); background: #fff; color: var(--dov); border-radius: 999px; padding: 4px 11px; font-size: 13px; }
 .chip.pa { background: var(--accent-svag); color: var(--accent); border-color: #b8cff8; font-weight: 600; }
+/* En knapp utan något att visa är utgråad, inte borttagen (beslut 111): verktygsfältet
+   ser likadant ut hela tiden, och planeraren ser vad som kommer när byggnaden växer. */
+.chip.utgraad { background: #f4f5f7; color: #a7aeb8; border-color: #e3e6ea; font-weight: 400; cursor: default; }
 #planknappar { display: inline-flex; gap: 4px; }
 
 .rumlage {

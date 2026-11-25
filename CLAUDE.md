@@ -84,7 +84,8 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/spelare.js` | Mediaspelaren (ångra/gör om/gå till steg) på en fast plats i toppraden, gemensam för alla tre huvudsteg, med Ctrl+Z och Ctrl+Y. Ritar sig själv ur historiken via `prenumerera`, så den exporterar inget till `DP` (beslut 82) |
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
-| `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Steg 1 är byggt; 2–4 syns men är tomma |
+| `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Steg 1 och 2 är byggda; 3–4 syns men är tomma |
+| `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, och `form(byggnad)` byggnaden med `elev` per plan och **skal** för de plan som saknar rum (beslut 85). Handritade byggnader lämnas orörda (beslut 101) |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
 
@@ -107,6 +108,17 @@ Skriptens ordning i `index.html` spelar roll:
   av byggnadsflödets fyra steg som är klara och `byggnadStatus(bid)` på var byggnaden står i klartext
   ("Väntar på inläsningsfil", "Inläsning pågår", "Klar för Planering"). Reglerna bor i planeringen och
   inte i vyn, av samma skäl som balanseringens förklaring (beslut 61).
+- **Planen ligger i byggnadsdatan i ordning nedifrån och upp (beslut 84, biljett #35).** Listans ordning
+  *är* byggnadens ordning – samma ordning viewern, plan-knapparna och byggnadsträdet läser – så ett drag i
+  steg 2:s lista är ett drag i modellen. `DP.Plan.laggTillPlan({ id, namn })` lägger till ett plan **på den
+  plats förslaget ger** (så en källare som läggs till sist ändå hamnar underst) och `flyttaPlan(planId,
+  fore)` flyttar det, där `fore` är planet det ska hamna under (tomt = överst). `taBortPlan` tar med sig
+  planets rum och deras installationer, `sattPlanNamn` byter benämning utan att röra beteckningen, och
+  `ordnaPlanEfterForslag()` lägger tillbaka ordningen som systemet föreslår. Omdöpningen sker **på
+  planets egen rad** i listan och inte i en ruta ovanpå sidan, som resten av flödet frågar i panelen;
+  raden går inte att dra medan den redigeras. `planHinder(beteckning)` ger
+  skälet i klartext när beteckningen inte går att använda (den pekar ut planet, så två plan kan inte dela
+  den) och `planStatus()` raderna, förslaget och `avvikerFranForslag`. Allt är steg i historiken.
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -128,6 +140,20 @@ Skriptens ordning i `index.html` spelar roll:
   byggnads data används `viewer.byggOmByggnad()` i stället: den bevarar kameran, de släckta planen,
   rumsläget och den markerade installationen (slagen upp på sitt id, eftersom objektet är nytt).
   Döper planeraren om ett rum ska hon se namnet ändras, inte kastas ut till översiktsvyn.
+  Byter byggnaden **storlek** under ombyggnaden – i steget Plan växer den ett plan i taget – skalas
+  kamerans avstånd till centrum om med byggnaden. Riktningen och det hon tittar mot är hennes vy;
+  avståndet är bara en följd av hur stort huset är, och oförändrat hade hon hamnat inuti en vägg.
+- **Viewern får den räknade formen, inte byggnadsdatan.** `ui.js` håller två saker isär: `b` är byggnaden
+  som den ligger i tillståndet – det trädet, listorna och informationskortet visar – och `modell =
+  DP.Planlosning.form(b)` är samma byggnad med elevationer och **skal** uträknade (beslut 85). Bara viewern
+  får formen, så att ett skal aldrig kan dyka upp i trädet som ett rum planeraren tror finns. Ett skal är
+  heller inget rum i viewern: det ligger inte i `rumIndex`, går inte att välja eller gå in i, och planet
+  får inga fönster så länge det bara är skal.
+- **Verktygsfältets knappar är utgråade, inte borttagna, när de inte har något att visa (beslut 111).**
+  `uppdateraVerktyg()` i `ui.js` sätter `.utgraad` och `disabled` på Innerväggar och Rumsnamn utan rum,
+  Röntgen utan signifikanta installationer, och Ytterväggar, Tak, Översikt och Uppifrån utan plan –
+  och lägger skälet i knappens titel. Plan-gruppen får ett streck i stället för att stå tom. Ett fält
+  som ändrar form flyttar knapparna, och då måste planeraren leta varje gång.
 - `DP.Plan.prenumerera(fn(fore, efter, info))` – lyssnaren i `flode.js` ritar om allt och räknar ut skillnaden
   (tillagda/borttagna kopplingar, ändrade texter) för att animera. Animeringar fungerar därför även vid ångra.
   `info.byggnader` säger vilka byggnader steget ändrade (sparat i historiksteget, så ångra och gör om ger
@@ -330,12 +356,22 @@ numret ensamt (se Byggnadsdata ovan). Fjärde biljetten, **byggnadsflödet och s
 → Plan → Rum → Installationer* – med samma form som Planeringens, en byggnadslista med status per byggnad
 och **Skapa ny byggnad**. Steg 1 väljer typ (de tre som har tabeller), namn (unikt, med besked medan man
 skriver), område och en färg systemet tar; typen är låst efteråt. Skapandet är ett steg i historiken, och
-ångra förbi det tar bort byggnaden. Steg 2–4 syns med sitt läge men är tomma tills de byggs.
+ångra förbi det tar bort byggnaden. Femte biljetten, **steget Plan för hand och skalet i modellen**
+(beslut 84, 85, 105, 106 och 111, biljett #35), är byggd: planeraren lägger till plan med beteckning och
+benämning, ordningen nedifrån och upp föreslås ur dem (källare underst, vind överst) och går att dra om
+med en **linje** som visar var planet hamnar innan hon släpper. Ett plan utan benämning får ett förslag,
+och varje tillägg, drag, omdöpning och borttagning är ett steg i historiken. Den nya modulen
+`app/planlosning.js` räknar byggnadens form utan DOM: ett plan utan rum blir ett **skal** i
+byggnadstypens standardstorlek, entréplanet ligger på marken och planen under nedåt – så med fel ordning
+ligger källaren överst i skalet, vilket gör förslaget självklart. Verktygsfältets knappar som inte har
+något att visa är utgråade i stället för borttagna. Steg 3–4 syns med sitt läge men är tomma tills de byggs.
 
 Kända begränsningar:
-- Byggnadsflödets steg 2–4 (Plan, Rum, Installationer) är tomma: inläsningsfilen och handpåläggningen
-  byggs i de följande biljetterna i spåret. En skapad byggnad står därför kvar på "Väntar på
-  inläsningsfil" tills dess, och kan inte bli klar i Planering (steg 5 kräver installationer).
+- Byggnadsflödets steg 3–4 (Rum, Installationer) är tomma, och inläsningsfilen finns inte alls: båda
+  byggs i de följande biljetterna i spåret. En byggnad planeraren skapar kan därför få sina plan men
+  inte sina rum och installationer, och kan inte bli klar i Planering (steg 5 kräver installationer).
+- Plan läggs till ett i taget för hand. Planens areasummor (NTA, BRA, BTA per plan) finns inte ännu:
+  de hör till steget Rum.
 - Byggnadens namn, område och färg går bara att sätta när byggnaden skapas. Att ändra dem hör till
   *Ändra byggnad*, som byggs senare i spåret.
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar

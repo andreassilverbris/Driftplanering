@@ -503,6 +503,158 @@
     return 'Klar för Planering';
   }
 
+  // ------------------------------------------------------------------
+  // Steg 2: planen (beslut 76, 84 och 106)
+  // ------------------------------------------------------------------
+  // Planen ligger i byggnadsdatan i **ordning nedifrån och upp** – samma ordning viewern,
+  // plan-knapparna och byggnadsträdet redan läser. Listans ordning *är* alltså byggnadens
+  // ordning, och ett drag i listan är ett drag i modellen.
+  //
+  // Beteckningen behålls exakt som planeraren skriver den (beslut 77): fliken Plan är
+  // fastighetssystemets id och ska kunna gå tillbaka dit, så systemet döper inte om.
+  //
+  // Hindret formuleras här och inte i vyn, av samma skäl som namnet i beslut 103: regeln bor
+  // hos den som kan den, och besvärligheten går att läsa i ett test utan DOM (beslut 61).
+  // Planens ordning är listan över beteckningar, och frågan "är det här samma ordning?" ställs
+  // på tre ställen: innan ett drag blir ett steg, när förslaget jämförs med nuläget, och innan
+  // ordningen läggs om efter förslaget. En jämförelse som skrivs ut tre gånger är tre ställen
+  // att skriva fel på.
+  function planIdn(plan) { return (plan || []).map(function (p) { return p.id; }); }
+  function sammaOrdning(a, b2) { return planIdn(a).join('|') === planIdn(b2).join('|'); }
+
+  function planHinder(beteckning, bid) {
+    var t = String(beteckning || '').trim();
+    if (!t) { return 'Planet behöver en beteckning, till exempel 01.'; }
+    var b = B(bid);
+    if (!b) { return ''; }
+    var taget = b.plan.some(function (p) { return p.id.toLowerCase() === t.toLowerCase(); });
+    if (taget) {
+      return 'Det finns redan ett plan som heter ' + t + ' i ' + b.namn + '. Beteckningen pekar ' +
+        'ut planet, så två plan kan inte ha samma.';
+    }
+    return '';
+  }
+
+  // Lägg till ett plan som ett steg i historiken. Ordningen föreslås ur beteckning och
+  // benämning (beslut 84), så planet hamnar där det hör hemma i stället för sist: läser
+  // planeraren in källaren efter plan 03 ska den ändå ligga underst. Saknas benämningen får
+  // planet ett förslag (berättelse 34), eftersom alla plan ska ha ett namn i listor och modell.
+  //
+  // Svaret är planets beteckning, eller null när den inte går att använda. Vyn frågar
+  // `planHinder()` först och visar beskedet medan planeraren skriver; kontrollen här är den
+  // som gäller, så att ingen väg förbi vyn kan ge två plan med samma beteckning.
+  function laggTillPlan(uppgifter, bid) {
+    var u = uppgifter || {};
+    var id = String(u.id || '').trim();
+    if (planHinder(id, bid)) { return null; }
+    var namn = String(u.namn || '').trim() || DP.Planlosning.benamningsforslag(id);
+    var b = B(bid);
+    var nytt = { id: id, namn: namn };
+    // Ordningen räknas på listan **med** det nya planet, så att förslaget gäller den byggnad
+    // planeraren får och inte den hon hade.
+    var plan = b.plan.concat([nytt]);
+    var ordning = DP.Planlosning.foreslagenOrdning(plan);
+    andraByggnad('lägg till plan ' + id + ' ' + namn, bid, function (data) {
+      data.plan = ordning.map(function (pid) {
+        return plan.filter(function (p) { return p.id === pid; })[0];
+      });
+    });
+    return id;
+  }
+
+  // Flytta ett plan i ordningen: `fore` är planet det ska hamna **under** (listan går nedifrån
+  // och upp, så "före" i listan är "under" i byggnaden), eller tomt för överst. Linjen i vyn
+  // visar samma sak innan planeraren släpper (beslut 106).
+  //
+  // Texten i historiken säger var planet hamnade i klartext ("Flytta Källare under plan 01"),
+  // så att mediaspelarens lista går att läsa utan att gissa.
+  function flyttaPlan(planId, fore, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var flyttat = b.plan.filter(function (p) { return p.id === planId; })[0];
+    if (!flyttat || planId === fore) { return; }
+    var kvar = b.plan.filter(function (p) { return p.id !== planId; });
+    var idx = fore ? kvar.map(function (p) { return p.id; }).indexOf(fore) : kvar.length;
+    if (fore && idx < 0) { return; }
+    var ny = kvar.slice(0, idx).concat([flyttat]).concat(kvar.slice(idx));
+    // Står planet redan där är flytten ingen ändring, och ett steg i historiken som inte
+    // ändrar något är ett steg planeraren får backa förbi utan att se något hända.
+    if (sammaOrdning(ny, b.plan)) { return; }
+    var under = fore ? b.plan.filter(function (p) { return p.id === fore; })[0] : null;
+    var text = under ? 'flytta ' + flyttat.namn + ' under ' + under.namn
+      : 'flytta ' + flyttat.namn + ' överst';
+    andraByggnad(text, bid, function (data) {
+      data.plan = ny.map(function (p) {
+        return data.plan.filter(function (x) { return x.id === p.id; })[0];
+      });
+    });
+  }
+
+  // Ta bort ett plan. Rummen på planet och deras installationer försvinner med det: ett rum
+  // utan plan finns ingenstans, och en installation utan rum sitter inte någonstans. Är det
+  // uppenbart att planet ska bort är det ett steg som alla andra, och ett ◀ tar det tillbaka.
+  function taBortPlan(planId, bid) {
+    var b = B(bid);
+    if (!b || !b.plan.some(function (p) { return p.id === planId; })) { return; }
+    var p = b.plan.filter(function (x) { return x.id === planId; })[0];
+    var nycklar = b.rum.filter(function (r) { return r.plan === planId; })
+      .map(function (r) { return DP.rumNyckel(r.plan, r.nr); });
+    andraByggnad('ta bort plan ' + p.id + ' ' + p.namn, bid, function (data) {
+      data.plan = data.plan.filter(function (x) { return x.id !== planId; });
+      data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
+      data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
+    });
+  }
+
+  // Byt benämning på ett plan. Beteckningen rörs inte: den pekar ut planet, och rummen och
+  // installationerna hänger på den.
+  function sattPlanNamn(planId, namn, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var p = b.plan.filter(function (x) { return x.id === planId; })[0];
+    var nytt = String(namn || '').trim() || DP.Planlosning.benamningsforslag(planId);
+    if (!p || p.namn === nytt) { return; }
+    andraByggnad('döp plan ' + planId + ' till ' + nytt, bid, function (data) {
+      data.plan.filter(function (x) { return x.id === planId; })[0].namn = nytt;
+    });
+  }
+
+  // Vad steget Plan har att säga: planen nedifrån och upp, om ordningen skiljer sig från
+  // förslaget, och hur många rum varje plan har. Statusen bor här och inte i vyn, så att
+  // steglistan och byggnadslistan aldrig kan säga olika saker om samma byggnad (beslut 61).
+  //
+  // `avvikerFranForslag` är inte ett fel: planeraren får dra om ordningen, och förslaget är
+  // bara ett förslag (beslut 84). Vyn använder det för att kunna erbjuda förslaget tillbaka.
+  function planStatus(bid) {
+    var b = B(bid);
+    if (!b) { return { rader: [], klar: false, avvikerFranForslag: false }; }
+    var forslag = DP.Planlosning.foreslagenOrdning(b.plan);
+    return {
+      rader: b.plan.map(function (p) {
+        return {
+          id: p.id, namn: p.namn,
+          rum: b.rum.filter(function (r) { return r.plan === p.id; }).length
+        };
+      }),
+      klar: b.plan.length > 0,
+      forslag: forslag,
+      avvikerFranForslag: forslag.join('|') !== planIdn(b.plan).join('|')
+    };
+  }
+  // Ordna om planen efter förslaget, som ett steg. Används när planeraren dragit fel och vill
+  // tillbaka till det systemet föreslog.
+  function ordnaPlanEfterForslag(bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var forslag = DP.Planlosning.foreslagenOrdning(b.plan);
+    if (forslag.join('|') === planIdn(b.plan).join('|')) { return; }
+    andraByggnad('ordna planen nedifrån och upp', bid, function (data) {
+      data.plan = forslag.map(function (pid) {
+        return data.plan.filter(function (p) { return p.id === pid; })[0];
+      });
+    });
+  }
+
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
   // och vilka rutintillfällen som bytte vecka i **varje** rörd byggnad (`flyttade`).
   //
@@ -1837,6 +1989,9 @@
     get byggnadsordning() { return ordning().slice(); },
     skapaByggnad: skapaByggnad, namnTaget: namnTaget, namnHinder: namnHinder,
     byggnadsSteg: byggnadsSteg, byggnadStatus: byggnadStatus,
+    planHinder: planHinder, laggTillPlan: laggTillPlan, flyttaPlan: flyttaPlan,
+    taBortPlan: taBortPlan, sattPlanNamn: sattPlanNamn, planStatus: planStatus,
+    ordnaPlanEfterForslag: ordnaPlanEfterForslag,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },

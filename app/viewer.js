@@ -66,7 +66,9 @@
     this.b.plan.forEach(function (p) { self.planIndex[p.id] = p; self.planSynligt[p.id] = true; });
     // Nycklat på rummets nyckel (plan + rumsnummer), eftersom rumsnumret löper per plan och
     // inte är unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
-    this.b.rum.forEach(function (r) { self.rumIndex[DP.rumBeteckning(r)] = r; });
+    // Skalet står i `rum` för att kunna ritas, men är inget rum: det ligger inte i indexet,
+    // så `visaRum`, `gaIn` och informationskortet kan inte råka peka på det (beslut 85).
+    this.b.rum.forEach(function (r) { if (!r.skal) { self.rumIndex[DP.rumBeteckning(r)] = r; } });
 
     // Byggnadens mått räknas fram från rummen
     var M = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, topp: 0 };
@@ -249,10 +251,15 @@
     golv.position.set((x0 + x1) / 2, p.elev + (r.iRum ? 0.025 : 0.012), (z0 + z1) / 2);
     golv.userData = { rum: r };
     g.golv.add(golv);
-    this.pickbara.push(golv);
+    // Skalet är planet innan rummen är inlästa (beslut 85). Det är inget rum: det går inte att
+    // välja och inte att gå in i, eftersom det inte finns något därinne att se. Hade det varit
+    // pickbart hade ett dubbelklick satt planeraren inne i ett tomt bjälklag utan väg tillbaka
+    // till vad hon tittade på.
+    if (!r.skal) { this.pickbara.push(golv); }
 
-    // Etikett
-    var text = DP.rumBeteckning(r) + ' ' + r.namn;
+    // Etikett. Skalet bär planets benämning och inte en rumsbeteckning: det finns inget rum
+    // 01-000, och en påhittad beteckning hade sett ut som ett inläst rum.
+    var text = r.skal ? r.plan + ' – ' + r.namn : DP.rumBeteckning(r) + ' ' + r.namn;
     var skala = r.typ === 'hangar' ? 2.2 : 1;
     var sprite = textSprite(text, skala);
     sprite.position.set((x0 + x1) / 2, p.elev + 0.6 * skala, (z0 + z1) / 2);
@@ -295,6 +302,11 @@
   Viewer.prototype._byggVaggar = function (p) {
     var self = this, M = this.M, motX = this.stil.motX;
     var linjer = {};
+    // Ett plan som bara är skal får väggar men **inga fönster** (beslut 85): fönstren hör till
+    // rummen, och ett skal med fasad hade sett ut som en färdig byggnad i stället för som en
+    // våning vars rum inte är inlästa än. Planet bär svaret från planlösningen; en handritad
+    // byggnad saknar flaggan och har aldrig skal.
+    var baraSkal = !!p.baraSkal;
     this.b.rum.filter(function (r) { return r.plan === p.id; }).forEach(function (r) {
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3], h = self._rumHojd(r);
       var utan = r.utanVagg || [];
@@ -327,7 +339,7 @@
             var mot = motX !== undefined && !ytter && L.axel === 'x' && L.c === motX && p.elev > 0; // kontor som vetter mot hangaren
             var v = self._vagg(L.axel, L.c, bit[0], bit[1], p.elev, h, ytter ? yttre : inre);
             (ytter ? g.ytter : g.inner).add(v);
-            if (ytter || mot) { self._fonster(L.axel, L.c, bit[0], bit[1], p, h, glas, ytter ? g.ytter : g.inner, ytter); }
+            if ((ytter || mot) && !baraSkal) { self._fonster(L.axel, L.c, bit[0], bit[1], p, h, glas, ytter ? g.ytter : g.inner, ytter); }
           });
         });
         tackt = slaIhop(tackt.concat(intervall));
@@ -789,8 +801,21 @@
     var lage = this.lage;
     var rumNyckel = this.aktuelltRum && DP.rumBeteckning(this.aktuelltRum);
     var valdId = this.valdInst && this.valdInst.id;
+    // Byggnaden kan ha bytt storlek under ombyggnaden – i steget Plan växer den ett plan i
+    // taget (beslut 85). Kameran ska stå kvar, men avståndet mäts mot den byggnad som fanns:
+    // behålls det oförändrat när byggnaden blir dubbelt så stor står planeraren plötsligt inuti
+    // en vägg. Riktningen och det hon tittar mot är hennes vy; avståndet är bara en följd av
+    // hur stort huset är, och det skalas om med huset.
+    var gammalStorlek = this.storlek;
+    var gammaltCentrum = this.centrum.clone();
 
     this.sattByggnad(byggnad);
+
+    var skala = gammalStorlek > 0 ? this.storlek / gammalStorlek : 1;
+    if (skala !== 1) {
+      kamera.sub(gammaltCentrum).multiplyScalar(skala).add(this.centrum);
+      mal.sub(gammaltCentrum).multiplyScalar(skala).add(this.centrum);
+    }
 
     // Plan som finns kvar behåller sin synlighet; ett nytt plan börjar synligt.
     var self = this;

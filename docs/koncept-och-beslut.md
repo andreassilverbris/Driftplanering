@@ -457,9 +457,33 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
 84. **Planens ordning föreslås och kan dras om.** Fliken Plan har bara Plan (beteckningen) och Benämning.
     Ordningen nedifrån och upp föreslås ur dem: siffror stigande, källare, "K" och negativa under 01, vind
     och teknikplan överst. I steget Plan dras ordningen om.
+
+    *Byggt i biljett #35.* `DP.Planlosning.foreslagenOrdning(plan)` svarar med ordningen och
+    `planRang` med var ett plan hör hemma. Benämningen väger **tyngre** än beteckningen när den säger
+    något otvetydigt: ett plan som heter "Källarplan" ligger under 01 även om det är betecknat 00, och
+    "Vindsplan" överst även med låg beteckning – den som skrev benämningen visste vad planet var.
+    Ett plan vars beteckning inte bär någon siffra ("Souterräng") gissas inte in bland de numrerade utan
+    hamnar ovanför dem, så att planeraren drar det på plats i stället för att en gissning ser rätt ut.
+    Sorteringen är stabil: två plan med samma rang behåller sin inbördes ordning, så ett förslag kastar
+    aldrig om något i onödan. Förslaget tillämpas när ett plan **läggs till** (en källare som läggs till
+    sist hamnar ändå underst) och går att be om igen med *Ordna nedifrån och upp* när planeraren dragit
+    fel; däremellan står hennes ordning kvar, eftersom förslaget bara är ett förslag.
 85. **Modellen växer fram steg för steg.** Efter Plan visas byggnadstypens standardstorlek som ett skal med
     tomma bjälklag; när rummen kommer in växer skalet till rummens NTA, och sist dyker installationerna upp.
     Knappar utan något att visa är utgråade, inte borttagna.
+
+    *Skalet byggt i biljett #35* (`app/planlosning.js`, utan DOM som `DP.Balansering`). `form(byggnad)`
+    ger byggnaden med `elev` per plan och ett skal per plan som saknar rum. Tre saker visade sig höra
+    till skalet och inte till det färdiga huset: det är **inget rum** (ligger inte i viewerns `rumIndex`,
+    går inte att välja eller gå in i – det finns inget därinne att se), det får **inga fönster** (fönster
+    hör till rummen, och ett skal med fasad ser ut som en färdig byggnad), och **sadeltakets bas följer
+    byggnadens faktiska topp** så länge något plan är skal, eftersom byggnadstypens bas är måttsatt för
+    ett färdigt hus och ett tak som svävade hade sett ut som ett fel.
+
+    Löftet om kameran preciserades också: den står kvar, men **avståndet skalas om när byggnaden byter
+    storlek**. I steget Plan växer huset ett plan i taget, och ett oförändrat avstånd hade satt
+    planeraren inuti en vägg som växte förbi henne. Riktningen och det hon tittar mot är hennes vy;
+    avståndet är bara en följd av hur stort huset är.
 86. **Att läsa in igen visar skillnaden mot det som finns.** Plan och rum matchas på beteckningen,
     installationer på Id. Nytt läggs till som förslag, ändrat visas med före och efter, och det som
     **saknas i filen tas aldrig bort av sig självt** – det blir ett förslag att ta bort, eftersom en rad som
@@ -552,6 +576,12 @@ fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom
      det är en av de saker användare stör sig mest på i andra system.
 106. **Dra och släpp visar platsen innan man släpper.** En linje visar om det dragna hamnar före eller efter
      det man pekar på (för plan: ovanför eller nedanför). Att släppa på ett rum och hoppas räcker inte.
+
+     *Byggt för plan i biljett #35.* Linjen är en **kant på raden** och inget eget element, så den kan
+     aldrig hamna fel när listan rullas. Den flyttas på plats under draget i stället för att listan ritas
+     om: byts DOM ut mitt i ett drag försvinner den nod webbläsaren drar över, och då slutar den skicka
+     `dragover` – linjen hade fastnat där den först hamnade, och planeraren släppt på en plats hon inte
+     såg. Att listan står still under draget är också vad beslut 105 kräver.
 107. **Stegen ser likadana ut överallt.** Byggnad får samma lodräta lista med steg som Planering har i dag –
      uppifrån och ner, där avklarade steg fälls ihop – och inte prototypens rutor från vänster till höger.
      Planeringens form finns redan och är inlärd, och enhetligheten är viktigare än vilken form som är bäst.
@@ -567,6 +597,12 @@ fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom
      visas bara planen som skal – i fel ordning ligger källaren överst, vilket gör förslaget om ordningen
      självklart. Rummen syns från steget Rum eller när Plan är grönt, installationerna från steget
      Installationer eller när Rum är grönt.
+
+     *Byggt i biljett #35 för plan och skal.* Verktygsfältets utgråning hör hit: `uppdateraVerktyg()` i
+     `ui.js` stänger av Innerväggar och Rumsnamn utan rum, Röntgen utan signifikanta installationer, och
+     Ytterväggar, Tak, Översikt och Uppifrån utan plan – och lägger **skälet i knappens titel**, eftersom
+     en utgråad knapp som inte säger varför är en gåta. Plan-gruppen får ett streck i stället för att stå
+     tom, så att gruppen behåller sin plats och sin bredd.
 112. **Det öppna ligger kvar överst.** Förslag och oplacerat ligger fast högst upp i steget medan listan med
      plan och rum rullas, så att man kan dra något till ett rum längst ner.
 

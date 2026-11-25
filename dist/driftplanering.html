@@ -127,6 +127,9 @@ details.rum > summary:hover button.liten { visibility: visible; }
 .grupp-namn { font-size: 11px; color: var(--svag); text-transform: uppercase; letter-spacing: .05em; margin: 0 4px; font-weight: 600; }
 .chip { border: 1px solid var(--linje); background: #fff; color: var(--dov); border-radius: 999px; padding: 4px 11px; font-size: 13px; }
 .chip.pa { background: var(--accent-svag); color: var(--accent); border-color: #b8cff8; font-weight: 600; }
+/* En knapp utan något att visa är utgråad, inte borttagen (beslut 111): verktygsfältet
+   ser likadant ut hela tiden, och planeraren ser vad som kommer när byggnaden växer. */
+.chip.utgraad { background: #f4f5f7; color: #a7aeb8; border-color: #e3e6ea; font-weight: 400; cursor: default; }
 #planknappar { display: inline-flex; gap: 4px; }
 
 .rumlage {
@@ -732,6 +735,24 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .tb-text { font-size: 13px; color: var(--dov); line-height: 1.55; }
 .bf-byggnad.bf-ny { border-style: dashed; }
 .bf-byggnad.bf-ny .bal-farg { background: var(--svag); opacity: .4; }
+
+/* Steg 2 Plan: planlistan med det översta planet högst upp, och linjen som visar var ett
+   draget plan hamnar innan det släpps (beslut 106). Linjen är en kant på raden och inget
+   eget element, så den kan aldrig hamna fel när listan rullas. */
+.bf-plan { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.bf-planrad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; cursor: grab; }
+.bf-planrad:hover { border-color: #b8cff8; }
+.bf-planrad.dras { opacity: .45; }
+.bf-planrad.linje-over { box-shadow: inset 0 3px 0 0 var(--accent); }
+.bf-planrad.linje-under { box-shadow: inset 0 -3px 0 0 var(--accent); }
+.bf-planbet { flex: 0 0 auto; min-width: 30px; text-align: center; font-weight: 700; font-size: 12px; color: var(--accent); background: var(--accent-svag); border-radius: 6px; padding: 3px 5px; }
+.bf-planrad .bf-btext { flex: 1 1 auto; }
+.bf-planverktyg { display: flex; gap: 4px; flex: 0 0 auto; }
+.bf-planform { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: end; }
+.bf-planfalt { display: flex; flex-direction: column; gap: 3px; }
+.bf-planfalt .etikett { font-size: 11px; color: var(--dov); font-weight: 600; }
+.bf-planrad.doper { cursor: default; border-color: var(--accent); }
+.bf-planrad.doper .bf-falt { padding: 4px 8px; font-size: 13px; }
 
 </style>
 </head>
@@ -3640,6 +3661,235 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 </script>
   <script>
 /*
+ * Planlösningen: byggnadens form räknad fram ur plan, rum och byggnadstypens regel.
+ *
+ * Fristående från DOM, som `DP.Balansering` (beslut 61): modulen får rena data in och ger
+ * rena data ut, så att formen går att pröva i ett test utan att en 3D-vy finns. Det som bor
+ * här är *geometrin* – vilken höjd ett plan ligger på, hur stort skalet är och var rummen
+ * hamnar – och ingenting om hur det ritas.
+ *
+ * Två uppgifter:
+ *
+ *   `foreslagenOrdning(plan)`  Ordningen nedifrån och upp, föreslagen ur beteckning och
+ *                              benämning (beslut 84): källare under, vind överst. Planeraren
+ *                              kan dra om den, och förslaget är bara ett förslag.
+ *   `form(byggnad)`            Byggnaden med `elev` per plan och de rum modellen ritar. Ett
+ *                              plan utan klara rum blir ett **skal** i byggnadstypens
+ *                              standardstorlek (beslut 85 och 111), så att modellen växer fram
+ *                              med stegen i stället för att stå tom till slutet.
+ *
+ * **De handritade byggnaderna rörs inte** (beslut 101). Garage, Kasern 1 och 2 och Hangar har
+ * sina egna rektanglar och elevationer i `data/`, och `form()` lämnar ett plan som har rum i
+ * byggnadsdatan precis som det är. Regeln gäller bara det som saknas: ett plan utan rum får
+ * ett skal, och ett plan utan elev får en räknad.
+ */
+(function () {
+  'use strict';
+  var DP = window.DP;
+
+  // Skalets mått när inget rum säger något annat. Djupet är kasernens (två rumsrader och en
+  // korridor), så att skalet och den färdiga byggnaden är ungefär lika stora och modellen inte
+  // hoppar i storlek när rummen kommer in.
+  var SKAL = { langd: 36, djup: 14 };
+  var STD_HOJD = 3.1, KALLAR_HOJD = 2.6, BJALK = 0.2;
+  // Rangerna för de plan vars beteckning inte säger var de hör hemma. En vind ligger överst
+  // oavsett beteckning; ett plan utan siffra har systemet inget att ordna på och hamnar
+  // ovanför de numrerade, så att planeraren drar det på plats i stället för att en gissning
+  // ser rätt ut. Talen är bara större än varje rimlig våningssiffra.
+  var RANG_VIND = 1000, RANG_OKAND = 500;
+
+  function txt(v) { return v == null ? '' : String(v).trim(); }
+  // Grund kopia: svaret från `form()` är nya objekt, så att ingen läsare kan råka ändra
+  // byggnadsdatan i tillståndet genom den räknade formen (beslut 71).
+  function grundkopia(o) {
+    var ut = {};
+    Object.keys(o).forEach(function (k) { ut[k] = o[k]; });
+    return ut;
+  }
+
+  // ------------------------------------------------------------------
+  // Planens ordning (beslut 84)
+  // ------------------------------------------------------------------
+  // "P1", "01", "1" och "Plan 1" blir alla 1; källare blir negativa. Samma tolkning som
+  // inläsningen behöver för att matcha ett plan förlåtande (beslut 77), så den bor här och
+  // inte på två ställen.
+  function planTal(s) {
+    var t = txt(s).toLowerCase();
+    if (!t) { return null; }
+    if (/^(k|källare|kallare)\b/.test(t) || /^k\d/.test(t)) {
+      var k = t.match(/\d+/);
+      return -(k ? parseInt(k[0], 10) : 1);
+    }
+    var m = t.match(/-?\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+
+  // Var planet hör hemma i ordningen nedifrån och upp. Benämningen väger tyngre än beteckningen
+  // när den säger något otvetydigt: ett plan som heter "Källarplan" ligger under 01 även om det
+  // är betecknat 00 eller 1, och "Vindsplan" överst även om beteckningen är låg.
+  function planRang(p) {
+    var namn = txt(p.namn).toLowerCase();
+    if (/vind|teknikplan/.test(namn)) { return RANG_VIND; }
+    if (/källar|kallar/.test(namn)) {
+      var t0 = planTal(p.id);
+      return t0 != null && t0 <= 0 ? t0 - 0.5 : -1;
+    }
+    var t = planTal(p.id);
+    return t == null ? RANG_OKAND : t;
+  }
+
+  // Ordningen nedifrån och upp, som en lista med plan-id. Stabil: två plan med samma rang
+  // behåller den inbördes ordning de kom i, så ett förslag aldrig kastar om något i onödan.
+  function foreslagenOrdning(plan) {
+    return (plan || []).map(function (p, i) { return { id: p.id, r: planRang(p), i: i }; })
+      .sort(function (a, b) { return a.r - b.r || a.i - b.i; })
+      .map(function (x) { return x.id; });
+  }
+
+  // Benämningen ett plan utan namn får (berättelse 34). Alla plan ska ha ett namn i listor och
+  // i modellen, och ett tomt namn är inget att visa.
+  function benamningsforslag(id) {
+    var t = planTal(id);
+    if (t != null && t < 0) { return t === -1 ? 'Källarplan' : 'Källarplan ' + (-t); }
+    return 'Plan ' + txt(id);
+  }
+
+  // ------------------------------------------------------------------
+  // Formen: elevationer och skal
+  // ------------------------------------------------------------------
+  // Entréplanet – det första planet nedifrån vars beteckning är 1 eller mer – ligger på marken,
+  // och planen under det går nedåt (beslut 85). Har inget plan en beteckning som är 1 eller mer
+  // ligger det nedersta på marken: en byggnad som bara har en källare står ändå på marken.
+  function entreIndex(plan) {
+    for (var i = 0; i < plan.length; i++) {
+      var t = planTal(plan[i].id);
+      if (t != null && t >= 1) { return i; }
+    }
+    return 0;
+  }
+
+  // Rummets höjd: NTV ÷ NTA när båda finns (beslut 79), annars planets standardhöjd. Gränserna
+  // håller en felskriven NTV från att göra ett rum tio våningar högt.
+  function rumHojd(r, standard) {
+    if (r.hojd) { return r.hojd; }
+    if (r.ntv && r.nta) { return Math.max(2.2, Math.min(15, r.ntv / r.nta)); }
+    return standard;
+  }
+
+  // Byggnaden som modellen ska ritas ur: samma form som datafilerna i `data/`, med `elev` per
+  // plan och `rect` per rum. Byggnadsdatan själv rörs inte – svaret är en ny byggnad, så att
+  // tillståndet inte bär något som är räknat (beslut 71).
+  //
+  // Plan utan rum får ett skal: ett enda rum som täcker hela planet, märkt `skal` så att vyn
+  // kan visa det som ett tomt bjälklag och inte som ett rum man går in i.
+  function form(byggnad) {
+    var b = byggnad;
+    if (!b) { return null; }
+    var K = b.konstanter || {};
+    var stdHojd = K.FRIHOJD || STD_HOJD, bjalk = K.BJALKLAG || BJALK;
+    var plan = (b.plan || []).slice();
+    if (!plan.length) { return kopia(b, [], []); }
+
+    var entre = entreIndex(plan);
+    // Byggnadens längd och djup: det som rummen upptar, eller skalets mått när inga rum finns.
+    // Måtten är gemensamma för alla plan, eftersom ett plan som är bredare än ett annat hade
+    // sett ut som ett fel i en schematisk modell.
+    var ram = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
+    (b.rum || []).forEach(function (r) {
+      if (!r.rect) { return; }
+      ram.x0 = Math.min(ram.x0, r.rect[0]); ram.z0 = Math.min(ram.z0, r.rect[1]);
+      ram.x1 = Math.max(ram.x1, r.rect[2]); ram.z1 = Math.max(ram.z1, r.rect[3]);
+    });
+    if (!isFinite(ram.x0)) { ram = { x0: 0, z0: 0, x1: SKAL.langd, z1: SKAL.djup }; }
+
+    // Rum per plan, och höjden varje plan behöver. Ett plan utan rum får ett skal.
+    var rum = [], hojdFor = {};
+    plan.forEach(function (p, idx) {
+      var under = idx < entre;
+      var standard = under ? Math.min(stdHojd, KALLAR_HOJD) : stdHojd;
+      var egna = (b.rum || []).filter(function (r) { return r.plan === p.id && r.rect; });
+      var maxH = standard;
+      if (!egna.length) {
+        // Skalet (beslut 85): planet finns, men rummen är inte inlästa än. Det syns som ett
+        // bjälklag i typens standardstorlek, så att planeraren ser byggnaden växa – och ser
+        // källaren ligga överst när ordningen är fel (beslut 111 och berättelse 53).
+        rum.push({
+          nr: '000', namn: txt(p.namn) || benamningsforslag(p.id), plan: p.id,
+          typ: 'kommunikation', rect: [ram.x0, ram.z0, ram.x1, ram.z1],
+          hojd: standard, skal: true, utanInstallationer: true
+        });
+      } else {
+        egna.forEach(function (r) {
+          var h = rumHojd(r, standard);
+          if (!r.iRum) { maxH = Math.max(maxH, h); }
+          var ny = grundkopia(r);
+          ny.hojd = h;
+          rum.push(ny);
+        });
+      }
+      hojdFor[p.id] = maxH;
+    });
+
+    // Elevationerna: entréplanet på marken, planen över det uppåt och planen under nedåt.
+    // Ett plan som bär en egen `elev` i byggnadsdatan behåller den – de handritade byggnaderna
+    // är ritade med sina mått, och de ska inte flytta (beslut 101).
+    var elev = {}, y = 0, i;
+    for (i = entre; i < plan.length; i++) {
+      elev[plan[i].id] = plan[i].elev != null ? plan[i].elev : y;
+      y = elev[plan[i].id] + hojdFor[plan[i].id] + bjalk;
+    }
+    y = 0;
+    for (i = entre - 1; i >= 0; i--) {
+      y -= hojdFor[plan[i].id] + bjalk;
+      elev[plan[i].id] = plan[i].elev != null ? plan[i].elev : y;
+      y = elev[plan[i].id];
+    }
+
+    // `baraSkal` per plan: formen vet redan vilka plan som inte har rum, och vyn ska inte
+    // behöva räkna om det ur rumslistan. Den som ritar väggarna frågar planet.
+    var utPlan = plan.map(function (p) {
+      return {
+        id: p.id, namn: txt(p.namn) || benamningsforslag(p.id), elev: elev[p.id],
+        baraSkal: rum.filter(function (r) { return r.plan === p.id; })
+          .every(function (r) { return r.skal; })
+      };
+    });
+    // Sadeltakets bas står i byggnadstypens stil och är måttsatt för en färdig byggnad – i
+    // kasernens fall fem plan. En byggnad som växer plan för plan är lägre än så, och ett tak
+    // som svävade ovanför översta bjälklaget hade sett ut som ett fel i modellen. Basen följer
+    // därför byggnadens faktiska topp så länge något plan är skal; när alla plan har rum står
+    // byggnaden på sina egna mått och stilen får gälla som den är ritad (beslut 101).
+    var ut = kopia(b, utPlan, rum);
+    if (rum.some(function (r) { return r.skal; }) && ut.stil && ut.stil.tak === 'sadel') {
+      var topp = plan.reduce(function (h, p) {
+        return Math.max(h, elev[p.id] + hojdFor[p.id]);
+      }, 0);
+      var stil = grundkopia(ut.stil);
+      stil.sadel = { bas: topp, hojd: (ut.stil.sadel || {}).hojd || 3 };
+      ut.stil = stil;
+    }
+    return ut;
+  }
+
+  // Byggnaden med räknad form. Installationerna följer med som de är: var de sitter är rummets
+  // sak, och ett skal har inga.
+  function kopia(b, plan, rum) {
+    var ut = grundkopia(b);
+    ut.plan = plan;
+    ut.rum = rum;
+    ut.installationer = (b.installationer || []).slice();
+    return ut;
+  }
+
+  DP.Planlosning = {
+    planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
+    benamningsforslag: benamningsforslag, form: form, SKAL: SKAL
+  };
+})();
+
+</script>
+  <script>
+/*
  * Planeringens logik: tillstånd, frekvenser i veckor, rutintillfällen och historik (ångra/gör om).
  *
  * Tillståndet är rena data och sparas som ögonblicksbilder i en historik. Allt som visas
@@ -4142,6 +4392,158 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (!k[2]) { return 'Väntar på inläsningsfil'; }
     if (!k[3] || !k[4]) { return 'Inläsning pågår'; }
     return 'Klar för Planering';
+  }
+
+  // ------------------------------------------------------------------
+  // Steg 2: planen (beslut 76, 84 och 106)
+  // ------------------------------------------------------------------
+  // Planen ligger i byggnadsdatan i **ordning nedifrån och upp** – samma ordning viewern,
+  // plan-knapparna och byggnadsträdet redan läser. Listans ordning *är* alltså byggnadens
+  // ordning, och ett drag i listan är ett drag i modellen.
+  //
+  // Beteckningen behålls exakt som planeraren skriver den (beslut 77): fliken Plan är
+  // fastighetssystemets id och ska kunna gå tillbaka dit, så systemet döper inte om.
+  //
+  // Hindret formuleras här och inte i vyn, av samma skäl som namnet i beslut 103: regeln bor
+  // hos den som kan den, och besvärligheten går att läsa i ett test utan DOM (beslut 61).
+  // Planens ordning är listan över beteckningar, och frågan "är det här samma ordning?" ställs
+  // på tre ställen: innan ett drag blir ett steg, när förslaget jämförs med nuläget, och innan
+  // ordningen läggs om efter förslaget. En jämförelse som skrivs ut tre gånger är tre ställen
+  // att skriva fel på.
+  function planIdn(plan) { return (plan || []).map(function (p) { return p.id; }); }
+  function sammaOrdning(a, b2) { return planIdn(a).join('|') === planIdn(b2).join('|'); }
+
+  function planHinder(beteckning, bid) {
+    var t = String(beteckning || '').trim();
+    if (!t) { return 'Planet behöver en beteckning, till exempel 01.'; }
+    var b = B(bid);
+    if (!b) { return ''; }
+    var taget = b.plan.some(function (p) { return p.id.toLowerCase() === t.toLowerCase(); });
+    if (taget) {
+      return 'Det finns redan ett plan som heter ' + t + ' i ' + b.namn + '. Beteckningen pekar ' +
+        'ut planet, så två plan kan inte ha samma.';
+    }
+    return '';
+  }
+
+  // Lägg till ett plan som ett steg i historiken. Ordningen föreslås ur beteckning och
+  // benämning (beslut 84), så planet hamnar där det hör hemma i stället för sist: läser
+  // planeraren in källaren efter plan 03 ska den ändå ligga underst. Saknas benämningen får
+  // planet ett förslag (berättelse 34), eftersom alla plan ska ha ett namn i listor och modell.
+  //
+  // Svaret är planets beteckning, eller null när den inte går att använda. Vyn frågar
+  // `planHinder()` först och visar beskedet medan planeraren skriver; kontrollen här är den
+  // som gäller, så att ingen väg förbi vyn kan ge två plan med samma beteckning.
+  function laggTillPlan(uppgifter, bid) {
+    var u = uppgifter || {};
+    var id = String(u.id || '').trim();
+    if (planHinder(id, bid)) { return null; }
+    var namn = String(u.namn || '').trim() || DP.Planlosning.benamningsforslag(id);
+    var b = B(bid);
+    var nytt = { id: id, namn: namn };
+    // Ordningen räknas på listan **med** det nya planet, så att förslaget gäller den byggnad
+    // planeraren får och inte den hon hade.
+    var plan = b.plan.concat([nytt]);
+    var ordning = DP.Planlosning.foreslagenOrdning(plan);
+    andraByggnad('lägg till plan ' + id + ' ' + namn, bid, function (data) {
+      data.plan = ordning.map(function (pid) {
+        return plan.filter(function (p) { return p.id === pid; })[0];
+      });
+    });
+    return id;
+  }
+
+  // Flytta ett plan i ordningen: `fore` är planet det ska hamna **under** (listan går nedifrån
+  // och upp, så "före" i listan är "under" i byggnaden), eller tomt för överst. Linjen i vyn
+  // visar samma sak innan planeraren släpper (beslut 106).
+  //
+  // Texten i historiken säger var planet hamnade i klartext ("Flytta Källare under plan 01"),
+  // så att mediaspelarens lista går att läsa utan att gissa.
+  function flyttaPlan(planId, fore, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var flyttat = b.plan.filter(function (p) { return p.id === planId; })[0];
+    if (!flyttat || planId === fore) { return; }
+    var kvar = b.plan.filter(function (p) { return p.id !== planId; });
+    var idx = fore ? kvar.map(function (p) { return p.id; }).indexOf(fore) : kvar.length;
+    if (fore && idx < 0) { return; }
+    var ny = kvar.slice(0, idx).concat([flyttat]).concat(kvar.slice(idx));
+    // Står planet redan där är flytten ingen ändring, och ett steg i historiken som inte
+    // ändrar något är ett steg planeraren får backa förbi utan att se något hända.
+    if (sammaOrdning(ny, b.plan)) { return; }
+    var under = fore ? b.plan.filter(function (p) { return p.id === fore; })[0] : null;
+    var text = under ? 'flytta ' + flyttat.namn + ' under ' + under.namn
+      : 'flytta ' + flyttat.namn + ' överst';
+    andraByggnad(text, bid, function (data) {
+      data.plan = ny.map(function (p) {
+        return data.plan.filter(function (x) { return x.id === p.id; })[0];
+      });
+    });
+  }
+
+  // Ta bort ett plan. Rummen på planet och deras installationer försvinner med det: ett rum
+  // utan plan finns ingenstans, och en installation utan rum sitter inte någonstans. Är det
+  // uppenbart att planet ska bort är det ett steg som alla andra, och ett ◀ tar det tillbaka.
+  function taBortPlan(planId, bid) {
+    var b = B(bid);
+    if (!b || !b.plan.some(function (p) { return p.id === planId; })) { return; }
+    var p = b.plan.filter(function (x) { return x.id === planId; })[0];
+    var nycklar = b.rum.filter(function (r) { return r.plan === planId; })
+      .map(function (r) { return DP.rumNyckel(r.plan, r.nr); });
+    andraByggnad('ta bort plan ' + p.id + ' ' + p.namn, bid, function (data) {
+      data.plan = data.plan.filter(function (x) { return x.id !== planId; });
+      data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
+      data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
+    });
+  }
+
+  // Byt benämning på ett plan. Beteckningen rörs inte: den pekar ut planet, och rummen och
+  // installationerna hänger på den.
+  function sattPlanNamn(planId, namn, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var p = b.plan.filter(function (x) { return x.id === planId; })[0];
+    var nytt = String(namn || '').trim() || DP.Planlosning.benamningsforslag(planId);
+    if (!p || p.namn === nytt) { return; }
+    andraByggnad('döp plan ' + planId + ' till ' + nytt, bid, function (data) {
+      data.plan.filter(function (x) { return x.id === planId; })[0].namn = nytt;
+    });
+  }
+
+  // Vad steget Plan har att säga: planen nedifrån och upp, om ordningen skiljer sig från
+  // förslaget, och hur många rum varje plan har. Statusen bor här och inte i vyn, så att
+  // steglistan och byggnadslistan aldrig kan säga olika saker om samma byggnad (beslut 61).
+  //
+  // `avvikerFranForslag` är inte ett fel: planeraren får dra om ordningen, och förslaget är
+  // bara ett förslag (beslut 84). Vyn använder det för att kunna erbjuda förslaget tillbaka.
+  function planStatus(bid) {
+    var b = B(bid);
+    if (!b) { return { rader: [], klar: false, avvikerFranForslag: false }; }
+    var forslag = DP.Planlosning.foreslagenOrdning(b.plan);
+    return {
+      rader: b.plan.map(function (p) {
+        return {
+          id: p.id, namn: p.namn,
+          rum: b.rum.filter(function (r) { return r.plan === p.id; }).length
+        };
+      }),
+      klar: b.plan.length > 0,
+      forslag: forslag,
+      avvikerFranForslag: forslag.join('|') !== planIdn(b.plan).join('|')
+    };
+  }
+  // Ordna om planen efter förslaget, som ett steg. Används när planeraren dragit fel och vill
+  // tillbaka till det systemet föreslog.
+  function ordnaPlanEfterForslag(bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var forslag = DP.Planlosning.foreslagenOrdning(b.plan);
+    if (forslag.join('|') === planIdn(b.plan).join('|')) { return; }
+    andraByggnad('ordna planen nedifrån och upp', bid, function (data) {
+      data.plan = forslag.map(function (pid) {
+        return data.plan.filter(function (p) { return p.id === pid; })[0];
+      });
+    });
   }
 
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
@@ -5478,6 +5880,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     get byggnadsordning() { return ordning().slice(); },
     skapaByggnad: skapaByggnad, namnTaget: namnTaget, namnHinder: namnHinder,
     byggnadsSteg: byggnadsSteg, byggnadStatus: byggnadStatus,
+    planHinder: planHinder, laggTillPlan: laggTillPlan, flyttaPlan: flyttaPlan,
+    taBortPlan: taBortPlan, sattPlanNamn: sattPlanNamn, planStatus: planStatus,
+    ordnaPlanEfterForslag: ordnaPlanEfterForslag,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
@@ -5776,7 +6181,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     this.b.plan.forEach(function (p) { self.planIndex[p.id] = p; self.planSynligt[p.id] = true; });
     // Nycklat på rummets nyckel (plan + rumsnummer), eftersom rumsnumret löper per plan och
     // inte är unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
-    this.b.rum.forEach(function (r) { self.rumIndex[DP.rumBeteckning(r)] = r; });
+    // Skalet står i `rum` för att kunna ritas, men är inget rum: det ligger inte i indexet,
+    // så `visaRum`, `gaIn` och informationskortet kan inte råka peka på det (beslut 85).
+    this.b.rum.forEach(function (r) { if (!r.skal) { self.rumIndex[DP.rumBeteckning(r)] = r; } });
 
     // Byggnadens mått räknas fram från rummen
     var M = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, topp: 0 };
@@ -5959,10 +6366,15 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     golv.position.set((x0 + x1) / 2, p.elev + (r.iRum ? 0.025 : 0.012), (z0 + z1) / 2);
     golv.userData = { rum: r };
     g.golv.add(golv);
-    this.pickbara.push(golv);
+    // Skalet är planet innan rummen är inlästa (beslut 85). Det är inget rum: det går inte att
+    // välja och inte att gå in i, eftersom det inte finns något därinne att se. Hade det varit
+    // pickbart hade ett dubbelklick satt planeraren inne i ett tomt bjälklag utan väg tillbaka
+    // till vad hon tittade på.
+    if (!r.skal) { this.pickbara.push(golv); }
 
-    // Etikett
-    var text = DP.rumBeteckning(r) + ' ' + r.namn;
+    // Etikett. Skalet bär planets benämning och inte en rumsbeteckning: det finns inget rum
+    // 01-000, och en påhittad beteckning hade sett ut som ett inläst rum.
+    var text = r.skal ? r.plan + ' – ' + r.namn : DP.rumBeteckning(r) + ' ' + r.namn;
     var skala = r.typ === 'hangar' ? 2.2 : 1;
     var sprite = textSprite(text, skala);
     sprite.position.set((x0 + x1) / 2, p.elev + 0.6 * skala, (z0 + z1) / 2);
@@ -6005,6 +6417,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   Viewer.prototype._byggVaggar = function (p) {
     var self = this, M = this.M, motX = this.stil.motX;
     var linjer = {};
+    // Ett plan som bara är skal får väggar men **inga fönster** (beslut 85): fönstren hör till
+    // rummen, och ett skal med fasad hade sett ut som en färdig byggnad i stället för som en
+    // våning vars rum inte är inlästa än. Planet bär svaret från planlösningen; en handritad
+    // byggnad saknar flaggan och har aldrig skal.
+    var baraSkal = !!p.baraSkal;
     this.b.rum.filter(function (r) { return r.plan === p.id; }).forEach(function (r) {
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3], h = self._rumHojd(r);
       var utan = r.utanVagg || [];
@@ -6037,7 +6454,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
             var mot = motX !== undefined && !ytter && L.axel === 'x' && L.c === motX && p.elev > 0; // kontor som vetter mot hangaren
             var v = self._vagg(L.axel, L.c, bit[0], bit[1], p.elev, h, ytter ? yttre : inre);
             (ytter ? g.ytter : g.inner).add(v);
-            if (ytter || mot) { self._fonster(L.axel, L.c, bit[0], bit[1], p, h, glas, ytter ? g.ytter : g.inner, ytter); }
+            if ((ytter || mot) && !baraSkal) { self._fonster(L.axel, L.c, bit[0], bit[1], p, h, glas, ytter ? g.ytter : g.inner, ytter); }
           });
         });
         tackt = slaIhop(tackt.concat(intervall));
@@ -6499,8 +6916,21 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var lage = this.lage;
     var rumNyckel = this.aktuelltRum && DP.rumBeteckning(this.aktuelltRum);
     var valdId = this.valdInst && this.valdInst.id;
+    // Byggnaden kan ha bytt storlek under ombyggnaden – i steget Plan växer den ett plan i
+    // taget (beslut 85). Kameran ska stå kvar, men avståndet mäts mot den byggnad som fanns:
+    // behålls det oförändrat när byggnaden blir dubbelt så stor står planeraren plötsligt inuti
+    // en vägg. Riktningen och det hon tittar mot är hennes vy; avståndet är bara en följd av
+    // hur stort huset är, och det skalas om med huset.
+    var gammalStorlek = this.storlek;
+    var gammaltCentrum = this.centrum.clone();
 
     this.sattByggnad(byggnad);
+
+    var skala = gammalStorlek > 0 ? this.storlek / gammalStorlek : 1;
+    if (skala !== 1) {
+      kamera.sub(gammaltCentrum).multiplyScalar(skala).add(this.centrum);
+      mal.sub(gammaltCentrum).multiplyScalar(skala).add(this.centrum);
+    }
 
     // Plan som finns kvar behåller sin synlighet; ett nytt plan börjar synligt.
     var self = this;
@@ -6789,9 +7219,14 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   var DP = window.DP;
   var typer = DP.installationstyper;
-  var b, rumIndex, instPerRum, signifikanta;
+  var b, modell, rumIndex, instPerRum, signifikanta;
+  // `b` är byggnadens data som den ligger i tillståndet (beslut 71) – det trädet, listorna och
+  // informationskortet visar. `modell` är samma byggnad med **formen räknad**: elevationer per
+  // plan och skal för de plan som inte har rum ännu (beslut 85). Bara viewern får formen, så
+  // att ett skal aldrig kan dyka upp i trädet som ett rum planeraren tror finns.
   function indexera() {
     b = DP.Plan.byggnad();
+    modell = DP.Planlosning.form(b);
     rumIndex = {}; instPerRum = {};
     // Nycklat på rummets nyckel (plan + rumsnummer): rumsnumret löper per plan och är inte
     // unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
@@ -6826,7 +7261,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // ------------------------------------------------------------------
   // Viewer
   // ------------------------------------------------------------------
-  var viewer = new DP.Viewer($('#vy3d'), b, {
+  var viewer = new DP.Viewer($('#vy3d'), modell, {
     valtInstallation: function (inst) { visaInstKort(inst); viewer.valjInstallation(inst, false); markeraITrad(inst); },
     valtRum: function (r) { visaRumKort(r); },
     hover: visaTips,
@@ -6857,9 +7292,47 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   bindToggle('#t-etikett', 'etiketter');
   bindToggle('#t-rontgen', 'rontgen');
 
+  // En knapp som inte har något att visa är **utgråad, inte borttagen** (beslut 111):
+  // verktygsfältet ska se likadant ut hela tiden, så att planeraren lär sig var sakerna ligger
+  // och ser vad som kommer när byggnaden växer. En knapp som försvinner och kommer tillbaka
+  // flyttar de andra, och då måste man leta varje gång.
+  //
+  // Vad som är "inget att visa" följer av vad lagret ritar: innerväggar och rumsnamn kräver
+  // riktiga rum (ett skal har varken), röntgen kräver signifikanta installationer, och
+  // ytterväggar och tak finns så fort det finns ett plan att rita dem kring.
+  function uppdateraVerktyg() {
+    var harPlan = b.plan.length > 0;
+    var harRum = b.rum.length > 0;
+    var harSig = signifikanta.length > 0;
+    grana('#t-ytter', harPlan, 'Det finns inget plan att rita ytterväggar kring ännu.');
+    grana('#t-tak', harPlan, 'Det finns inget plan att lägga tak över ännu.');
+    grana('#t-inner', harRum, 'Innerväggar finns när rummen är inlästa (steg 3).');
+    grana('#t-etikett', harRum, 'Rumsnamn finns när rummen är inlästa (steg 3).');
+    grana('#t-rontgen', harSig, 'Röntgen visar signifikanta installationer, och det finns inga ännu (steg 4).');
+    grana('#v-oversikt', harPlan, 'Det finns ingen modell att se över ännu.');
+    grana('#v-uppifran', harPlan, 'Det finns ingen modell att se uppifrån ännu.');
+  }
+  function grana(sel, finns, varfor) {
+    var k = $(sel);
+    k.classList.toggle('utgraad', !finns);
+    k.disabled = !finns;
+    // Skälet står i titeln: en utgråad knapp som inte säger varför är en gåta, och planeraren
+    // ska kunna få svaret genom att peka på den.
+    if (!finns) { k.dataset.titel = k.dataset.titel || k.title || ''; k.title = varfor; }
+    else if (k.dataset.titel !== undefined) { k.title = k.dataset.titel; }
+  }
+
   var planKnappar = $('#planknappar');
   function byggPlanKnappar() {
     planKnappar.innerHTML = '';
+    // Plan-gruppen är tom innan planen finns. Den får ett streck i stället för ingenting, så
+    // att gruppen behåller sin plats och sin bredd i verktygsfältet (beslut 111).
+    if (!b.plan.length) {
+      var tomt = el('span', 'chip utgraad', '–');
+      tomt.title = 'Planen visas här när de är inlästa (steg 2).';
+      planKnappar.appendChild(tomt);
+      return;
+    }
     b.plan.slice().reverse().forEach(function (p) {
       var k = el('button', 'chip pa', p.id);
       k.title = planNamn(p.id) + ' (klick: visa/dölj, dubbelklick: visa bara detta plan och planen under)';
@@ -6870,6 +7343,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     });
   }
   byggPlanKnappar();
+  uppdateraVerktyg();
 
   // Val av byggnad i sidhuvudet
   var valj = $('#byggnad');
@@ -6901,8 +7375,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     indexera();
     // Vid ett byte nollställs vyn med flit; vid en dataändring står planeraren kvar vid sitt
     // rum och sin installation och ska se just det hon ändrade.
-    if (tomKort) { viewer.sattByggnad(b); } else { viewer.byggOmByggnad(b); }
+    if (tomKort) { viewer.sattByggnad(modell); } else { viewer.byggOmByggnad(modell); }
     byggPlanKnappar();
+    uppdateraVerktyg();
     byggTrad();
     uppdateraTomBesked();
     byggValjare();
@@ -8866,9 +9341,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
  * vilket steg som helst öppningsbart igen. Formen är inte vald för att vara bäst, utan för
  * att den redan är inlärd: enhetligheten är viktigare (beslut 107).
  *
- * Den här filen bygger listan, byggnadslistan med status och **steg 1** (byggnadstyp, namn,
- * område och färg). Steg 2–4 syns med sitt läge men är tomma tills de byggs i de följande
- * biljetterna i spåret.
+ * Den här filen bygger listan, byggnadslistan med status, **steg 1** (byggnadstyp, namn,
+ * område och färg) och **steg 2 Plan** (lägg till plan, dra om ordningen, döp om och ta bort).
+ * Steg 3–4 syns med sitt läge men är tomma tills de byggs i de följande biljetterna i spåret.
  *
  * Reglerna – vad som är klart, om namnet går att använda och vad statusen heter – bor i
  * `DP.Plan` och inte här (beslut 61): de ska gå att läsa i ett test utan DOM, och
@@ -8882,7 +9357,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   var STEG = [
     { n: 1, titel: 'Byggnadstyp och namn', kropp: steg1 },
-    { n: 2, titel: 'Plan', kropp: stegKommer },
+    { n: 2, titel: 'Plan', kropp: steg2 },
     { n: 3, titel: 'Rum', kropp: stegKommer },
     { n: 4, titel: 'Installationer', kropp: stegKommer }
   ];
@@ -8893,7 +9368,14 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   var ui = {
     oppet: 0,
     skapar: false,
-    ny: { namn: '', typ: '', omrade: '' }
+    ny: { namn: '', typ: '', omrade: '' },
+    // Det som skrivs i steg 2 innan planet läggs till, och det plan som dras. `drag.over` är
+    // planet linjen ligger vid och `drag.under` på vilken sida (beslut 106).
+    nyttPlan: { id: '', namn: '' },
+    drag: null,
+    // Planet vars benämning redigeras på sin rad. Omdöpningen sker i listan och inte i en
+    // ruta ovanpå sidan: resten av flödet frågar i panelen.
+    doper: null
   };
 
   function el(tag, cls, html) {
@@ -8957,11 +9439,19 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     // beskedet om ett upptaget namn kommer medan hon skriver (beslut 103), och ett tappat
     // fokus hade betytt att resten av namnet hamnade någon annanstans.
     if (fokusFalt) {
-      var nytt = rot.querySelector('[data-falt="' + fokusFalt + '"]');
-      if (nytt) {
-        nytt.focus();
-        if (markering !== null && nytt.setSelectionRange) { nytt.setSelectionRange(markering, markering); }
+      var nyttFalt = rot.querySelector('[data-falt="' + fokusFalt + '"]');
+      if (nyttFalt) {
+        nyttFalt.focus();
+        if (markering !== null && nyttFalt.setSelectionRange) { nyttFalt.setSelectionRange(markering, markering); }
       }
+    }
+    // Fokus på begäran: efter *Lägg till plan* står markören i beteckningsfältet igen, eftersom
+    // nästa plan är nästa sak planeraren skriver. Det hanteras här och inte där knappen sitter,
+    // så att omritningen inte hinner ta tillbaka fokus till knappen.
+    if (ui.fokus) {
+      var begart = rot.querySelector('[data-falt="' + ui.fokus + '"]');
+      ui.fokus = null;
+      if (begart) { begart.focus(); }
     }
   }
 
@@ -9136,12 +9626,226 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     rot2.appendChild(r);
   }
 
-  // Steg 2–4 byggs i de följande biljetterna i spåret. De syns med sitt läge, så att
+  // ------------------------------------------------------------------
+  // Steg 2: Plan (beslut 76, 84, 85, 105 och 106)
+  // ------------------------------------------------------------------
+  // Planen i en lodrät lista med det **översta planet högst upp** – samma ordning som
+  // plan-knapparna i verktygsfältet och byggnadsträdet, och samma ordning som modellen står i.
+  // Listan är alltså en bild av byggnaden, och ett drag i listan är ett drag i modellen.
+  //
+  // Byggnadsdatan bär planen nedifrån och upp, så listan ritas baklänges. Den vändningen bor
+  // bara här: allt annat – planeringen, modellen, förslaget om ordningen – räknar nedifrån.
+  function steg2(kropp) {
+    var b = P.byggnad();
+    if (!b) { return; }
+    var st = P.planStatus();
+
+    kropp.appendChild(el('p', 'forklar',
+      'Ett <b>plan</b> är en våning i byggnaden. Beteckningen är planets namn i ' +
+      'fastighetssystemet och behålls precis som du skriver den – 01, P1 eller 00 – eftersom ' +
+      'rummen och installationerna pekar på den. Benämningen är det du läser: Källarplan, ' +
+      'Entréplan, Vindsplan.'));
+
+    if (!st.rader.length) {
+      kropp.appendChild(el('div', 'bf-notis',
+        'Byggnaden har inga plan ännu. Lägg till det nedersta först, eller läs in dem från en ' +
+        'inläsningsfil när den funktionen finns. Så fort ett plan finns syns det som ett ' +
+        '<b>skal</b> i modellen till höger – en tom våning i byggnadstypens standardstorlek, ' +
+        'innan rummen är inlästa.'));
+    } else {
+      kropp.appendChild(planlista(b, st));
+      // Att ordningen skiljer sig från förslaget är inget fel – planeraren får dra om den
+      // (beslut 84). Men hon ska kunna komma tillbaka till förslaget utan att dra allt igen.
+      if (st.avvikerFranForslag) {
+        var rad0 = el('div', 'knapprad');
+        rad0.appendChild(knapp('Ordna nedifrån och upp', 'knapp sekundar liten-knapp', function () {
+          P.ordnaPlanEfterForslag();
+        }, 'Lägg planen i den ordning systemet föreslår ur beteckning och benämning: källare ' +
+           'underst, vind överst.'));
+        kropp.appendChild(rad0);
+      }
+    }
+
+    // ---- Lägg till ett plan ----
+    kropp.appendChild(el('div', 'liten-rubrik', 'Lägg till plan'));
+    var rutnat = el('div', 'bf-planform');
+    faltIn(rutnat, 'Beteckning', 'plan-id', ui.nyttPlan.id, 't.ex. 01', function (v) {
+      ui.nyttPlan.id = v; rita();
+    });
+    faltIn(rutnat, 'Benämning', 'plan-namn', ui.nyttPlan.namn,
+      ui.nyttPlan.id ? DP.Planlosning.benamningsforslag(ui.nyttPlan.id) : 't.ex. Entréplan',
+      function (v) { ui.nyttPlan.namn = v; rita(); });
+    kropp.appendChild(rutnat);
+    // Beskedet kommer medan planeraren skriver, som för byggnadens namn (beslut 103): hon ska
+    // inte trycka på en knapp för att få veta att beteckningen är upptagen.
+    var hinder = ui.nyttPlan.id ? P.planHinder(ui.nyttPlan.id) : '';
+    if (hinder) { kropp.appendChild(el('div', 'bf-fel', hinder)); }
+    // Benämningen är valfri: lämnas den tom får planet ett förslag (berättelse 34), och
+    // planeraren ska se vilket innan hon lägger till det.
+    if (ui.nyttPlan.id && !ui.nyttPlan.namn && !hinder) {
+      kropp.appendChild(el('div', 'bf-notis',
+        'Utan benämning får planet namnet <b>' + DP.Planlosning.benamningsforslag(ui.nyttPlan.id) +
+        '</b>. Alla plan har ett namn, så att listor och modell går att läsa.'));
+    }
+    var rad = el('div', 'knapprad hoger');
+    var lagg = knapp('Lägg till plan', 'knapp', function () {
+      if (!P.laggTillPlan({ id: ui.nyttPlan.id, namn: ui.nyttPlan.namn })) { rita(); return; }
+      ui.nyttPlan = { id: '', namn: '' };
+      // Tillbaka till beteckningsfältet: nästa plan är nästa sak planeraren skriver, och ett
+      // tappat fokus hade betytt ett klick för varje plan.
+      ui.fokus = 'plan-id';
+      rita();
+    });
+    lagg.disabled = !!hinder || !ui.nyttPlan.id;
+    if (lagg.disabled) { lagg.title = hinder || 'Skriv planets beteckning först'; }
+    rad.appendChild(lagg);
+    kropp.appendChild(rad);
+  }
+
+  // Ett fält med etikett i steg 2:s formulär.
+  function faltIn(rot2, etikett, namn, varde, platshallare, vid) {
+    var w = el('label', 'bf-planfalt');
+    w.appendChild(el('span', 'etikett', etikett));
+    var f = el('input', 'bf-falt');
+    f.type = 'text';
+    f.dataset.falt = namn;
+    f.value = varde;
+    f.placeholder = platshallare;
+    f.addEventListener('input', function () { vid(f.value); });
+    w.appendChild(f);
+    rot2.appendChild(w);
+    return f;
+  }
+
+  // Planlistan, översta planet högst upp. Varje rad går att dra, och under dragningen visar en
+  // **linje** var planet hamnar – ovanför eller nedanför det man pekar på (beslut 106). Att
+  // släppa på ett plan och hoppas räcker inte: planeraren ska se platsen innan hon släpper.
+  function planlista(b, st) {
+    var w = el('div', 'bf-plan');
+    var uppifran = st.rader.slice().reverse();
+    uppifran.forEach(function (p) {
+      var rad = el('div', 'bf-planrad');
+      rad.dataset.plan = p.id;
+      rad.draggable = true;
+      if (ui.drag && ui.drag.id === p.id) { rad.classList.add('dras'); }
+      // Linjen ligger på den rad planet hamnar vid, på den sida det hamnar. Den är en kant på
+      // raden och inte ett eget element, så den aldrig kan hamna fel när listan rullas.
+      if (ui.drag && ui.drag.over === p.id && ui.drag.id !== p.id) {
+        rad.classList.add(ui.drag.under ? 'linje-under' : 'linje-over');
+      }
+      rad.appendChild(el('span', 'bf-planbet', p.id));
+      var txt = el('div', 'bf-btext');
+      var verktyg = el('div', 'bf-planverktyg');
+      if (ui.doper === p.id) {
+        // Benämningen ändras **på raden där den står**, inte i en ruta ovanpå sidan: resten av
+        // flödet frågar i panelen, och planeraren ska se namnet byta plats i listan direkt.
+        // Raden går inte att dra medan den redigeras – då hade ett klick i fältet startat ett
+        // drag i stället för att sätta markören.
+        rad.draggable = false;
+        rad.classList.add('doper');
+        var f = el('input', 'bf-falt');
+        f.type = 'text';
+        f.dataset.falt = 'plannamn-' + p.id;
+        f.value = p.namn;
+        f.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { ui.doper = null; P.sattPlanNamn(p.id, f.value); rita(); }
+          if (e.key === 'Escape') { ui.doper = null; rita(); }
+        });
+        txt.appendChild(f);
+        rad.appendChild(txt);
+        verktyg.appendChild(knapp('Klar', 'knapp liten-knapp', function () {
+          ui.doper = null;
+          P.sattPlanNamn(p.id, f.value);
+          rita();
+        }, 'Spara benämningen. Enter gör samma sak.'));
+        verktyg.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+          ui.doper = null; rita();
+        }));
+        // Markören hamnar i fältet så fort raden ritats om, som i steg 1:s namnfält.
+        ui.fokus = 'plannamn-' + p.id;
+      } else {
+        txt.appendChild(el('span', 'bf-bnamn', p.namn));
+        txt.appendChild(el('span', 'bf-bstatus',
+          p.rum ? antal(p.rum, 'rum', 'rum') : 'Skal – inga rum ännu'));
+        rad.appendChild(txt);
+        verktyg.appendChild(knapp('Döp om', 'knapp sekundar liten-knapp', function () {
+          ui.doper = p.id;
+          rita();
+        }, 'Byt benämning. Beteckningen ' + p.id + ' står kvar: rummen pekar på den.'));
+        verktyg.appendChild(knapp('Ta bort', 'knapp sekundar liten-knapp', function () {
+          P.taBortPlan(p.id);
+        }, p.rum ? 'Tar bort planet och dess ' + p.rum + ' rum. ◀ tar det tillbaka.'
+          : 'Tar bort planet. ◀ tar det tillbaka.'));
+      }
+      rad.appendChild(verktyg);
+
+      rad.addEventListener('dragstart', function (e) {
+        ui.drag = { id: p.id, over: null, under: false };
+        // Raden bleknar direkt, utan omritning: den dragna raden ska synas vara i rörelse,
+        // och en omritning mitt i ett drag tar bort noden webbläsaren drar – se dragover.
+        rad.classList.add('dras');
+        if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id); }
+      });
+      rad.addEventListener('dragover', function (e) {
+        if (!ui.drag || ui.drag.id === p.id) { return; }
+        e.preventDefault();
+        // Övre halvan av raden betyder ovanför, nedre nedanför: linjen följer var pekaren är,
+        // inte vilken rad den råkar ligga på.
+        var r = rad.getBoundingClientRect();
+        var under = (e.clientY - r.top) > r.height / 2;
+        if (ui.drag.over !== p.id || ui.drag.under !== under) {
+          ui.drag.over = p.id; ui.drag.under = under;
+          // Linjen flyttas på de rader som redan står där, och listan ritas **inte** om.
+          // Att byta ut DOM mitt i ett drag tar bort den nod webbläsaren drar över, och då
+          // slutar den skicka `dragover`: linjen hade fastnat där den först hamnade och
+          // planeraren släppt på en plats hon inte såg. Att listan står still under draget
+          // är också vad beslut 105 kräver.
+          flyttaLinjen();
+        }
+      });
+      rad.addEventListener('drop', function (e) {
+        e.preventDefault();
+        if (!ui.drag || ui.drag.id === p.id) { ui.drag = null; rita(); return; }
+        slappPlan(b, ui.drag.id, p.id, ui.drag.under);
+      });
+      w.appendChild(rad);
+    });
+    w.addEventListener('dragend', function () { ui.drag = null; rita(); });
+    return w;
+  }
+
+  // Linjen som visar var det dragna planet hamnar (beslut 106), flyttad på plats i stället för
+  // ritad om. Den är en kant på raden och inget eget element, så den kan aldrig hamna fel när
+  // listan rullas – och den är borta så fort raden inte längre är den pekaren står över.
+  function flyttaLinjen() {
+    var rader = rot.querySelectorAll('.bf-planrad');
+    [].forEach.call(rader, function (rad) {
+      var pa = ui.drag && ui.drag.over === rad.dataset.plan && ui.drag.id !== rad.dataset.plan;
+      rad.classList.toggle('linje-over', !!pa && !ui.drag.under);
+      rad.classList.toggle('linje-under', !!pa && !!ui.drag.under);
+    });
+  }
+
+  // Släppet räknas om från listans ordning (uppifrån) till byggnadens (nedifrån). Linjen
+  // *ovanför* plan X i listan betyder i byggnaden "direkt över X", alltså under det plan som
+  // ligger över X – och `flyttaPlan` tar planet det ska hamna under.
+  function slappPlan(b, dragetId, overId, under) {
+    var nedifran = b.plan.map(function (p) { return p.id; });
+    var kvar = nedifran.filter(function (id) { return id !== dragetId; });
+    var idx = kvar.indexOf(overId);
+    ui.drag = null;
+    if (idx < 0) { rita(); return; }
+    // I listan (uppifrån) är "under målet" = i byggnaden "under målet", och "över målet" i
+    // listan = i byggnaden "över målet", alltså under nästa plan uppåt.
+    var fore = under ? overId : kvar[idx + 1] || null;
+    P.flyttaPlan(dragetId, fore);
+  }
+
+  // Steg 3–4 byggs i de följande biljetterna i spåret. De syns med sitt läge, så att
   // planeraren ser hela vägen framför sig – ett tomt steg som inte finns hade gjort flödet
   // kortare än det är.
   function stegKommer(kropp, n) {
     var texter = {
-      2: 'Här läser du in byggnadens plan, eller lägger till dem för hand.',
       3: 'Här läser du in rummen med NTA och NTV, eller lägger till dem för hand.',
       4: 'Här läser du in de signifikanta installationerna, eller lägger till dem för hand.'
     };
@@ -9164,6 +9868,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // byggnad som är färdig.
   P.prenumereraByte(function () {
     ui.skapar = false;
+    ui.doper = null;
     rita();
   });
   rita();

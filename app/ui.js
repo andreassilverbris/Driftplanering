@@ -6,9 +6,14 @@
 
   var DP = window.DP;
   var typer = DP.installationstyper;
-  var b, rumIndex, instPerRum, signifikanta;
+  var b, modell, rumIndex, instPerRum, signifikanta;
+  // `b` är byggnadens data som den ligger i tillståndet (beslut 71) – det trädet, listorna och
+  // informationskortet visar. `modell` är samma byggnad med **formen räknad**: elevationer per
+  // plan och skal för de plan som inte har rum ännu (beslut 85). Bara viewern får formen, så
+  // att ett skal aldrig kan dyka upp i trädet som ett rum planeraren tror finns.
   function indexera() {
     b = DP.Plan.byggnad();
+    modell = DP.Planlosning.form(b);
     rumIndex = {}; instPerRum = {};
     // Nycklat på rummets nyckel (plan + rumsnummer): rumsnumret löper per plan och är inte
     // unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
@@ -43,7 +48,7 @@
   // ------------------------------------------------------------------
   // Viewer
   // ------------------------------------------------------------------
-  var viewer = new DP.Viewer($('#vy3d'), b, {
+  var viewer = new DP.Viewer($('#vy3d'), modell, {
     valtInstallation: function (inst) { visaInstKort(inst); viewer.valjInstallation(inst, false); markeraITrad(inst); },
     valtRum: function (r) { visaRumKort(r); },
     hover: visaTips,
@@ -74,9 +79,47 @@
   bindToggle('#t-etikett', 'etiketter');
   bindToggle('#t-rontgen', 'rontgen');
 
+  // En knapp som inte har något att visa är **utgråad, inte borttagen** (beslut 111):
+  // verktygsfältet ska se likadant ut hela tiden, så att planeraren lär sig var sakerna ligger
+  // och ser vad som kommer när byggnaden växer. En knapp som försvinner och kommer tillbaka
+  // flyttar de andra, och då måste man leta varje gång.
+  //
+  // Vad som är "inget att visa" följer av vad lagret ritar: innerväggar och rumsnamn kräver
+  // riktiga rum (ett skal har varken), röntgen kräver signifikanta installationer, och
+  // ytterväggar och tak finns så fort det finns ett plan att rita dem kring.
+  function uppdateraVerktyg() {
+    var harPlan = b.plan.length > 0;
+    var harRum = b.rum.length > 0;
+    var harSig = signifikanta.length > 0;
+    grana('#t-ytter', harPlan, 'Det finns inget plan att rita ytterväggar kring ännu.');
+    grana('#t-tak', harPlan, 'Det finns inget plan att lägga tak över ännu.');
+    grana('#t-inner', harRum, 'Innerväggar finns när rummen är inlästa (steg 3).');
+    grana('#t-etikett', harRum, 'Rumsnamn finns när rummen är inlästa (steg 3).');
+    grana('#t-rontgen', harSig, 'Röntgen visar signifikanta installationer, och det finns inga ännu (steg 4).');
+    grana('#v-oversikt', harPlan, 'Det finns ingen modell att se över ännu.');
+    grana('#v-uppifran', harPlan, 'Det finns ingen modell att se uppifrån ännu.');
+  }
+  function grana(sel, finns, varfor) {
+    var k = $(sel);
+    k.classList.toggle('utgraad', !finns);
+    k.disabled = !finns;
+    // Skälet står i titeln: en utgråad knapp som inte säger varför är en gåta, och planeraren
+    // ska kunna få svaret genom att peka på den.
+    if (!finns) { k.dataset.titel = k.dataset.titel || k.title || ''; k.title = varfor; }
+    else if (k.dataset.titel !== undefined) { k.title = k.dataset.titel; }
+  }
+
   var planKnappar = $('#planknappar');
   function byggPlanKnappar() {
     planKnappar.innerHTML = '';
+    // Plan-gruppen är tom innan planen finns. Den får ett streck i stället för ingenting, så
+    // att gruppen behåller sin plats och sin bredd i verktygsfältet (beslut 111).
+    if (!b.plan.length) {
+      var tomt = el('span', 'chip utgraad', '–');
+      tomt.title = 'Planen visas här när de är inlästa (steg 2).';
+      planKnappar.appendChild(tomt);
+      return;
+    }
     b.plan.slice().reverse().forEach(function (p) {
       var k = el('button', 'chip pa', p.id);
       k.title = planNamn(p.id) + ' (klick: visa/dölj, dubbelklick: visa bara detta plan och planen under)';
@@ -87,6 +130,7 @@
     });
   }
   byggPlanKnappar();
+  uppdateraVerktyg();
 
   // Val av byggnad i sidhuvudet
   var valj = $('#byggnad');
@@ -118,8 +162,9 @@
     indexera();
     // Vid ett byte nollställs vyn med flit; vid en dataändring står planeraren kvar vid sitt
     // rum och sin installation och ska se just det hon ändrade.
-    if (tomKort) { viewer.sattByggnad(b); } else { viewer.byggOmByggnad(b); }
+    if (tomKort) { viewer.sattByggnad(modell); } else { viewer.byggOmByggnad(modell); }
     byggPlanKnappar();
+    uppdateraVerktyg();
     byggTrad();
     uppdateraTomBesked();
     byggValjare();
