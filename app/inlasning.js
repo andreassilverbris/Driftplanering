@@ -308,6 +308,10 @@
     return { slag: 'exakt', nr: t };
   }
 
+  // Ett tal ur en cell eller ett fält planeraren skrivit i. Komma duger som decimaltecken –
+  // det är det hon skriver, och fastighetssystemet skriver det också – men allt annat är
+  // `null`: "36 m²" i en NTA-kolumn är inte ett tal, och ett tyst 36 hade varit en gissning.
+  // Exporterad, så att handinmatningen i steget Rum läser ett tal på samma sätt som filen.
   function tal(v) {
     var t = txt(v).replace(/\s/g, '').replace(',', '.');
     if (!t || !/^-?\d+(\.\d+)?$/.test(t)) { return null; }
@@ -588,6 +592,6 @@
     nummerkrock: nummerkrock,
     planMatchning: planMatchning, nrMatchning: nrMatchning,
     grupper: grupper, raknat: raknat, planFranRad: planFranRad,
-    tillArk: tillArk, pad3: pad3
+    tillArk: tillArk, pad3: pad3, tal: tal
   };
 })();

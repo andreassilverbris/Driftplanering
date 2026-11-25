@@ -169,9 +169,11 @@ async function taUtFil(page, filnamn) {
 
 // Väljer en fil i steg 2:s filväljare och väntar på att inläsningen blivit ett steg.
 async function lasInFil(page, fil) {
-  const fore = await historiklangd(page);
+  // Positionen och inte längden: en inläsning efter en ångran skriver över det som låg
+  // framför, så listan kan bli lika lång medan positionen går fram.
+  const fore = await historikpos(page);
   await page.locator('#byggnadsflode input[data-falt="filval"]').setInputFiles(fil);
-  await stegKlart(page, fore, 'inläsningen av ' + path.basename(fil));
+  await stegKlartPos(page, fore, 'inläsningen av ' + path.basename(fil));
 }
 
 // Steg 1–4 med Byggnad invändigt och Brandskydd varje månad
@@ -5295,6 +5297,258 @@ async function testStegRum(browser) {
   kontroll(/byt rumstyp/.test(bytt.historik),
     'bytet är ett steg i historiken ("' + bytt.historik + '")');
 
+  // ---- Dra om rummens ordning på ett plan (berättelse 44, beslut 78 och 106) ----
+  // Ordningen *är* placeringen i modellen: regeln lägger rummen medurs i listans ordning, så
+  // ett drag i listan ska byta rummens grannar i 3D-vyn. Draget går genom musen och inte
+  // genom koden – det är linjen och släppet planeraren använder.
+  const fore01 = await page.evaluate(() => ({
+    lista: DP.Plan.rumStatus().plan.filter(p => p.id === '01')[0].rum.map(r => r.nyckel),
+    // Var rummen ligger i modellen, så att testet kan visa att de bytte plats
+    x: DP.viewer.b.rum.filter(r => r.plan === '01' && !r.skal)
+      .map(r => r.nr + '@' + Math.round(r.rect[0] * 10) / 10)
+  }));
+  kontroll(fore01.lista.join(' ') === '01-001 01-002 01-003 01-004',
+    'rummen på plan 01 ligger i nummerordning före draget (' + fore01.lista.join(' ') + ')');
+
+  const kallaR = bf.locator('.bf-rumrad[data-rum="01-003"]');
+  const malR = bf.locator('.bf-rumrad[data-rum="01-001"]');
+  await malR.scrollIntoViewIfNeeded();
+  await kallaR.scrollIntoViewIfNeeded();
+  const kbR = await kallaR.boundingBox(), mbR = await malR.boundingBox();
+  await page.mouse.move(kbR.x + kbR.width / 2, kbR.y + kbR.height / 2);
+  await page.mouse.down();
+  // Två rörelser: webbläsaren skickar dragover under vägen, och linjen ska följa med dit
+  // pekaren är – inte fastna där den först hamnade.
+  await page.mouse.move(mbR.x + mbR.width / 2, mbR.y + mbR.height - 3, { steps: 6 });
+  await page.mouse.move(mbR.x + mbR.width / 2, mbR.y + 3, { steps: 6 });
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-rumrad[data-rum="01-001"].linje-over'),
+    'linjen ovanför 01-001');
+  const linjeR = await page.evaluate(() => ({
+    linje: [...document.querySelectorAll('#byggnadsflode .bf-rumrad')]
+      .filter(r => /linje-(over|under)/.test(r.className))
+      .map(r => r.dataset.rum + ':' + (/linje-under/.test(r.className) ? 'under' : 'över')),
+    dras: [...document.querySelectorAll('#byggnadsflode .bf-rumrad.dras')].map(r => r.dataset.rum)
+  }));
+  kontroll(linjeR.linje.join(' ') === '01-001:över',
+    'linjen visar att rummet hamnar före 01-001 innan det släpps (' + linjeR.linje.join(' ')
+    + ', beslut 106)');
+  kontroll(linjeR.dras.join(' ') === '01-003', 'den dragna rumsraden syns vara i rörelse');
+  await bild(page, 'byggnad-steg3-rumdrag');
+
+  const foreDrag = await historikpos(page);
+  await page.mouse.up();
+  await stegKlartPos(page, foreDrag, 'dra om rummens ordning');
+  const dragetR = await page.evaluate(() => ({
+    lista: DP.Plan.rumStatus().plan.filter(p => p.id === '01')[0].rum.map(r => r.nyckel),
+    text: DP.Plan.historik().lista.slice(-1)[0],
+    x: DP.viewer.b.rum.filter(r => r.plan === '01' && !r.skal)
+      .map(r => r.nr + '@' + Math.round(r.rect[0] * 10) / 10),
+    linjer: document.querySelectorAll('#byggnadsflode .bf-rumrad.linje-over, #byggnadsflode .bf-rumrad.linje-under').length
+  }));
+  kontroll(dragetR.lista.join(' ') === '01-003 01-001 01-002 01-004',
+    'rummet ligger först på planet efter draget (' + dragetR.lista.join(' ') + ')');
+  kontroll(/flytta Logement 1:1 före Korridor på plan 01/.test(dragetR.text),
+    'draget är ett steg i historiken med text i klartext ("' + dragetR.text + '")');
+  kontroll(dragetR.x.join(' ') !== fore01.x.join(' '),
+    'rummen bytte plats i modellen: ordningen är placeringen (' + fore01.x.join(' ') + ' → '
+    + dragetR.x.join(' ') + ', beslut 78)');
+  kontroll(dragetR.linjer === 0, 'linjen är borta när rummet släppts');
+
+  await angra(page);
+  const angratR = await page.evaluate(() => ({
+    lista: DP.Plan.rumStatus().plan.filter(p => p.id === '01')[0].rum.map(r => r.nyckel),
+    x: DP.viewer.b.rum.filter(r => r.plan === '01' && !r.skal)
+      .map(r => r.nr + '@' + Math.round(r.rect[0] * 10) / 10)
+  }));
+  kontroll(angratR.lista.join(' ') === fore01.lista.join(' ') && angratR.x.join(' ') === fore01.x.join(' '),
+    'ångra flyttar rummen tillbaka, både i listan och i modellen (' + angratR.lista.join(' ') + ')');
+  await gorOm(page);
+  kontroll(await page.evaluate(() =>
+    DP.Plan.rumStatus().plan.filter(p => p.id === '01')[0].rum[0].nyckel) === '01-003',
+    'gör om lägger tillbaka den dragna ordningen');
+  // Tillbaka till nummerordning, så att resten av testet läser den byggnad filen gav
+  await angra(page);
+
+  // ---- Ett rum dras till ett annat plan och tar sina installationer med sig ----
+  // Installationerna pekar på rummets nyckel (beslut 76), så ett rum som byter plan eller
+  // nummer skriver om dem i samma steg – annars hade de suttit i ett rum som inte finns.
+  await page.evaluate(() => {
+    // En installation i 01-002 för hand: steg 4 är inte byggt, och testet behöver en
+    // installation som pekar på rummet för att kunna visa att den följer med.
+    DP.Plan.andraByggnad('lägg till installation för testet', '', data => {
+      // Installationen bär **bara** rummets nyckel (beslut 76): viewern tar planet ur det rum
+      // installationen sitter i, så ett eget plan-fält hade varit en andra sanning.
+      data.installationer.push({ id: 'TEST-1', typ: 'handbrandslackare', beteckning: 'HB1',
+        signifikant: true, rum: '01-002' });
+      // Ett innerrum i rummet: det bär förälderns nyckel men ritas ur sitt **eget** plan,
+      // så båda måste följa med när föräldern byter våning.
+      data.rum.push({ nr: '901', namn: 'Städskrubb', plan: '01', typ: 'forrad',
+        rumstyp: 'stad', nta: 4, iRum: '01-002' });
+    });
+  });
+  const foreFlytt = await historikpos(page);
+  const rumKalla = bf.locator('.bf-rumrad[data-rum="01-002"]');
+  const planMal = bf.locator('.bf-planrum[data-rumplan="00"] .bf-grupphuvud');
+  // Både källan och målet måste vara synliga i panelen: musen rullar inte dit av sig själv,
+  // och ett drag som börjar eller slutar utanför den synliga ytan hade landat någon annanstans
+  // än där testet tror.
+  await planMal.scrollIntoViewIfNeeded();
+  await rumKalla.scrollIntoViewIfNeeded();
+  const rkb = await rumKalla.boundingBox(), pmb = await planMal.boundingBox();
+  await page.mouse.move(rkb.x + rkb.width / 2, rkb.y + rkb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(pmb.x + pmb.width / 2, pmb.y + pmb.height / 2, { steps: 8 });
+  // En liten rörelse **på** målet: Chromium skickar dragover på egen takt under ett drag, och
+  // den sista positionen i en rörelse hinner inte alltid bli ett eget event. Utan den hade
+  // testet väntat på ett märke webbläsaren aldrig kom att sätta.
+  await page.mouse.move(pmb.x + pmb.width / 2 + 3, pmb.y + pmb.height / 2, { steps: 3 });
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-planrum[data-rumplan="00"].malplan'),
+    'plan 00 märkt som mål');
+  kontroll(await bf.locator('.bf-planrum.malplan').count() === 1,
+    'planet märks som mål när pekaren står utanför rummen – ett plan utan rum har ingen rad '
+    + 'att lägga en linje på');
+  await page.mouse.up();
+  await stegKlartPos(page, foreFlytt, 'dra rummet till ett annat plan');
+  const flyttat = await page.evaluate(() => {
+    const b = DP.Plan.byggnad();
+    return {
+      plan00: DP.Plan.rumStatus().plan.filter(p => p.id === '00')[0].rum.map(r => r.nyckel + ':' + r.namn),
+      plan01: DP.Plan.rumStatus().plan.filter(p => p.id === '01')[0].rum.map(r => r.nyckel),
+      inst: (b.installationer.filter(i => i.id === 'TEST-1')[0] || {}).rum,
+      inner: (b.rum.filter(r => r.namn === 'Städskrubb')[0] || {}),
+      text: DP.Plan.historik().lista.slice(-1)[0],
+      // Rummet ligger i modellen på sitt nya plan
+      modell: DP.viewer.b.rum.filter(r => r.plan === '00' && !r.skal).map(r => r.nr).join(' ')
+    };
+  });
+  kontroll(flyttat.plan00.some(r => /^00-002:Entré/.test(r)),
+    'rummet hamnade på plan 00 med nästa lediga nummer – 001 var taget av Fläktrum ('
+    + flyttat.plan00.join(' | ') + ', beslut 110)');
+  kontroll(flyttat.plan01.indexOf('01-002') < 0,
+    'och ligger inte kvar på plan 01 (' + flyttat.plan01.join(' ') + ')');
+  kontroll(flyttat.inst === '00-002',
+    'installationen i rummet följde med till den nya nyckeln (' + flyttat.inst + ', beslut 76)');
+  kontroll(flyttat.inner.iRum === '00-002' && flyttat.inner.plan === '00',
+    'innerrummet följde med både i nyckeln och i planet det ritas på ('
+    + flyttat.inner.iRum + ' på plan ' + flyttat.inner.plan + ')');
+  kontroll(/flytta Entré till Källarplan som 00-002/.test(flyttat.text),
+    'flytten är ett steg i historiken med text i klartext ("' + flyttat.text + '")');
+  kontroll(flyttat.modell === '001 002',
+    'rummet ritas på sitt nya plan i modellen (' + flyttat.modell + ')');
+  await angra(page);
+  kontroll(await page.evaluate(() =>
+    (DP.Plan.byggnad().installationer.filter(i => i.id === 'TEST-1')[0] || {}).rum) === '01-002',
+    'ångra tar rummet och installationen tillbaka till 01-002');
+  // Bort med testets installation och tillbaka till byggnaden filen gav
+  await angra(page);
+
+  // ---- Ett oplacerat rum dras till ett plan (berättelse 26 och 37) ----
+  // Samma handling som knappen på raden, andra vägen: planeraren drar raden till planet när
+  // listan är lång. Båda går genom `svaraRum`, så nummerkrocken prövas likadant (beslut 110).
+  const filOplacerad = skrivArk('rum-oplacerad.xlsx', {
+    Rum: [
+      ['Plan', 'Rum', 'Benämning', 'NTA'],
+      ['09', '001', 'Vindsförråd', '20']
+    ]
+  });
+  await lasInFil(page, filOplacerad);
+  const oplaceradFore = await page.evaluate(() => ({
+    antal: DP.Plan.inlasningStatus('rum').raknat.oplacerad,
+    dragbar: !!document.querySelector('#byggnadsflode .bf-inlrad.oplacerad.dragbar')
+  }));
+  kontroll(oplaceradFore.antal === 1 && oplaceradFore.dragbar,
+    'den oplacerade raden går att dra (' + oplaceradFore.antal + ' oplacerad)');
+  const oplKalla = bf.locator('.bf-inlrad.oplacerad.dragbar').first();
+  const oplMal = bf.locator('.bf-planrum[data-rumplan="02"] .bf-grupphuvud');
+  await oplMal.scrollIntoViewIfNeeded();
+  const okb = await oplKalla.boundingBox(), omb = await oplMal.boundingBox();
+  const foreDra = await historikpos(page);
+  await page.mouse.move(okb.x + okb.width / 2, okb.y + okb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(omb.x + omb.width / 2, omb.y + omb.height / 2, { steps: 8 });
+  await page.mouse.move(omb.x + omb.width / 2 + 3, omb.y + omb.height / 2, { steps: 3 });
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-planrum[data-rumplan="02"].malplan'),
+    'plan 02 märkt som mål för den oplacerade raden');
+  await page.mouse.up();
+  await stegKlartPos(page, foreDra, 'dra det oplacerade rummet till ett plan');
+  const dragetOpl = await page.evaluate(() => {
+    const st = DP.Plan.inlasningStatus('rum');
+    return {
+      oplacerade: st.raknat.oplacerad,
+      rum: DP.Plan.byggnad().rum.filter(r => r.namn === 'Vindsförråd')
+        .map(r => DP.rumNyckel(r.plan, r.nr)).join(''),
+      forslag: st.grupper.forslag.map(r => r.fragor.map(f => f.text).join(' ')).join(' | '),
+      text: DP.Plan.historik().lista.slice(-1)[0]
+    };
+  });
+  kontroll(dragetOpl.oplacerade === 0,
+    'raden är inte längre oplacerad när den dragits till ett plan (berättelse 26)');
+  kontroll(dragetOpl.rum === '02-005' || /redan ett rum 02-001/.test(dragetOpl.forslag),
+    'rummet hamnade på planet, eller fick nästa lediga nummer vid krock ("'
+    + (dragetOpl.rum || dragetOpl.forslag) + '", beslut 110)');
+  kontroll(/plan 02/.test(dragetOpl.text),
+    'draget är ett steg i historiken ("' + dragetOpl.text + '")');
+  // Tillbaka: raden hör inte till resten av testet
+  await angra(page);
+  await angra(page);
+
+  // ---- Ett rum läggs till för hand, med samma förslag som vid inläsning (berättelse 26) ----
+  await bf.locator('button', { hasText: 'Lägg till rum' }).first().click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode input[data-falt="rum-namn"]'),
+    'formuläret för ett nytt rum');
+  await bf.locator('.bf-rumform .bf-planval button', { hasText: '01 Entréplan' }).click();
+  await bf.locator('input[data-falt="rum-namn"]').fill('Fikarum');
+  const forslag = await page.evaluate(() =>
+    [...document.querySelectorAll('#byggnadsflode .steg-kort[data-bsteg="3"] .bf-notis')]
+      .map(e => e.textContent).join(' '));
+  kontroll(/Fikarum/.test(forslag) && /01-005/.test(forslag),
+    'förslaget syns innan rummet finns: nyckeln och rumstypen läst ur benämningen ("'
+    + forslag.slice(0, 120) + '", beslut 80)');
+  const foreNytt = await historikpos(page);
+  await bf.locator('.knapprad button', { hasText: 'Lägg till rum' }).last().click();
+  await stegKlartPos(page, foreNytt, 'lägga till ett rum för hand');
+  const nyttRum = await page.evaluate(() => {
+    const r = DP.Plan.byggnad().rum.filter(x => x.namn === 'Fikarum')[0] || {};
+    return {
+      nyckel: DP.rumNyckel(r.plan, r.nr), rumstyp: r.rumstyp, typ: r.typ, nta: r.nta,
+      text: DP.Plan.historik().lista.slice(-1)[0],
+      lista: DP.Plan.rumStatus().plan.filter(p => p.id === '01')[0].rum.map(x => x.nyckel),
+      modell: DP.viewer.b.rum.filter(x => x.namn === 'Fikarum').map(x => x.rect.length).join(''),
+      // Nästa nummer räknades upp, så nästa rum planeraren skriver inte krockar
+      nasta: [...document.querySelectorAll('#byggnadsflode input[data-falt="rum-nr"]')]
+        .map(e => e.value).join('')
+    };
+  });
+  kontroll(nyttRum.nyckel === '01-005' && nyttRum.rumstyp === 'fikarum' && nyttRum.typ === 'personal',
+    'rummet fick nästa lediga nummer och rumstypen ur benämningen (' + nyttRum.nyckel + ' '
+    + nyttRum.rumstyp + '/' + nyttRum.typ + ')');
+  kontroll(nyttRum.nta > 0,
+    'NTA blev rumstypens standardvärde när planeraren lämnade fältet tomt (' + nyttRum.nta
+    + ' m², beslut 79)');
+  kontroll(nyttRum.lista.indexOf('01-005') >= 0 && nyttRum.modell === '4',
+    'rummet syns i listan och i modellen med en räknad rektangel (' + nyttRum.lista.join(' ') + ')');
+  kontroll(/lägg till rum 01-005 Fikarum/.test(nyttRum.text),
+    'tillägget är ett steg i historiken ("' + nyttRum.text + '")');
+  kontroll(nyttRum.nasta === '006',
+    'numret räknas upp, så nästa rum planeraren skriver in inte krockar (' + nyttRum.nasta + ')');
+  // Beskedet om ett upptaget nummer kommer medan hon skriver (beslut 103)
+  await bf.locator('input[data-falt="rum-nr"]').fill('001');
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"] .bf-fel'),
+    'beskedet om ett upptaget nummer');
+  const upptaget = await page.evaluate(() => ({
+    fel: document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"] .bf-fel').textContent,
+    last: [...document.querySelectorAll('#byggnadsflode .knapprad button')]
+      .filter(k => /Lägg till rum/.test(k.textContent)).every(k => k.disabled)
+  }));
+  kontroll(/redan ett rum 01-001/.test(upptaget.fel) && upptaget.last,
+    'ett upptaget nummer sägs i klartext medan hon skriver, och knappen är utgråad ("'
+    + upptaget.fel.slice(0, 90) + '")');
+  await bf.locator('.knapprad button', { hasText: 'Avbryt' }).last().click();
+  await angra(page);
+  kontroll(await page.evaluate(() =>
+    DP.Plan.byggnad().rum.filter(x => x.namn === 'Fikarum').length) === 0,
+    'ångra tar bort det handlagda rummet');
+
   // ---- Ta ut filen igen: rummen är ifyllda, inklusive Rumstyp (berättelse 17 och 21) ----
   const igen = await taUtFil(page, 'rum-ifylld-ut.xlsx');
   const utArk = lasArkFil(igen.fil);
@@ -5323,6 +5577,35 @@ async function testStegRum(browser) {
   kontroll(retur.st.raknat.klar === 9,
     'alla nio rummen räknas som klara också andra gången filen läses in ('
     + retur.st.raknat.klar + ')');
+
+  // ---- En ritad byggnad säger att grannarna inte ritas om (beslut 101, berättelse 58) ----
+  // Garage, Kasern 1 och 2 och Hangar har egna rektanglar i `data/` och lämnas orörda av
+  // planlösningen. Ett rum som läggs till eller dras om där får sin plats ur regeln medan
+  // grannarna behåller sina ritade mått, så de kan hamna över varandra. Planeraren ska få
+  // veta det innan hon drar; att rita om hela planet efter en varning hör till Ändra byggnad.
+  const kasern5 = await page.evaluate(() => DP.Plan.aktivId());
+  await byggnadsval(page, 'kasern1');
+  // Steget står kvar öppet över ett byggnadsbyte – det är samma steg i flödet, bara en annan
+  // byggnad – så inget klick behövs, och ett klick hade stängt det.
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"].oppen'),
+    'steg 3 står kvar öppet för Kasern 1');
+  const ritad = await page.evaluate(() => ({
+    handritad: DP.Plan.rumStatus().handritad,
+    notis: [...document.querySelectorAll('#byggnadsflode .steg-kort[data-bsteg="3"] .bf-notis')]
+      .map(e => e.textContent).join(' ')
+  }));
+  kontroll(ritad.handritad === true,
+    'rumStatus säger att Kasern 1 är en ritad byggnad (beslut 101)');
+  kontroll(/ritad byggnad/.test(ritad.notis) && /Ändra byggnad/.test(ritad.notis),
+    'steg 3 säger i klartext att grannarna inte ritas om, och hänvisar vidare ("'
+    + ritad.notis.slice(0, 110) + '")');
+  await byggnadsval(page, kasern5);
+  kontroll(await page.evaluate(() => DP.Plan.rumStatus().handritad) === false,
+    'en byggnad som planeraren själv byggt upp är räknad, inte ritad');
+  await vanta(page, () => {
+    const k = document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"].oppen');
+    return !!k && !/ritad byggnad/.test(k.textContent);
+  }, 'notisen borta för den räknade byggnaden');
 
   // ---- Huvudvyn ryms på skärmen med steg 3 öppet ----
   const ryms = await page.evaluate(() => ({

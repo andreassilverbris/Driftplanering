@@ -603,12 +603,28 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-summafalt { display: flex; flex-direction: column; gap: 1px; }
 .bf-summafalt .etikett { font-size: 10px; color: var(--dov); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
 .bf-summafalt .varde { font-size: 13px; font-weight: 600; }
-.bf-planrum { margin-bottom: 10px; }
+.bf-planrum { margin-bottom: 10px; border-radius: 10px; }
 .bf-planareor { font-weight: 400; color: var(--dov); font-size: 11px; margin-left: 6px; }
 /* Rummen under sitt plan, i den ordning modellen ritar dem (beslut 78). */
-.bf-rumrad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 3px; flex-wrap: wrap; }
+.bf-rumrad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 3px; flex-wrap: wrap; cursor: grab; }
 .bf-rumrad:hover { border-color: #b8cff8; }
 .bf-rumrad .bf-btext { flex: 1 1 140px; }
+/* Rummens ordning *är* placeringen i modellen (beslut 78), så en rad går att dra – och
+   linjen visar var rummet hamnar innan det släpps (beslut 106). Samma kanter som i
+   planlistan: samma handling ska se likadan ut i båda stegen. */
+.bf-rumrad.dras { opacity: .45; }
+.bf-rumrad.linje-over { box-shadow: inset 0 3px 0 0 var(--accent); }
+.bf-rumrad.linje-under { box-shadow: inset 0 -3px 0 0 var(--accent); }
+/* Planet som droppmål: står pekaren utanför rummen hamnar rummet sist på planet, och ett
+   plan utan rum har ingen rad att lägga en linje på. Då märks planet självt. */
+.bf-planrum.malplan { box-shadow: 0 0 0 2px var(--accent); }
+.bf-tomtplan { font-size: 11px; color: var(--dov); line-height: 1.45; padding: 6px 8px; border: 1px dashed var(--linje); border-radius: 8px; margin-bottom: 3px; }
+/* Den oplacerade raden som går att dra till ett plan (berättelse 26 och 37). */
+.bf-inlrad.dragbar { cursor: grab; }
+.bf-inlrad.dras { opacity: .45; }
+/* Formuläret för ett nytt rum: fyra smala fält i rad, som steg 2:s två. */
+.bf-rumform { margin-bottom: 8px; }
+.bf-rumfalt { display: grid; grid-template-columns: 90px 1fr 80px 80px; gap: 8px; align-items: end; margin-top: 6px; }
 /* Typvalet och planvalet ligger på raden och radbryter: en knapp per typ är ett klick, och
    en lista som försvinner utanför panelen är en lista planeraren inte hittar. */
 .bf-typval, .bf-planval { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 100%; margin-top: 4px; }

@@ -10,7 +10,8 @@
  * område och färg), **steg 2 Plan** (ta ut och läsa in inläsningsfilen, godta förslag,
  * svara på det oplacerade, lägga till plan för hand, dra om ordningen, döpa om och ta bort)
  * och **steg 3 Rum** (de inlästa rummen med plan, nummer, rumstyp och NTA, rummen per plan
- * med areasummor, byte av rumstyp och borttagning).
+ * med areasummor, byte av rumstyp och borttagning, att dra om rummens ordning och dra ett
+ * oplacerat rum till ett plan, och att lägga till ett rum för hand).
  * Steg 4 syns med sitt läge men är tomt tills det byggs i den följande biljetten i spåret.
  *
  * Inläsningens tre grupper (beslut 83) ritas av **samma** kod för båda stegen: det som
@@ -55,7 +56,14 @@
     // Inläsningen: skälet när en fil inte gick att läsa, och det planeraren skrivit i en
     // oplacerad rads fält (nyckel → text) innan hon tryckt på *Placera*.
     filfel: '',
-    svar: {}
+    svar: {},
+    // Steg 3: rummet som dras och det som skrivs innan rummet läggs till. `rumdrag` bär
+    // antingen `nyckel` (ett rum som ligger i byggnaden) eller `inlkey` (en oplacerad
+    // inläst rad), och var linjen ligger: `over` är rummet den står vid, `under` på vilken
+    // sida, `planOver` planet när pekaren står på en planrubrik och inget rum.
+    rumdrag: null,
+    nyttRum: { plan: '', nr: '', namn: '', nta: '', ntv: '' },
+    laggerTillRum: false
   };
 
   function el(tag, cls, html) {
@@ -573,6 +581,23 @@
   function oplaceradRad(r, flik) {
     var rad = el('div', 'bf-inlrad oplacerad');
     rad.dataset.inlrad = r.key;
+    // En oplacerad **rumsrad** går att dra till ett plan i listan nedanför (berättelse 26 och
+    // 37), vid sidan av knapparna på raden. Draget är det planeraren når när listan är lång
+    // och planet långt ner, och knapparna det hon når när hon redan ser dem – samma handling
+    // två vägar, och båda går genom `svaraRum`, så nummerkrocken prövas likadant (beslut 110).
+    if (flik === 'rum' && DP.Inlasning.fraga(r, 'plan')) {
+      rad.draggable = true;
+      rad.classList.add('dragbar');
+      rad.addEventListener('dragstart', function (e) {
+        ui.rumdrag = { inlkey: r.key, over: null, under: false, planOver: null };
+        rad.classList.add('dras');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', r.key);
+        }
+      });
+      rad.addEventListener('dragend', function () { ui.rumdrag = null; rita(); });
+    }
     var txt = el('div', 'bf-btext');
     txt.appendChild(el('span', 'bf-bnamn',
       (flik === 'rum' ? beteckningFor(r, flik) + ' ' : '') + (r.falt.namn || '(utan benämning)')));
@@ -860,15 +885,132 @@
         'Inga rum ännu. Läs in fliken <b>Rum</b> ur inläsningsfilen: varje rad behöver plan, ' +
         'rumsnummer, benämning och NTA. Så fort ett rum är klart växer skalet i modellen till ' +
         'rummen – <b>korridoren längs byggnaden och rummen på båda sidor i nummerordning</b>, ' +
-        'enligt byggnadstypens regel.'));
+        'enligt byggnadstypens regel. Du kan också lägga till rummen för hand här nedan.'));
+    } else {
+      kropp.appendChild(summarad(st));
+    }
+    // De handritade byggnaderna är ritade rum för rum i `data/` och lämnas orörda av
+    // planlösningen (beslut 101). Ett rum som läggs till eller dras om där får sin plats ur
+    // regeln medan grannarna behåller sina ritade mått, och då kan de ligga över varandra.
+    // Planeraren får veta det innan hon drar – att planet ritas om efter en varning hör till
+    // *Ändra byggnad* (berättelse 58) och är inte byggt här.
+    if (st.handritad) {
+      kropp.appendChild(el('div', 'bf-notis',
+        '<b>' + b.namn + '</b> är en ritad byggnad: dess rum har egna mått i systemet. Att dra ' +
+        'om ordningen eller lägga till ett rum här räknar om <i>det nya rummets</i> plats ur ' +
+        'byggnadstypens regel, men inte grannarnas – så rummen kan hamna över varandra i ' +
+        'modellen. Att rita om hela planet efter en varning hör till <i>Ändra byggnad</i>.'));
+    }
+    // Alla plan ritas, också de utan rum: ett tomt plan är det planeraren drar ett oplacerat
+    // rum till (berättelse 37), och ett plan som inte syns går inte att dra till.
+    var lista = el('div', 'bf-rumlista');
+    st.plan.slice().reverse().forEach(function (p) {
+      lista.appendChild(planensRum(p));
+    });
+    // Släpps draget utanför ett mål nollställs det här: ett `dragend` på raden hade uteblivit
+    // när raden ritats om, och då hade linjen stått kvar efter ett avbrutet drag.
+    lista.addEventListener('dragend', function () { ui.rumdrag = null; rita(); });
+    kropp.appendChild(lista);
+    laggTillRumFormular(kropp, st);
+  }
+
+  // ---- Lägg till ett rum för hand (berättelse 26) ----
+  // Samma form som *Lägg till plan* i steg 2, och med samma förslag som inläsningen ger:
+  // rumstypen läses ur benämningen och NTA föreslås ur rumstypen (beslut 80). Ett rum
+  // planeraren skriver in själv ska bli detsamma som ett rum som kom ur filen – annars hade
+  // modellen sett olika ut beroende på hur uppgifterna kom in.
+  //
+  // Formuläret är hopfällt bakom en knapp: vanligaste vägen är filen, och ett formulär som
+  // alltid står öppet hade tryckt ner rumslistan som planeraren arbetar i.
+  function laggTillRumFormular(kropp, st) {
+    if (!ui.laggerTillRum) {
+      var rad0 = el('div', 'knapprad');
+      rad0.appendChild(knapp('Lägg till rum', 'knapp sekundar liten-knapp', function () {
+        ui.laggerTillRum = true;
+        // Förvalet är det översta planet, det planeraren ser högst upp i listan, och nästa
+        // lediga nummer där: det hon skriver är benämningen, inte numret.
+        var overst = st.plan.length ? st.plan[st.plan.length - 1].id : '';
+        ui.nyttRum = { plan: overst, nr: P.nastaRumsnummer(overst), namn: '', nta: '', ntv: '' };
+        ui.fokus = 'rum-namn';
+        rita();
+      }, 'Lägg till ett rum som inte finns i inläsningsfilen.'));
+      kropp.appendChild(rad0);
       return;
     }
-
-    kropp.appendChild(summarad(st));
+    kropp.appendChild(el('div', 'liten-rubrik', 'Lägg till rum'));
+    var w = el('div', 'bf-rumform');
+    // Planet väljs med en knapp per plan, som på en oplacerad rad: byggnaden har sällan fler
+    // än sex, och en knapp som säger "01 Entréplan" är ett klick medan en rullgardin är tre.
+    var planrad = el('div', 'bf-planval');
     st.plan.slice().reverse().forEach(function (p) {
-      if (!p.rum.length) { return; }
-      kropp.appendChild(planensRum(p));
+      planrad.appendChild(knapp(p.id + ' ' + p.namn,
+        'knapp liten-knapp' + (p.id === ui.nyttRum.plan ? '' : ' sekundar'), function () {
+          ui.nyttRum.plan = p.id;
+          // Numret följer planet: 001 kan vara ledigt på ett plan och taget på nästa.
+          ui.nyttRum.nr = P.nastaRumsnummer(p.id);
+          rita();
+        }, 'Lägg rummet på plan ' + p.id + '.'));
     });
+    w.appendChild(planrad);
+    var rutnat = el('div', 'bf-rumfalt');
+    faltIn(rutnat, 'Rumsnummer', 'rum-nr', ui.nyttRum.nr, 't.ex. 001', function (v) {
+      ui.nyttRum.nr = v; rita();
+    });
+    faltIn(rutnat, 'Benämning', 'rum-namn', ui.nyttRum.namn, 't.ex. Logement 1:3', function (v) {
+      ui.nyttRum.namn = v; rita();
+    });
+    faltIn(rutnat, 'NTA i m²', 'rum-nta', ui.nyttRum.nta,
+      String((DP.rumstyper[foreslagenRumstyp()] || {}).nta || 36), function (v) {
+        ui.nyttRum.nta = v; rita();
+      });
+    faltIn(rutnat, 'NTV i m³', 'rum-ntv', ui.nyttRum.ntv, 'valfri', function (v) {
+      ui.nyttRum.ntv = v; rita();
+    });
+    w.appendChild(rutnat);
+    kropp.appendChild(w);
+
+    // Beskedet medan planeraren skriver, som för planets beteckning och byggnadens namn
+    // (beslut 103): ett upptaget nummer ska hon få veta om innan hon trycker.
+    var hinder = P.rumHinder(ui.nyttRum.plan, ui.nyttRum.nr);
+    if (hinder) { kropp.appendChild(el('div', 'bf-fel', hinder)); }
+    // Rumstypen och NTA är förslag planeraren ska se innan rummet finns: hon skriver
+    // "Logement 1:3" och ska förstå att systemet läste Logement ur det.
+    if (!hinder && ui.nyttRum.plan) {
+      var typ = DP.rumstyper[foreslagenRumstyp()];
+      var txt = 'Rummet blir <b>' + DP.rumNyckel(ui.nyttRum.plan, pad(ui.nyttRum.nr)) +
+        '</b> med rumstypen <b>' + typ.namn + '</b>';
+      txt += ui.nyttRum.namn ? ', läst ur benämningen.' : ' – benämningen säger ännu ingenting.';
+      if (!String(ui.nyttRum.nta).trim()) {
+        txt += ' NTA blir ' + (typ.nta || 36) + ' m², standard för ' + typ.namn +
+          '. Den ger rummets storlek i modellen.';
+      }
+      kropp.appendChild(el('div', 'bf-notis', txt));
+    }
+    var rad = el('div', 'knapprad hoger');
+    rad.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+      ui.laggerTillRum = false; rita();
+    }));
+    var lagg = knapp('Lägg till rum', 'knapp', function () {
+      if (!P.laggTillRum({ plan: ui.nyttRum.plan, nr: ui.nyttRum.nr, namn: ui.nyttRum.namn,
+        nta: ui.nyttRum.nta, ntv: ui.nyttRum.ntv })) { rita(); return; }
+      // Nästa rum är nästa sak planeraren skriver: numret räknas upp och markören går
+      // tillbaka till benämningen, som efter *Lägg till plan* i steg 2.
+      ui.nyttRum = { plan: ui.nyttRum.plan, nr: P.nastaRumsnummer(ui.nyttRum.plan),
+        namn: '', nta: '', ntv: '' };
+      ui.fokus = 'rum-namn';
+      rita();
+    });
+    lagg.disabled = !!hinder;
+    if (lagg.disabled) { lagg.title = hinder; }
+    rad.appendChild(lagg);
+    kropp.appendChild(rad);
+  }
+  function foreslagenRumstyp() {
+    return DP.rumstypFor(ui.nyttRum.namn) || DP.rumstypOvrig;
+  }
+  function pad(nr) {
+    var t = String(nr == null ? '' : nr).trim();
+    return /^\d{1,3}$/.test(t) ? DP.Inlasning.pad3(t) : t;
   }
 
   // Areorna för hela byggnaden, överst: det planeraren jämför mot fastighetssystemets siffra.
@@ -894,19 +1036,43 @@
   }
   function area(v) { return v == null ? '–' : Math.round(v * 10) / 10 + ' m²'; }
 
-  // Ett plan med sina rum. Rumstypen går att byta med ett klick (beslut 80): systemet läste
-  // den ur benämningen, och en gissning planeraren inte kan rätta är värre än ingen gissning.
+  // Ett plan med sina rum. Tre saker händer här:
+  //
+  //   * Rumstypen går att byta med ett klick (beslut 80): systemet läste den ur benämningen,
+  //     och en gissning planeraren inte kan rätta är värre än ingen gissning.
+  //   * Varje rad går att **dra**, eftersom ordningen *är* placeringen i modellen (beslut 78):
+  //     drar hon om ordningen byter rummet grannar i byggnaden (berättelse 44).
+  //   * Planet självt är ett **droppmål**, så ett rum kan dras till ett annat plan – också till
+  //     ett plan som ännu inte har några rum (berättelse 37 och 38).
+  //
+  // Linjen visar var rummet hamnar innan hon släpper (beslut 106), precis som i planlistan,
+  // och är en kant på raden och inget eget element – så den kan aldrig hamna fel när listan
+  // rullas.
   function planensRum(p) {
     var w = el('section', 'bf-planrum');
+    w.dataset.rumplan = p.id;
+    if (ui.rumdrag && ui.rumdrag.planOver === p.id) { w.classList.add('malplan'); }
     var h = el('div', 'bf-grupphuvud');
     var rubrik = el('div', 'liten-rubrik', p.id + ' ' + p.namn +
       ' <span class="bf-planareor">' + antal(p.rum.length, 'rum', 'rum') +
       ' · NTA ' + area(p.nta) + '</span>');
     h.appendChild(rubrik);
     w.appendChild(h);
+    if (!p.rum.length) {
+      w.appendChild(el('div', 'bf-tomtplan',
+        'Inga rum ännu – planet är ett <b>skal</b> i modellen. Dra ett oplacerat rum hit, ' +
+        'eller lägg till ett nedan.'));
+    }
     p.rum.forEach(function (r) {
       var rad = el('div', 'bf-rumrad');
       rad.dataset.rum = r.nyckel;
+      // Raden går inte att dra medan typvalet står öppet: ett klick på en typknapp hade
+      // startat ett drag i stället för att välja typen.
+      rad.draggable = ui.rumstyp !== r.nyckel;
+      if (ui.rumdrag && ui.rumdrag.nyckel === r.nyckel) { rad.classList.add('dras'); }
+      if (ui.rumdrag && ui.rumdrag.over === r.nyckel && ui.rumdrag.nyckel !== r.nyckel) {
+        rad.classList.add(ui.rumdrag.under ? 'linje-under' : 'linje-over');
+      }
       rad.appendChild(el('span', 'bf-planbet', r.nyckel));
       var txt = el('div', 'bf-btext');
       txt.appendChild(el('span', 'bf-bnamn', r.namn));
@@ -947,9 +1113,112 @@
         }, 'Tar bort rummet och installationerna i det. ◀ tar det tillbaka.'));
       }
       rad.appendChild(verktyg);
+      rumDrag(rad, r.nyckel, p.id);
       w.appendChild(rad);
     });
+    // Planet som droppmål: pekaren står på rubriken eller på den tomma ytan mellan rummen,
+    // och då hamnar rummet **sist** på planet. Utan det hade ett plan utan rum inte gått att
+    // dra till, och det är just det plan ett oplacerat rum oftast ska till.
+    w.addEventListener('dragover', function (e) {
+      if (!ui.rumdrag || e.target.closest('.bf-rumrad')) { return; }
+      e.preventDefault();
+      if (ui.rumdrag.planOver !== p.id || ui.rumdrag.over) {
+        ui.rumdrag.planOver = p.id;
+        ui.rumdrag.over = null;
+        flyttaRumsLinjen();
+      }
+    });
+    w.addEventListener('drop', function (e) {
+      if (!ui.rumdrag || e.target.closest('.bf-rumrad')) { return; }
+      e.preventDefault();
+      slappRum(p.id, null);
+    });
     return w;
+  }
+
+  // Dragningen av en rumsrad, skriven en gång: den gäller både ett rum som ligger i byggnaden
+  // och en oplacerad inläst rad, eftersom det som skiljer dem är vad släppet *betyder* och
+  // inte hur draget ser ut. `nyckel` är rummets nyckel, eller null när en inläst rad dras –
+  // då bär `ui.rumdrag.inlkey` raden.
+  function rumDrag(rad, nyckel, planId) {
+    rad.addEventListener('dragstart', function (e) {
+      if (!nyckel) { return; }
+      ui.rumdrag = { nyckel: nyckel, over: null, under: false, planOver: null };
+      // Raden bleknar direkt, utan omritning: en omritning mitt i ett drag tar bort den nod
+      // webbläsaren drar, och då slutar den skicka dragover.
+      rad.classList.add('dras');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', nyckel);
+      }
+    });
+    rad.addEventListener('dragover', function (e) {
+      if (!ui.rumdrag || ui.rumdrag.nyckel === nyckel) { return; }
+      e.preventDefault();
+      // Övre halvan betyder före, nedre efter: linjen följer var pekaren är, inte vilken rad
+      // den råkar ligga på.
+      var box = rad.getBoundingClientRect();
+      var under = (e.clientY - box.top) > box.height / 2;
+      if (ui.rumdrag.over !== nyckel || ui.rumdrag.under !== under || ui.rumdrag.planOver) {
+        ui.rumdrag.over = nyckel;
+        ui.rumdrag.under = under;
+        ui.rumdrag.planOver = null;
+        // Linjen flyttas på de rader som redan står där, och listan ritas **inte** om: att
+        // byta ut DOM mitt i ett drag tar bort noden webbläsaren drar över (beslut 105).
+        flyttaRumsLinjen();
+      }
+    });
+    rad.addEventListener('drop', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!ui.rumdrag || ui.rumdrag.nyckel === nyckel) { ui.rumdrag = null; rita(); return; }
+      // Linjen under raden betyder "efter den", alltså före nästa rum på planet.
+      slappRum(planId, ui.rumdrag.under ? nastaRumPa(planId, nyckel) : nyckel);
+    });
+  }
+
+  // Rummet efter `nyckel` på samma plan, eller null när det är det sista. Flytten tar rummet
+  // det ska hamna **före**, så "efter det sista" är "sist på planet".
+  function nastaRumPa(planId, nyckel) {
+    var b = P.byggnad();
+    if (!b) { return null; }
+    var pa = b.rum.filter(function (r) { return r.plan === planId && !r.iRum; })
+      .map(function (r) { return DP.rumNyckel(r.plan, r.nr); });
+    var idx = pa.indexOf(nyckel);
+    return idx >= 0 && pa[idx + 1] ? pa[idx + 1] : null;
+  }
+
+  // Släppet. Ett rum som ligger i byggnaden flyttas; en oplacerad inläst rad får sitt plan,
+  // och då är det inläsningens egen väg – samma som knappen *02 Plan 2* på raden – så
+  // nummerkrocken prövas där den hör hemma (beslut 110).
+  function slappRum(planId, foreNyckel) {
+    var d = ui.rumdrag;
+    ui.rumdrag = null;
+    if (!d) { rita(); return; }
+    if (d.inlkey) {
+      P.svaraRum(d.inlkey, 'plan', planId);
+      return;
+    }
+    if (!P.flyttaRum(d.nyckel, planId, foreNyckel)) { rita(); }
+  }
+
+  // Linjen som visar var det dragna rummet hamnar (beslut 106), flyttad på plats i stället för
+  // ritad om – av samma skäl som i planlistan. Planet som helhet märks när pekaren står
+  // utanför rummen: då hamnar rummet sist på det planet, och ett plan utan rum har ingen rad
+  // att lägga en linje på.
+  function flyttaRumsLinjen() {
+    var rader = rot.querySelectorAll('.bf-rumrad');
+    [].forEach.call(rader, function (rad) {
+      var pa = ui.rumdrag && ui.rumdrag.over === rad.dataset.rum
+        && ui.rumdrag.nyckel !== rad.dataset.rum;
+      rad.classList.toggle('linje-over', !!pa && !ui.rumdrag.under);
+      rad.classList.toggle('linje-under', !!pa && !!ui.rumdrag.under);
+    });
+    var plan = rot.querySelectorAll('.bf-planrum');
+    [].forEach.call(plan, function (w) {
+      w.classList.toggle('malplan',
+        !!(ui.rumdrag && ui.rumdrag.planOver === w.dataset.rumplan));
+    });
   }
 
   // Steg 4 byggs i den följande biljetten i spåret. Det syns med sitt läge, så att planeraren
@@ -978,6 +1247,10 @@
     ui.skapar = false;
     ui.doper = null;
     ui.rumstyp = null;
+    // Ett halvskrivet rum hör till den byggnad hon stod i: planet det pekar på finns kanske
+    // inte i den nya, och numret är räknat på den gamlas rum.
+    ui.laggerTillRum = false;
+    ui.rumdrag = null;
     rita();
   });
   rita();

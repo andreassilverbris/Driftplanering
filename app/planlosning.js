@@ -274,6 +274,14 @@
   //
   // Plan utan rum får ett skal: ett enda rum som täcker hela planet, märkt `skal` så att vyn
   // kan visa det som ett tomt bjälklag och inte som ett rum man går in i.
+  // Är byggnaden **ritad** eller **räknad**? De fyra befintliga byggnaderna bär egna rektanglar
+  // och elevationer i `data/` och lämnas orörda (beslut 101); allt annat räknas fram här.
+  // Frågan ställs på två ställen – av taket här inne och av steget Rum, som varnar för att en
+  // ritad byggnads grannar inte ritas om – och ska svaras likadant på båda.
+  function arRitad(byggnad) {
+    return (byggnad && byggnad.plan || []).some(function (p) { return p.elev != null; });
+  }
+
   function form(byggnad) {
     var b = byggnad;
     if (!b) { return null; }
@@ -375,7 +383,7 @@
     // Skiljelinjen går alltså vid **om byggnaden är ritad eller räknad**, inte vid om något
     // plan råkar vara skal just nu – ett hus som nyss blev färdigt ska inte plötsligt få
     // ett tak som svävar tre meter upp.
-    var ritad = plan.some(function (p) { return p.elev != null; });
+    var ritad = arRitad(b);
     var ut = kopia(b, utPlan, rum);
     if (!ritad && ut.stil && ut.stil.tak === 'sadel') {
       var topp = plan.reduce(function (h, p) {
@@ -401,6 +409,6 @@
   DP.Planlosning = {
     planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
     benamningsforslag: benamningsforslag, form: form, SKAL: SKAL,
-    laggUtRum: laggUtRum, regelFor: regelFor, kategoriFor: kategoriFor
+    laggUtRum: laggUtRum, regelFor: regelFor, kategoriFor: kategoriFor, arRitad: arRitad
   };
 })();

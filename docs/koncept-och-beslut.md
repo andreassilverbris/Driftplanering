@@ -456,6 +456,14 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     när något plan är skal (preciserar beslut 85). Skiljelinjen går vid om byggnaden är **ritad
     eller räknad** – de handritade bär egna elevationer i datafilen (beslut 101) – eftersom ett hus
     som nyss blev färdigt annars plötsligt hade fått ett tak som svävar tre meter upp.
+
+    *Ordningen går att dra om från biljett #38* (`DP.Plan.flyttaRum`). Listan i steg 3 är ordningen i
+    byggnadsdatan, och den är det `laggUtRum` går igenom – så ett drag i listan är ett drag i modellen,
+    utan att vyn behöver veta något om geometri. Ett rum som dras till ett **annat plan** tar sina
+    installationer med sig: de pekar på rummets nyckel (beslut 76), och byter rummet plan eller nummer
+    skrivs de om i samma steg. Ett rum som läggs till för hand får **samma förslag** som ett rum ur
+    filen – rumstypen ur benämningen, NTA ur rumstypen – eftersom modellen annars hade sett olika ut
+    beroende på hur uppgifterna kom in.
 79. **Areor och volym per rum, summor uppåt** (SS 21054:2020). Per rum: **NTA** krävs och ger golvytan i
     modellen; **NTV** (nettovolym) är valfri och ger rumshöjden som NTV ÷ NTA – annars gäller byggnadstypens
     standardhöjd; **BRA** och **BTA** är valfria; *temperaturreglerad* lagras utan funktion. Per plan och
@@ -642,6 +650,10 @@ fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom
      om: byts DOM ut mitt i ett drag försvinner den nod webbläsaren drar över, och då slutar den skicka
      `dragover` – linjen hade fastnat där den först hamnade, och planeraren släppt på en plats hon inte
      såg. Att listan står still under draget är också vad beslut 105 kräver.
+
+     *Byggt för rum i biljett #38*, med samma kanter och samma skäl. Det som är rummens eget: ett
+     **plan** är också ett droppmål, och märks då i sin helhet i stället för med en linje. Ett plan utan
+     rum har ingen rad att lägga en linje på, och det är just det plan ett oplacerat rum oftast ska till.
 107. **Stegen ser likadana ut överallt.** Byggnad får samma lodräta lista med steg som Planering har i dag –
      uppifrån och ner, där avklarade steg fälls ihop – och inte prototypens rutor från vänster till höger.
      Planeringens form finns redan och är inlärd, och enhetligheten är viktigare än vilken form som är bäst.
@@ -660,6 +672,13 @@ fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom
      ner i byggnaden – planeraren ska se vad systemet gjorde med hennes rum, inte hitta det på en plats
      hon inte valde. Nummer som tas av rader som godtas i **samma** steg räknas som upptagna, annars
      hade ett *Godta alla* kunnat ge två rum samma nummer.
+
+     *Gäller också rum som dras och läggs till för hand, från biljett #38.* Dras ett rum som redan ligger
+     i byggnaden till ett plan där numret är upptaget byter rummet nummer direkt – det är ingen inläst rad
+     som kan stå kvar och vänta, och flyttens text i historiken säger vilket nummer det fick
+     ("flytta Entré till Källarplan som 00-002"). Lägger planeraren till ett rum för hand är ett upptaget
+     nummer i stället ett **hinder** med nästa lediga i beskedet: där står hon och skriver, och ett nummer
+     som tyst byttes under henne hade varit värre än ett nej.
 111. **Modellen växer med stegen även när allt kommer från en fil** (preciserar beslut 85). I steget Plan
      visas bara planen som skal – i fel ordning ligger källaren överst, vilket gör förslaget om ordningen
      självklart. Rummen syns från steget Rum eller när Plan är grönt, installationerna från steget

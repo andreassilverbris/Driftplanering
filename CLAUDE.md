@@ -158,6 +158,23 @@ Skriptens ordning i `index.html` spelar roll:
   planet kan självt vara ett förslag, och raden står då kvar som ett förslag med nästa lediga
   nummer (beslut 110). Tas ett plan bort blir de inlästa rumsrader som pekade på det
   **oplacerade** i stället för att tyst försvinna.
+- **Rummen rättas för hand, och ordningen *är* placeringen (beslut 78, 106 och 110,
+  biljett #38).** `laggTillRum({ plan, nr, namn, nta, ntv, bra, bta, temp })` lägger till ett rum
+  sist på sitt plan med **samma förslag som inläsningen**: rumstypen läses ur benämningen och NTA
+  föreslås ur rumstypen, så ett rum planeraren skriver in blir detsamma som ett rum ur filen.
+  Numret fylls ut till tre siffror och tomt nummer blir nästa lediga. `rumHinder(plan, nr)` ger
+  skälet i klartext när numret inte går att använda (den pekar ut rummet, så två rum kan inte dela
+  plan + nummer) och `nastaRumsnummer(plan)` svarar vad som är ledigt.
+  `flyttaRum(nyckel, malPlan, foreNyckel)` drar om ordningen på ett plan eller flyttar rummet till
+  ett annat – `foreNyckel` är rummet det ska hamna **före**, tomt betyder sist på planet. Byter
+  rummet plan och numret är upptaget där får det **nästa lediga nummer** (beslut 110), och eftersom
+  installationerna pekar på nyckeln (beslut 76) skrivs de om i **samma** steg; ett **innerrum** följer
+  med både i `iRum` och i sitt eget `plan`, som är det viewern ritar det på. Funktionen svarar med
+  den nya nyckeln. Allt är steg i historiken med text i klartext ("flytta Dagrum före Entré på
+  plan 01"). `rumStatus()` bär också `handritad`: Garage, Kasern 1 och 2 och Hangar är ritade rum för
+  rum och lämnas orörda av planlösningen (beslut 101), så ett rum som läggs till eller dras om där
+  får sin plats ur regeln medan grannarna behåller sina ritade mått – steg 3 säger det i klartext,
+  och att rita om hela planet efter en varning hör till *Ändra byggnad* (biljett #41).
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -432,6 +449,15 @@ utan att någon mäter det. Rummen läggs ut i modellen enligt byggnadstypens re
 (`DP.Planlosning.laggUtRum`): i en kasern en korridor längs byggnaden med rummen på båda sidor i
 nummerordning **medurs**, bredden ur NTA. Steget visar rummen per plan med areasummor, och ett plan
 blir skal igen om dess rum tas bort. Steg 4 syns med sitt läge men är tomt tills det byggs.
+Åttonde biljetten, **rummen dras på plats, ordnas om och läggs till för hand** (beslut 78, 106 och
+110, biljett #38), är byggd: planeraren drar en rumsrad för att ändra ordningen på ett plan – och
+ordningen *är* placeringen, så rummet byter grannar i modellen – eller drar rummet till ett annat
+plan, där det får nästa lediga nummer om numret är upptaget och tar sina installationer med sig.
+En **linje** visar var rummet hamnar innan hon släpper, som i steg 2, och ett plan utan rum märks i
+stället som mål: där finns ingen rad att lägga en linje på. Ett **oplacerat** inläst rum dras till
+ett plan vid sidan av knapparna på raden – båda vägarna går genom `svaraRum`, så nummerkrocken prövas
+likadant. *Lägg till rum* ger ett rum med samma förslag som inläsningen: rumstypen läst ur
+benämningen och NTA ur rumstypen, med nyckeln och typen visade innan rummet finns.
 
 Kända begränsningar:
 - Byggnadsflödets steg 4 (Installationer) är tomt: det byggs i den följande biljetten i spåret.
@@ -439,9 +465,13 @@ Kända begränsningar:
   Installationer räknas och redovisas, men deras tolkning väntar på sin biljett. En byggnad
   planeraren skapar kan därför få sina plan och rum men inte sina installationer, och kan inte bli
   klar i Planering (steg 5 kräver installationer).
-- Rummens ordning på ett plan går **inte** att dra om ännu (berättelse 44): den kommer ur
-  rumsnumren, som regeln placerar efter. Att dra om den hör till samma rad som att dra om planen
-  i steg 2 och är inte byggd här.
+- Draget av ett **oplacerat** rum rullar inte listan av sig självt: ligger målplanet utanför den
+  synliga ytan måste planeraren rulla dit först, eller använda knapparna på raden – de gör samma sak
+  och går oavsett var i listan planet står.
+- Ett rum som läggs till eller dras om i en **handritad** byggnad (Garage, Kasern 1 och 2, Hangar)
+  får sin plats ur byggnadstypens regel medan grannarna behåller sina ritade rektanglar (beslut 101),
+  så rummen kan hamna över varandra i modellen. Steg 3 säger det i klartext. Att rita om hela planet
+  efter en varning hör till *Ändra byggnad* (biljett #41, berättelse 58).
 - BRA och BTA **räknas inte fram ur modellen** när rummen saknar dem (beslut 79): summan visas som
   ett streck i stället för att märkas *beräknad*. Ett tal som är hälften av den verkliga arean är
   värre än inget tal, så strecket är det ärliga svaret tills uträkningen finns.

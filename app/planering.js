@@ -1043,7 +1043,14 @@
     return {
       plan: plan, antal: alla.length,
       nta: summa(alla, 'nta'), bra: summa(alla, 'bra'), bta: summa(alla, 'bta'),
-      klar: alla.length > 0
+      klar: alla.length > 0,
+      // Är byggnaden **ritad** eller **räknad**? De fyra befintliga byggnaderna har egna
+      // rektanglar och elevationer i `data/` och lämnas orörda av planlösningen (beslut 101),
+      // så ett rum som läggs till eller dras om där får sin plats ur regeln medan grannarna
+      // behåller sina ritade – och de kan hamna över varandra. Frågan ställs av planlösningen
+      // själv (taket räknas bara för en räknad byggnad), så den besvaras där och inte här:
+      // två prov på samma sak hade kunnat glida isär.
+      handritad: DP.Planlosning.arRitad(b)
     };
   }
   // Summan av ett areafält, eller null när något rum saknar det. Att skilja "saknas" från
@@ -1091,6 +1098,174 @@
           .filter(function (k) { return k !== nyckel; });
       }
     });
+  }
+
+
+  // ------------------------------------------------------------------
+  // Rummen för hand: lägga till, dra om och dra till ett annat plan
+  // (beslut 78, 106 och 110, berättelse 26, 38 och 44)
+  // ------------------------------------------------------------------
+  // Ordningen i `data.rum` *är* placeringen i modellen (beslut 78): `DP.Planlosning.laggUtRum`
+  // går igenom rummen på ett plan i listans ordning och lägger dem medurs runt korridoren.
+  // Därför är ett drag i listan ett drag i byggnaden, precis som för planen i steg 2 – och
+  // därför bor flytten här och inte i vyn: vyn vet var pekaren är, planeringen vad det betyder.
+
+  // Nästa lediga rumsnummer på ett plan. Samma räkning som inläsningen gör när ett nummer
+  // krockar (beslut 110), och av samma skäl: två rum kan inte dela plan + nummer, eftersom
+  // nyckeln är det som pekar ut rummet.
+  function nastaRumsnummer(planId, bid) {
+    return DP.Inlasning.nastaLedigaNr(planId, B(bid));
+  }
+
+  // Går numret att använda på planet? Beskedet är i klartext och kommer medan planeraren
+  // skriver, som `planHinder` i steg 2 och namnet i steg 1 (beslut 103).
+  function rumHinder(planId, nr, bid) {
+    var b = B(bid);
+    if (!b) { return ''; }
+    var p = String(planId || '').trim();
+    if (!p) { return 'Välj vilket plan rummet ligger på.'; }
+    if (!b.plan.some(function (x) { return x.id === p; })) {
+      return 'Det finns inget plan ' + p + ' i ' + b.namn + '.';
+    }
+    var t = String(nr == null ? '' : nr).trim();
+    if (!t) { return 'Rummet behöver ett nummer, till exempel 001.'; }
+    if (!/^\d{1,3}$/.test(t)) {
+      return 'Rumsnummret är siffror, ett till tre: 001, 12 eller 7. Numret löper per plan.';
+    }
+    var nyckel = DP.rumNyckel(p, DP.Inlasning.pad3(t));
+    if (b.rum.some(function (r) { return DP.rumNyckel(r.plan, r.nr) === nyckel; })) {
+      return 'Det finns redan ett rum ' + nyckel + '. Nästa lediga nummer på plan ' + p +
+        ' är ' + nastaRumsnummer(p, bid) + '.';
+    }
+    return '';
+  }
+
+  // Lägg till ett rum för hand (berättelse 26). Förslagen är inläsningens: rumstypen läses ur
+  // benämningen och NTA föreslås ur rumstypen (beslut 80), så ett rum planeraren skriver in
+  // själv blir detsamma som ett rum som kom ur filen. Att de två vägarna gav olika rum hade
+  // betytt att modellen såg olika ut beroende på hur uppgifterna kom in.
+  //
+  // Rummet läggs sist på sitt plan: det är där nummerordningen sätter det, och planeraren
+  // drar om ordningen om hon vill ha det någon annanstans.
+  function laggTillRum(upp, bid) {
+    var b = B(bid);
+    if (!b) { return null; }
+    var o = upp || {};
+    var planId = String(o.plan || '').trim();
+    var nr = String(o.nr == null ? '' : o.nr).trim();
+    if (!nr) { nr = nastaRumsnummer(planId, bid); }
+    if (/^\d{1,3}$/.test(nr)) { nr = DP.Inlasning.pad3(nr); }
+    if (rumHinder(planId, nr, bid)) { return null; }
+    var namn = String(o.namn || '').trim();
+    var rumstyp = o.rumstyp && DP.rumstyper[o.rumstyp] ? o.rumstyp
+      : (DP.rumstypFor(namn) || DP.rumstypOvrig);
+    var nta = DP.Inlasning.tal(o.nta);
+    if (nta == null) { nta = (DP.rumstyper[rumstyp] || {}).nta || 36; }
+    // Rummet byggs av **inläsningens** `rumFranRad` och inte här: de två vägarna ska ge
+    // samma rum, och skrevs formen på två ställen hade en ny valfri uppgift behövt läggas
+    // till på båda – och den som glömdes hade gett en byggnad som ser olika ut beroende på
+    // hur uppgifterna kom in. Det som är handinmatningens eget är bara vad förslagen blir.
+    var nytt = DP.Inlasning.rumFranRad({
+      falt: { nr: nr, plan: planId, namn: namn, rumstyp: rumstyp, nta: nta,
+        ntv: DP.Inlasning.tal(o.ntv), bra: DP.Inlasning.tal(o.bra), bta: DP.Inlasning.tal(o.bta),
+        temp: o.temp == null ? null : !!o.temp }
+    });
+    var nyckel = DP.rumNyckel(planId, nr);
+    andraByggnad('lägg till rum ' + nyckel + ' ' + nytt.namn, bid, function (data) {
+      // Sist bland rummen på samma plan, inte sist i listan: listan är ordnad plan för plan,
+      // och ett rum som hamnade efter nästa plans rum hade legat i fel grupp i modellen.
+      data.rum = laggSistPaPlan(data.rum, nytt, planId);
+    });
+    return nyckel;
+  }
+  function laggSistPaPlan(rum, nytt, planId) {
+    var sista = -1;
+    rum.forEach(function (r, i) { if (r.plan === planId) { sista = i; } });
+    if (sista < 0) { return rum.concat([nytt]); }
+    return rum.slice(0, sista + 1).concat([nytt]).concat(rum.slice(sista + 1));
+  }
+
+  // Flytta ett rum: dra om ordningen på ett plan, eller dra rummet till ett annat plan
+  // (berättelse 38 och 44). `malPlan` är planet rummet ska hamna på, `fore` nyckeln på det rum
+  // det ska hamna **före** i listan (tomt = sist på planet). Ordningen är placeringen, så ett
+  // drag i listan är ett drag i modellen.
+  //
+  // Byter rummet plan kan numret vara upptaget där. Då får rummet **nästa lediga nummer**
+  // (beslut 110) och nyckeln ändras – och installationerna i rummet pekar på nyckeln, så de
+  // skrivs om i samma steg. Annars hade de hängt kvar på ett rum som inte längre finns.
+  function flyttaRum(nyckel, malPlan, fore, bid) {
+    var b = B(bid);
+    if (!b) { return null; }
+    var r = b.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
+    if (!r) { return null; }
+    var mal = String(malPlan || r.plan).trim();
+    if (!b.plan.some(function (p) { return p.id === mal; })) { return null; }
+    var nyttNr = r.nr;
+    if (mal !== r.plan) {
+      var taget = b.rum.some(function (x) {
+        return x !== r && DP.rumNyckel(x.plan, x.nr) === DP.rumNyckel(mal, r.nr);
+      });
+      if (taget) { nyttNr = DP.Inlasning.nastaLedigaNr(mal, b); }
+    }
+    var nyNyckel = DP.rumNyckel(mal, nyttNr);
+    var foreRum = fore ? b.rum.filter(function (x) {
+      return DP.rumNyckel(x.plan, x.nr) === fore;
+    })[0] : null;
+    if (foreRum === r) { foreRum = null; }
+    // Står rummet redan där är flytten ingen ändring, och ett steg i historiken som inte
+    // ändrar något är ett steg planeraren får backa förbi utan att se något hända.
+    if (mal === r.plan && nyNyckel === nyckel
+      && liggerRedanDar(b.rum, r, foreRum, mal)) { return null; }
+    var planNamn = (b.plan.filter(function (p) { return p.id === mal; })[0] || {}).namn || mal;
+    var text = foreRum
+      ? 'flytta ' + r.namn + ' före ' + foreRum.namn + ' på plan ' + mal
+      : (mal === r.plan ? 'flytta ' + r.namn + ' sist på plan ' + mal
+        : 'flytta ' + r.namn + ' till ' + planNamn + ' som ' + nyNyckel);
+    andraByggnad(text, bid, function (data) {
+      var m = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
+      if (!m) { return false; }
+      var kvar = data.rum.filter(function (x) { return x !== m; });
+      m.plan = mal;
+      m.nr = nyttNr;
+      var idx = fore ? kvar.map(function (x) { return DP.rumNyckel(x.plan, x.nr); }).indexOf(fore) : -1;
+      if (idx >= 0) {
+        data.rum = kvar.slice(0, idx).concat([m]).concat(kvar.slice(idx));
+      } else {
+        data.rum = laggSistPaPlan(kvar, m, mal);
+      }
+      // Ett **innerrum** följer med sin förälder: det bär förälderns nyckel i `iRum` men ritas
+      // ur sitt **eget** `plan` – viewern lägger rummen i plangruppen efter det – så båda
+      // måste skrivas om. Planet skrivs även när nyckeln står still: drar planeraren rummet
+      // till ett annat plan utan att numret krockar är nyckeln densamma, och hangarens förråd
+      // hade då legat kvar på en våning föräldern inte längre är på.
+      data.rum.forEach(function (x) {
+        if (x.iRum !== nyckel) { return; }
+        x.iRum = nyNyckel;
+        x.plan = mal;
+      });
+      // Installationerna sitter i rummet och pekar på dess nyckel (beslut 76). Bytte rummet
+      // plan eller nummer följer de med – en installation som står kvar på den gamla nyckeln
+      // sitter i ett rum som inte finns. Planet räknar de inte själva: viewern tar det ur
+      // rummet installationen sitter i.
+      if (nyNyckel !== nyckel) {
+        data.installationer.forEach(function (i) {
+          if (i.rum === nyckel) { i.rum = nyNyckel; }
+        });
+        if (data.inlasning && data.inlasning.infordaRum) {
+          data.inlasning.infordaRum = data.inlasning.infordaRum.map(function (k) {
+            return k === nyckel ? nyNyckel : k;
+          });
+        }
+      }
+    });
+    return nyNyckel;
+  }
+  // Ligger rummet redan direkt före `foreRum` på planet (eller sist, när `foreRum` saknas)?
+  function liggerRedanDar(rum, r, foreRum, planId) {
+    var pa = rum.filter(function (x) { return x.plan === planId; });
+    var i = pa.indexOf(r);
+    if (i < 0) { return false; }
+    return foreRum ? pa[i + 1] === foreRum : i === pa.length - 1;
   }
 
   // Vad steget Plan har att säga om inläsningen: de tre grupperna, antalen och om något
@@ -2482,6 +2657,8 @@
     svaraPlan: svaraPlan, inlasningStatus: inlasningStatus, filArk: filArk,
     godtaRum: godtaRum, godtaAllaRum: godtaAllaRum, svaraRum: svaraRum,
     rumStatus: rumStatus, sattRumstyp: sattRumstyp, taBortRum: taBortRum,
+    laggTillRum: laggTillRum, flyttaRum: flyttaRum, rumHinder: rumHinder,
+    nastaRumsnummer: nastaRumsnummer,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
