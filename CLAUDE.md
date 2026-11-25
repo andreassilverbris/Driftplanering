@@ -59,6 +59,12 @@ Biljetter som loopen ska ta behöver en spåretikett, till exempel `etapp-5`, ut
 - **Statisk webbsida utan server, byggsteg eller databas.** Öppnas direkt från disk (`file://`).
   Därför används vanliga `<script>`-taggar (inga ES-moduler, ingen `fetch` av lokala filer).
 - three.js r147 med OrbitControls ligger i `vendor/` (klassiska globala skript, inte moduler).
+- SheetJS 0.20.3 (Apache 2.0) ligger som `vendor/xlsx.mini.min.js` och läser och skriver
+  inläsningsfilens .xlsx från `file://` utan server. **Mini-bygget**, inte det fulla: det läser
+  och skriver .xlsx – formatet både Excel och Numbers exporterar till – och är en tredjedel så
+  stort. En .numbers-fil går alltså inte att läsa direkt; planeraren exporterar till .xlsx
+  först, som hon gör mot fastighetssystemet ändå. Biblioteket distribueras bara från
+  `cdn.sheetjs.com` (SheetJS slutade publicera på npm efter 0.18.5).
 - Kodstil: ES5 (`var`, `function`), svenska namn på variabler och funktioner, ett IIFE per fil som
   exporterar till namnrymden `window.DP`.
 - All planering lever bara i minnet och nollställs vid omladdning (medvetet beslut).
@@ -85,6 +91,8 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
 | `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Steg 1 och 2 är byggda; 3–4 syns men är tomma |
+| `app/inlasning.js` | `DP.Inlasning`: inläsningsfilens tolkning utan DOM. `lasArk(ark)` delar ett ark i flikarna Plan, Rum och Installationer (igenkänning på **kolumnrubrikerna**, rubrikraden hittad under tabellrubriker och tomma rader), okända kolumner blir **egna fält** (beslut 89), och `tolkaPlan(rader, befintliga)` ger radmodellen `{ key, rad, egna, falt, fragor }` där statusen är **härledd**: inga frågor → *klar*, alla frågor har förslag → *förslag*, annars → *oplacerad* (beslut 83). `godta`/`besvara` för in svaren, `tillArk(byggnad)` är filen på väg ut |
+| `app/inlasningsfil.js` | `DP.Inlasningsfil`: sömmen mot .xlsx (SheetJS i `vendor/`). `las(blob, nar, fel)` ger ett ark, `taUt(ark, filnamn)` laddar ner en .xlsx. Allt annat arbetar med ark, så tolkningen går att pröva utan att en fil finns |
 | `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, och `form(byggnad)` byggnaden med `elev` per plan och **skal** för de plan som saknar rum (beslut 85). Handritade byggnader lämnas orörda (beslut 101) |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
@@ -119,6 +127,23 @@ Skriptens ordning i `index.html` spelar roll:
   raden går inte att dra medan den redigeras. `planHinder(beteckning)` ger
   skälet i klartext när beteckningen inte går att använda (den pekar ut planet, så två plan kan inte dela
   den) och `planStatus()` raderna, förslaget och `avvikerFranForslag`. Allt är steg i historiken.
+- **Det inlästa ligger i byggnadsdatan under `inlasning`, och klara rader *är* byggnaden
+  (beslut 83, biljett #36).** `DP.Plan.lasInArk(ark, filnamn)` tolkar fliken Plan och för in de
+  rader som är **klara** direkt i `b.plan` (i föreslagen ordning); det som ligger kvar i
+  `b.inlasning.plan` är bara förslag och oplacerat. Två skäl: modellen visar aldrig en
+  gissning (berättelse 55), och allt som redan läser byggnaden – modellen, trädet,
+  plan-knapparna, `planStatus`, bocken – fortsätter svara rätt utan att känna till
+  inläsningen. `infordaPlan` håller reda på vilka plan som kom ur filen, så att gruppen *klart*
+  går att visa. `godtaPlan(key)`, `godtaAllaPlan()` (**ett** steg) och `svaraPlan(key, slag,
+  varde)` är egna historiksteg, och en rad som blir klar förs in i byggnaden i **samma** steg:
+  att godta ett förslag *är* att lägga till planet. `inlasningStatus(flik)` ger `grupper`
+  (det som **återstår**: `forslag` och `oplacerad`), `inforda` (gruppen *klart*, slagen upp i
+  byggnaden så ett borttaget plan faller ur av sig självt), antalen och `klar`. Gruppen *klart*
+  heter `inforda` och inte `grupper.klar`: de klara raderna lämnar `inlasning.plan` i samma steg
+  som de blir klara, så en `grupper.klar` hade alltid varit tom. `filArk()` ger arket som skrivs
+  när filen tas ut. Läses samma fil in igen räknas de plan som **redan finns** också som klara –
+  annars hade planeraren fått "0 plan klara" om en byggnad full av plan (berättelse 17).
+  **Steg 2 får grön bock först när bara klart återstår** (`byggnadsSteg`, beslut 83).
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -300,7 +325,8 @@ förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med 
 **Byggnadsdata** (i tillståndet, se Dataflödet): `namn`, `typ`, `plan` (nedifrån och upp, `elev`), `rum`
 (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`, valfri `hojd`), `installationer` (signifikanta med
 id/beteckning m.m. samt ej signifikanta), `stil` (tak platt/sadel, färger, fönster, dekor), `omrade`
-(id i `DP.omraden` – beslut 28) och `farg` (brickornas färg i Balanseringens tidsaxel, beslut 47).
+(id i `DP.omraden` – beslut 28), `farg` (brickornas färg i Balanseringens tidsaxel, beslut 47)
+och `inlasning` (det inlästa som ännu inte är avgjort, se Dataflödet).
 3D-modellen räknas fram ur detta – en ny byggnad kräver bara en datafil. En byggnad planeraren skapar
 själv får `stil` och `konstanter` ur `DP.byggnadstyper[typ]` (beslut 72) och tomma `plan`, `rum` och
 `installationer`; modellen ritar då en tom tomt, och vyn säger att byggnaden inte har några plan ännu.
@@ -364,14 +390,31 @@ och varje tillägg, drag, omdöpning och borttagning är ett steg i historiken. 
 `app/planlosning.js` räknar byggnadens form utan DOM: ett plan utan rum blir ett **skal** i
 byggnadstypens standardstorlek, entréplanet ligger på marken och planen under nedåt – så med fel ordning
 ligger källaren överst i skalet, vilket gör förslaget självklart. Verktygsfältets knappar som inte har
-något att visa är utgråade i stället för borttagna. Steg 3–4 syns med sitt läge men är tomma tills de byggs.
+något att visa är utgråade i stället för borttagna.
+Sjätte biljetten, **inläsningsfilen med fliken Plan** (beslut 70, 83, 89, 105, 109 och 112, biljett #36),
+är byggd: planeraren tar ut en Excel-fil med flikarna Plan, Rum och Installationer – tom eller ifylld med
+det som redan är inläst – fyller i den i Excel eller Numbers och läser in den igen. Den nya modulen
+`app/inlasning.js` tolkar filen utan DOM: flikarna känns igen på **kolumnrubrikerna** (inte på bladets
+namn), rubrikraden hittas under tabellrubriker och tomma rader som Numbers lämnar, okända kolumner blir
+**egna fält** som följer med ut igen, och varje rad blir *klar*, *förslag* eller *oplacerad* med skälet i
+klartext ("Planet P1 saknar benämning – föreslås bli Plan P1."). `app/inlasningsfil.js` är sömmen mot
+.xlsx (SheetJS i `vendor/`). Steget Plan visar de tre grupperna med förslag och oplacerat **fast överst**
+medan planlistan rullas, *Godta alla* är ett steg i historiken, och steget blir grönt först när bara
+klart återstår. Filen går tur och retur utan skillnad. Steg 3–4 syns med sitt läge men är tomma tills de
+byggs.
 
 Kända begränsningar:
-- Byggnadsflödets steg 3–4 (Rum, Installationer) är tomma, och inläsningsfilen finns inte alls: båda
-  byggs i de följande biljetterna i spåret. En byggnad planeraren skapar kan därför få sina plan men
-  inte sina rum och installationer, och kan inte bli klar i Planering (steg 5 kräver installationer).
-- Plan läggs till ett i taget för hand. Planens areasummor (NTA, BRA, BTA per plan) finns inte ännu:
-  de hör till steget Rum.
+- Byggnadsflödets steg 3–4 (Rum, Installationer) är tomma: de byggs i de följande biljetterna i spåret.
+  Inläsningsfilen tas ut med alla tre flikarna och läser in **fliken Plan**; raderna i Rum och
+  Installationer räknas och redovisas, men deras tolkning väntar på sina biljetter. En byggnad
+  planeraren skapar kan därför få sina plan men inte sina rum och installationer, och kan inte bli klar
+  i Planering (steg 5 kräver installationer).
+- Inläsning **mot en befintlig byggnad** visar ännu ingen skillnad (beslut 86): ett plan som redan finns
+  hoppas över, men ett ändrat namn syns inte som "före och efter", och det som saknas i filen blir inget
+  förslag att ta bort. Det byggs i biljetten om Ändra byggnad.
+- En .numbers-fil går inte att läsa direkt – mini-bygget av SheetJS läser .xlsx. Planeraren exporterar
+  till .xlsx i Numbers först.
+- Planens areasummor (NTA, BRA, BTA per plan) finns inte ännu: de hör till steget Rum.
 - Byggnadens namn, område och färg går bara att sätta när byggnaden skapas. Att ändra dem hör till
   *Ändra byggnad*, som byggs senare i spåret.
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar

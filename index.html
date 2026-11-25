@@ -87,6 +87,10 @@
 
   <script src="vendor/three.min.js"></script>
   <script src="vendor/OrbitControls.js"></script>
+  <!-- SheetJS (0.20.3, Apache 2.0) läser och skriver inläsningsfilens .xlsx från file://
+       utan server. Mini-bygget: det läser och skriver .xlsx, som är formatet både Excel och
+       Numbers exporterar till, och är en tredjedel så stort som det fulla. -->
+  <script src="vendor/xlsx.mini.min.js"></script>
   <script src="data/hangar.js"></script>
   <script src="data/katalog.js"></script>
   <script src="data/tidsschablon.js"></script>
@@ -95,6 +99,8 @@
   <script src="data/kasern.js"></script>
   <script src="app/balansering.js"></script>
   <script src="app/planlosning.js"></script>
+  <script src="app/inlasning.js"></script>
+  <script src="app/inlasningsfil.js"></script>
   <script src="app/planering.js"></script>
   <script src="app/flyg.js"></script>
   <script src="app/dialog.js"></script>

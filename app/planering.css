@@ -577,3 +577,22 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-planfalt .etikett { font-size: 11px; color: var(--dov); font-weight: 600; }
 .bf-planrad.doper { cursor: default; border-color: var(--accent); }
 .bf-planrad.doper .bf-falt { padding: 4px 8px; font-size: 13px; }
+
+/* ---- Byggnadsflödet: inläsningsfilen och det öppna (beslut 83 och 112) ---- */
+.bf-fil { margin-bottom: 10px; }
+.bf-filval { display: none; }
+/* Förslag och oplacerat ligger **fast överst** medan listan med plan rullas (beslut 112),
+   så att planeraren kan arbeta med dem och se planen samtidigt. */
+/* Höjden begränsas och gruppen får sin egen rullning: en fil med trettio förslag hade annars
+   fyllt hela panelen, och då finns ingen lista med plan kvar att dra till. */
+.bf-oppet { position: sticky; top: 0; z-index: 3; background: var(--panel, #fff); padding: 6px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--linje); max-height: 46vh; overflow-y: auto; }
+.bf-grupphuvud { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bf-grupphuvud .liten-rubrik { margin: 0; }
+.bf-grupptext { margin: 2px 0 6px; font-size: 11px; color: var(--dov); line-height: 1.45; }
+.bf-inlrad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 4px; flex-wrap: wrap; }
+.bf-inlrad.forslag { border-left: 3px solid #d79a2b; }
+.bf-inlrad.oplacerad { border-left: 3px solid #b03a3a; }
+.bf-inlrad .bf-btext { flex: 1 1 140px; }
+.bf-skal { font-size: 11px; color: var(--dov); line-height: 1.45; }
+.bf-inlrad .bf-fel { flex: 1 1 100%; margin-top: 2px; }
+.bf-falt.bf-smalt { width: 80px; }

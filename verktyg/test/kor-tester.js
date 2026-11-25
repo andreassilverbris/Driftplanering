@@ -112,6 +112,68 @@ async function byggnadsval(page, id) {
 }
 const bild = (page, namn) => page.screenshot({ path: path.join(UT, namn + '.png') });
 
+// ------------------------------------------------------------------
+// Inläsningsfilen i testet: SheetJS körd i Node
+// ------------------------------------------------------------------
+// Filen som läses in ska vara en **riktig** .xlsx, skriven utanför appen – precis som den som
+// kommer tillbaka ifylld från någon annan (berättelse 15 och 18). Skrev testet filen genom
+// sidans eget XLSX hade läsningen prövats mot skrivningen och inte mot en fil i världen.
+//
+// `vendor/xlsx.mini.min.js` är skrivet för en webbläsare och exporterar till `window`, så det
+// körs i en vm-kontext i stället för att krävas in. Det är samma fil sidan använder, så testet
+// och appen kan aldrig glida ifrån varandra på vilken version som gäller.
+const XLSX = (() => {
+  const vm = require('vm');
+  const ctx = vm.createContext({
+    console, Buffer, Uint8Array, Uint16Array, Uint32Array, Int32Array, Float64Array,
+    ArrayBuffer, DataView, Date, Math, JSON, parseInt, parseFloat, isNaN, isFinite,
+    String, Number, Array, Object, RegExp, Error, TypeError, RangeError,
+    encodeURIComponent, decodeURIComponent, TextDecoder, TextEncoder
+  });
+  vm.runInContext(fs.readFileSync(path.join(ROT, 'vendor', 'xlsx.mini.min.js'), 'utf8'), ctx);
+  return ctx.XLSX;
+})();
+
+// Skriver ett ark till en .xlsx på disk. `ark` är { fliknamn: [[cell, …], …] }.
+function skrivArk(filnamn, ark) {
+  const bok = XLSX.utils.book_new();
+  Object.keys(ark).forEach(namn => {
+    XLSX.utils.book_append_sheet(bok, XLSX.utils.aoa_to_sheet(ark[namn]), namn);
+  });
+  const fil = path.join(UT, filnamn);
+  fs.writeFileSync(fil, Buffer.from(XLSX.write(bok, { type: 'buffer', bookType: 'xlsx' })));
+  return fil;
+}
+
+// Läser en .xlsx från disk till { fliknamn: [[cell, …], …] }, allt som text – samma form som
+// `DP.Inlasningsfil.las` ger sidan.
+function lasArkFil(fil) {
+  const bok = XLSX.read(fs.readFileSync(fil), { type: 'buffer' });
+  const ut = {};
+  bok.SheetNames.forEach(namn => {
+    ut[namn] = XLSX.utils.sheet_to_json(bok.Sheets[namn], { header: 1, raw: false, defval: '' });
+  });
+  return ut;
+}
+
+// Klickar *Ta ut inläsningsfil* och sparar den nedladdade filen. Nedladdningen är vägen filen
+// tar i verkligheten, så testet tar den vägen också.
+async function taUtFil(page, filnamn) {
+  const nedladdning = page.waitForEvent('download');
+  await page.locator('#byggnadsflode button', { hasText: 'Ta ut inläsningsfil' }).click();
+  const d = await nedladdning;
+  const fil = path.join(UT, filnamn);
+  await d.saveAs(fil);
+  return { fil, namn: d.suggestedFilename() };
+}
+
+// Väljer en fil i steg 2:s filväljare och väntar på att inläsningen blivit ett steg.
+async function lasInFil(page, fil) {
+  const fore = await historiklangd(page);
+  await page.locator('#byggnadsflode input[data-falt="filval"]').setInputFiles(fil);
+  await stegKlart(page, fore, 'inläsningen av ' + path.basename(fil));
+}
+
 // Steg 1–4 med Byggnad invändigt och Brandskydd varje månad
 async function grundplanering(page) {
   const f = page.locator('#flode');
@@ -4118,6 +4180,28 @@ async function testFristaendeFil(browser) {
   // jobbdatorn spärrar raw.githack.com, så det är där utrymmet ska mätas.
   const page = await nySida(browser, URL_DIST, null, 1200);
 
+  // ---- SheetJS är inbäddat och fungerar (biljett #36) ----
+  // Prövas här och inte bara mot index.html: byggskriptet kan tappa `vendor/xlsx.mini.min.js`
+  // utan att någon annan kontroll blir röd, och då hade planeraren mötts av en knapp som inte
+  // gör något – i just den fil som är hennes enda väg in när jobbdatorn spärrar raw.githack.
+  const excel = await page.evaluate(() => {
+    if (!window.XLSX || !DP.Inlasningsfil.tillganglig()) { return { ok: false }; }
+    // Skriv ett ark hela vägen till bytes, som *Ta ut inläsningsfil* gör, och läs tillbaka
+    // det: att biblioteket finns är en sak, att det fungerar inbäddat en annan.
+    const bok = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(bok, XLSX.utils.aoa_to_sheet(DP.Plan.filArk()[0].rader), 'Plan');
+    const bytes = XLSX.write(bok, { type: 'array', bookType: 'xlsx' });
+    const retur = XLSX.read(bytes, { type: 'array' });
+    return {
+      ok: true, version: XLSX.version, storlek: bytes.byteLength,
+      rubriker: XLSX.utils.sheet_to_json(retur.Sheets.Plan, { header: 1, raw: false })[0]
+    };
+  });
+  kontroll(excel.ok, 'Excel-biblioteket är inbäddat i den fristående filen');
+  kontroll(excel.ok && excel.storlek > 0 && (excel.rubriker || []).join(',') === 'Plan,Benämning',
+    'en .xlsx skrivs och läses tillbaka ur den fristående filen ('
+    + (excel.rubriker || []).join(',') + ', ' + excel.storlek + ' byte)');
+
   // ---- Planering: standardplanering åt alla fyra, alltså steg 1–6 ifyllda ----
   await page.locator('.pl-steg[data-steg="balansering"]').click();
   await page.locator('#balansering button', { hasText: 'Standardplanering för alla' }).click();
@@ -4269,6 +4353,406 @@ async function testFristaendeFil(browser) {
   await page.close();
 }
 
+// Inläsningens tolkning prövad fristående, med ett ark byggt direkt i testet (som
+// `DP.Balansering`-testerna): modulen är utan DOM, så den går att anropa med rena data och
+// läsa svaret som rena data. Det som prövas är det en fil ur verkligheten gör – en rubrikrad
+// en bit ner, tomma rader, en kolumn systemet inte känner till och olika skrivsätt på planen.
+//
+// Varför fristående och inte bara genom sidan: en tolkningsregel som går fel visar sig i
+// gränssnittet som en rad på fel ställe, och då är det inte uppenbart om felet är tolkningens
+// eller vyns. Här är svaret precis vad modulen tänkte.
+async function testInlasningsmodulen(browser) {
+  console.log('Inläsningens tolkning fristående (beslut 83, 89 och berättelse 19, 24 och 31)');
+  const page = await nySida(browser, URL_INDEX);
+
+  // Ett ark som en fil som gått via Numbers: tabellrubriken "Plan" på egen rad överst, en tom
+  // rad, och sedan den riktiga rubrikraden med en egen kolumn (Kapacitet).
+  const svar = await page.evaluate(() => {
+    const ark = [{
+      namn: 'Blad 1',
+      rader: [
+        ['Plan', ''],
+        ['', ''],
+        ['Plan', 'Benämning', 'Kapacitet'],
+        ['01', 'Entréplan', '40 pers'],
+        ['', '', ''],
+        ['P1', '', ''],
+        ['', 'Rad utan beteckning', ''],
+        ['K1', 'Källarplan', '']
+      ]
+    }];
+    const fil = DP.Inlasning.lasArk(ark);
+    const rader = DP.Inlasning.tolkaPlan(fil.plan, []);
+    return {
+      rubrikrad: DP.Inlasning.hittaRubrikrad(ark[0].rader),
+      antal: fil.plan.length,
+      egna: fil.egnaKolumner.plan,
+      ignorerade: fil.ignorerade,
+      rader: rader.map(r => ({
+        id: r.falt.id, namn: r.falt.namn, status: DP.Inlasning.status(r),
+        skal: r.fragor.map(f => f.text), egna: r.egna
+      })),
+      raknat: DP.Inlasning.raknat(rader)
+    };
+  });
+  kontroll(svar.rubrikrad === 2,
+    'rubrikraden hittas under tabellrubriken och den tomma raden (rad ' + svar.rubrikrad + ')');
+  kontroll(svar.antal === 4,
+    'tomma rader hoppas över – fyra rader lästes (' + svar.antal + ')');
+  kontroll(svar.egna.join(',') === 'Kapacitet',
+    'en kolumn systemet inte känner till blir ett eget fält (' + svar.egna.join(',') + ')');
+  kontroll(svar.rader[0].status === 'klar' && svar.rader[0].egna.Kapacitet === '40 pers',
+    'en rad med beteckning och benämning är klar, och bär sitt egna fält');
+  kontroll(svar.rader[1].id === 'P1' && svar.rader[1].status === 'forslag',
+    'ett plan utan benämning blir ett förslag (' + svar.rader[1].id + ': ' + svar.rader[1].status + ')');
+  kontroll(/P1 saknar benämning/.test(svar.rader[1].skal[0]) && /Plan P1/.test(svar.rader[1].skal[0]),
+    'förslagets skäl står i klartext ("' + svar.rader[1].skal[0] + '")');
+  kontroll(svar.rader[2].status === 'oplacerad' && /ingen beteckning/.test(svar.rader[2].skal[0]),
+    'en rad utan beteckning är oplacerad och säger varför ("' + svar.rader[2].skal[0] + '")');
+  kontroll(svar.rader[3].id === 'K1' && svar.rader[3].status === 'klar',
+    'beteckningen behålls exakt som den står i filen (' + svar.rader[3].id + ', beslut 77)');
+  kontroll(svar.raknat.klar === 2 && svar.raknat.forslag === 1 && svar.raknat.oplacerad === 1,
+    'de tre grupperna räknas (' + JSON.stringify(svar.raknat) + ')');
+
+  // ---- Flikigenkänning på rubrikerna, inte på bladets namn (berättelse 19) ----
+  const flikar = await page.evaluate(() => ({
+    plan: DP.Inlasning.vilkenFlik(['Plan', 'Benämning']),
+    rum: DP.Inlasning.vilkenFlik(['Plan', 'Rum', 'Benämning', 'NTA']),
+    inst: DP.Inlasning.vilkenFlik(['Plan', 'Rum', 'Benämning', 'Fabrikat', 'Id']),
+    slarvigt: DP.Inlasning.vilkenFlik(['plan ', 'BENÄMNING']),
+    inget: DP.Inlasning.vilkenFlik(['Namn', 'Adress'])
+  }));
+  kontroll(flikar.plan === 'plan' && flikar.rum === 'rum' && flikar.inst === 'inst',
+    'flikarna känns igen på sina kolumnrubriker (' + JSON.stringify(flikar) + ')');
+  kontroll(flikar.slarvigt === 'plan',
+    'rubriker med annan skiftläge och blanksteg känns igen (' + flikar.slarvigt + ')');
+  kontroll(flikar.inget === null,
+    'ett blad som inte är någon av flikarna känns inte igen (' + flikar.inget + ')');
+
+  // Ett blad vars rubriker inte känns igen tigs inte ihjäl: planeraren ska kunna få veta att
+  // hennes tredje blad inte lästes.
+  const ignorerat = await page.evaluate(() => DP.Inlasning.lasArk([
+    { namn: 'Anteckningar', rader: [['Fyllt i av', 'Nisse'], ['Datum', '2026-11-20']] }
+  ]).ignorerade);
+  kontroll(ignorerat.join(',') === 'Anteckningar',
+    'ett blad som inte känns igen hamnar i ignorerade (' + ignorerat.join(',') + ')');
+
+  // ---- Att godta för in förslagen, och bara dem ----
+  const godtaget = await page.evaluate(() => {
+    const rad = DP.Inlasning.tolkaPlan([{ id: 'P1', namn: '', egna: {} }], [])[0];
+    const fore = DP.Inlasning.status(rad);
+    DP.Inlasning.godta(rad);
+    return { fore: fore, efter: DP.Inlasning.status(rad), namn: rad.falt.namn };
+  });
+  kontroll(godtaget.fore === 'forslag' && godtaget.efter === 'klar' && godtaget.namn === 'Plan P1',
+    'att godta för in förslaget och gör raden klar (' + godtaget.namn + ')');
+  // En oplacerad rad blir **inte** klar av ett godtagande: det systemet inte vet kan planeraren
+  // inte godta sig förbi (beslut 83).
+  const oplacerad = await page.evaluate(() => {
+    const rad = DP.Inlasning.tolkaPlan([{ id: '', namn: 'Vindsplan', egna: {} }], [])[0];
+    DP.Inlasning.godta(rad);
+    return DP.Inlasning.status(rad);
+  });
+  kontroll(oplacerad === 'oplacerad',
+    'en oplacerad rad blir inte klar av Godta – frågan utan förslag står kvar (' + oplacerad + ')');
+
+  // ---- Ett plan som redan finns är ingen nyhet (berättelse 16 och 17) ----
+  const fanns = await page.evaluate(() => {
+    const rader = DP.Inlasning.tolkaPlan(
+      [{ id: '01', namn: 'Entréplan', egna: {} }, { id: '02', namn: 'Plan 02', egna: {} }],
+      [{ id: '01', namn: 'Entréplan' }]);
+    return rader.map(r => ({ id: r.falt.id, fanns: !!r.fanns, status: DP.Inlasning.status(r) }));
+  });
+  kontroll(fanns[0].fanns === true && fanns[1].fanns === false,
+    'ett plan som redan finns i byggnaden märks som befintligt (' + JSON.stringify(fanns) + ')');
+
+  // ---- Samma beteckning två gånger är ett fel i filen, inte något att gissa om ----
+  const dubbel = await page.evaluate(() => {
+    const rader = DP.Inlasning.tolkaPlan(
+      [{ id: '01', namn: 'Entré', egna: {} }, { id: '01', namn: 'Entré igen', egna: {} }], []);
+    return rader.map(r => ({ status: DP.Inlasning.status(r), skal: r.fragor.map(f => f.text).join(' ') }));
+  });
+  kontroll(dubbel[0].status === 'klar' && dubbel[1].status === 'oplacerad'
+    && /mer än en rad/.test(dubbel[1].skal),
+    'samma beteckning två gånger gör den andra raden oplacerad ("' + dubbel[1].skal + '")');
+
+  // ---- Arket som tas ut: tre flikar med rubriker, och de egna kolumnerna sist ----
+  const ark = await page.evaluate(() => DP.Inlasning.tillArk({
+    plan: [{ id: '01', namn: 'Entréplan', egna: { Kapacitet: '40 pers' } }],
+    rum: [], installationer: []
+  }));
+  kontroll(ark.length === 3 && ark.map(f => f.namn).join(',') === 'Plan,Rum,Installationer',
+    'filen tas ut med alla tre flikarna (' + ark.map(f => f.namn).join(',') + ')');
+  kontroll(ark[0].rader[0].join(',') === 'Plan,Benämning,Kapacitet',
+    'de egna kolumnerna ligger sist, efter de kända (' + ark[0].rader[0].join(',') + ')');
+  kontroll(ark[0].rader[1].join(',') === '01,Entréplan,40 pers',
+    'det egna fältet följer med ut igen (' + ark[0].rader[1].join(',') + ', beslut 89)');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
+// Inläsningsfilen genom hela sidan: ta ut en tom fil, fylla i den utanför appen, läsa in den
+// via filväljaren, godta förslagen, placera det oplacerade, ångra – och ta ut filen igen med
+// planen ifyllda (biljett #36, berättelse 14–20, 23–25, 27–28 och 30).
+//
+// Det som prövas är planerarens hela väg: filen är en riktig .xlsx skriven utanför appen, och
+// resultatet läses i byggnadsdatan där planen bor. Går tur-och-retur sönder märks det först
+// när någon skickar en fil till fastighetssystemet och den inte går att läsa tillbaka.
+async function testInlasningsfilenPlan(browser) {
+  console.log('Inläsningsfilen med fliken Plan (beslut 70, 83, 89, 105 och 112)');
+  const page = await nySida(browser, URL_INDEX);
+  kontroll(await page.evaluate(() => DP.Inlasningsfil.tillganglig()),
+    'Excel-biblioteket är laddat i sidan');
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('.val[data-typ="kasern"]').click();
+  await bf.locator('input[data-falt="namn"]').fill('Kasern 4');
+  await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+  await vanta(page, () => DP.Plan.byggnad().namn === 'Kasern 4', 'byggnaden skapad');
+
+  // ---- Ta ut en tom inläsningsfil (berättelse 14) ----
+  const tom = await taUtFil(page, 'inlasningsfil-tom.xlsx');
+  const tomtArk = lasArkFil(tom.fil);
+  kontroll(/Kasern-4/.test(tom.namn),
+    'filnamnet bär byggnadens namn, så tre filer går att skilja åt (' + tom.namn + ')');
+  kontroll(Object.keys(tomtArk).join(',') === 'Plan,Rum,Installationer',
+    'den tomma filen har alla tre flikarna (' + Object.keys(tomtArk).join(',') + ')');
+  kontroll((tomtArk.Plan[0] || []).join(',') === 'Plan,Benämning',
+    'fliken Plan har kolumnerna Plan och Benämning (' + (tomtArk.Plan[0] || []).join(',') + ')');
+  kontroll(tomtArk.Plan.length === 1,
+    'den tomma filen har bara rubrikraden i Plan (' + tomtArk.Plan.length + ' rader)');
+  kontroll((tomtArk.Rum[0] || []).indexOf('Rumstyp') >= 0
+    && (tomtArk.Installationer[0] || []).indexOf('Installationstyp') >= 0,
+    'Rumstyp och Installationstyp är med som kolumner (beslut 109)');
+
+  // ---- Fyll i Plan-fliken utanför appen, som någon annan hade gjort ----
+  // Skrivsätten är med flit olika: P1, 01, 1 och "Plan 3" är alla sätt planen skrivs i
+  // fastighetssystemet, en källare och en rad utan beteckning finns med, och en egen kolumn
+  // som systemet inte känner till (beslut 89). Rubrikraden ligger under en tabellrubrik och en
+  // tom rad, som i en fil som gått via Numbers (berättelse 19).
+  const ifylld = skrivArk('inlasningsfil-ifylld.xlsx', {
+    Plan: [
+      ['Plan'],
+      [],
+      ['Plan', 'Benämning', 'Kapacitet'],
+      ['01', 'Entréplan', '40 pers'],
+      [],
+      ['P1', ''],
+      ['1', 'Andra planet'],
+      ['Plan 3', ''],
+      ['K1', 'Källarplan'],
+      ['', 'Rad utan beteckning']
+    ],
+    Rum: [['Plan', 'Rum', 'Benämning', 'NTA'], ['01', '001', 'Korridor', '80']],
+    Installationer: [['Plan', 'Rum', 'Benämning', 'Fabrikat', 'Id'],
+      ['01', '001', 'Handbrandsläckare 3', 'Dafo', '0001']]
+  });
+  await lasInFil(page, ifylld);
+
+  const inlast = await page.evaluate(() => {
+    const st = DP.Plan.inlasningStatus('plan');
+    return {
+      raknat: st.raknat, klar: st.klar, fil: st.fil && st.fil.namn,
+      plan: DP.Plan.byggnad().plan.map(p => p.id),
+      forslag: st.grupper.forslag.map(r => r.falt.id),
+      skal: st.grupper.forslag.map(r => r.fragor.map(f => f.text).join(' ')),
+      oplacerade: st.grupper.oplacerad.length,
+      oplaceratSkal: (st.grupper.oplacerad[0] || { fragor: [] }).fragor.map(f => f.text).join(' '),
+      historik: DP.Plan.historik().lista.slice(-1)[0],
+      steg2: DP.Plan.byggnadsSteg()[2],
+      // Modellen visar bara det som är klart (berättelse 55): tre skal, inte sex
+      skal3d: DP.viewer.b.rum.filter(r => r.skal).length,
+      // Förslag och oplacerat ligger fast överst (beslut 112)
+      sticky: (() => {
+        const n = document.querySelector('#byggnadsflode .bf-oppet');
+        return n ? getComputedStyle(n).position : null;
+      })(),
+      rader: document.querySelectorAll('#byggnadsflode .bf-inlrad').length
+    };
+  });
+  kontroll(inlast.raknat.klar === 3 && inlast.raknat.forslag === 2 && inlast.raknat.oplacerad === 1,
+    'raderna delas i klart, förslag och oplacerat (' + JSON.stringify(inlast.raknat) + ')');
+  kontroll(inlast.plan.join(' ') === 'K1 01 1',
+    'de klara planen förs in i byggnaden i föreslagen ordning nedifrån och upp (' + inlast.plan.join(' ') + ')');
+  kontroll(inlast.forslag.join(' ') === 'P1 Plan 3',
+    'planen utan benämning blir förslag (' + inlast.forslag.join(' ') + ')');
+  kontroll(inlast.skal.some(s => /saknar benämning/.test(s)),
+    'förslagets skäl står i klartext ("' + inlast.skal[0] + '", berättelse 24)');
+  kontroll(inlast.oplacerade === 1 && /ingen beteckning/.test(inlast.oplaceratSkal),
+    'raden utan beteckning är oplacerad och säger varför ("' + inlast.oplaceratSkal + '")');
+  kontroll(/läs in inlasningsfil-ifylld\.xlsx/.test(inlast.historik),
+    'inläsningen är ett steg i historiken med text i klartext ("' + inlast.historik + '")');
+  kontroll(inlast.steg2 === false,
+    'steg 2 får ingen bock så länge förslag och oplacerat ligger kvar (beslut 83 och berättelse 30)');
+  kontroll(inlast.skal3d === 3,
+    'modellen visar bara de klara planen – ingen gissning (' + inlast.skal3d + ' skal, berättelse 55)');
+  kontroll(inlast.sticky === 'sticky',
+    'förslag och oplacerat är satt att ligga fast överst (' + inlast.sticky + ', beslut 112)');
+  // Att CSS-egenskapen är satt säger bara att någon skrev den. Det som ska hålla är att
+  // gruppen **stannar** när listan rullas förbi den – en förälder med overflow någonstans i
+  // kedjan hade tagit bort klistringen utan att egenskapen ändrades.
+  const klistrar = await page.evaluate(() => {
+    const panel = document.getElementById('hs-byggnad');
+    const o = document.querySelector('#byggnadsflode .bf-oppet');
+    const fore = o.getBoundingClientRect().top;
+    const panelTop = panel.getBoundingClientRect().top;
+    // Rulla precis förbi gruppens egen plats i listan
+    panel.scrollTop = Math.round(fore - panelTop) + 40;
+    const efter = o.getBoundingClientRect().top;
+    panel.scrollTop = 0;
+    return { fore, efter, panelTop, utanKlister: fore - (Math.round(fore - panelTop) + 40) };
+  });
+  kontroll(klistrar.efter > klistrar.utanKlister + 10 && klistrar.efter >= klistrar.panelTop,
+    'gruppen stannar överst när listan rullas förbi den (hade legat på '
+    + Math.round(klistrar.utanKlister) + ', ligger på ' + Math.round(klistrar.efter)
+    + ', panelens topp ' + Math.round(klistrar.panelTop) + ')');
+  await bild(page, 'byggnad-steg2-inlasning');
+
+  // ---- Rullningen står kvar när något godtas (beslut 105) ----
+  // Panelen måste faktiskt gå att rulla för att kontrollen ska säga något: en panel som redan
+  // rymmer allt har scrollTop 0 både före och efter, och då hade kontrollen varit grön utan
+  // att ha prövat någonting.
+  const skroll = await page.evaluate(() => {
+    const panel = document.getElementById('hs-byggnad');
+    panel.scrollTop = 150;
+    return { satt: panel.scrollTop, kanRullas: panel.scrollHeight > panel.clientHeight };
+  });
+  kontroll(skroll.kanRullas && skroll.satt > 0,
+    'panelen går att rulla med inläsningen öppen, så löftet om rullningen går att pröva ('
+    + skroll.satt + ')');
+  const foreGodta = await historiklangd(page);
+  await bf.locator('.bf-inlrad.forslag').first().locator('button', { hasText: 'Godta' }).click();
+  await stegKlart(page, foreGodta, 'godta ett förslag');
+  const ettGodtaget = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('plan').raknat,
+    plan: DP.Plan.byggnad().plan.map(p => p.id + ':' + p.namn),
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    skroll: document.getElementById('hs-byggnad').scrollTop
+  }));
+  kontroll(ettGodtaget.raknat.forslag === 1 && ettGodtaget.raknat.klar === 4,
+    'ett godtaget förslag blir klart och flyttas till byggnaden (' + JSON.stringify(ettGodtaget.raknat) + ')');
+  kontroll(ettGodtaget.plan.some(p => p === 'P1:Plan P1'),
+    'planet fick förslagets benämning (' + ettGodtaget.plan.join(' | ') + ')');
+  kontroll(/godta förslag: plan P1/.test(ettGodtaget.historik),
+    'varje godtagande är ett eget steg i historiken ("' + ettGodtaget.historik + '")');
+  kontroll(ettGodtaget.skroll === skroll.satt,
+    'rullningen står kvar när ett förslag godtas (' + skroll.satt + ' → ' + ettGodtaget.skroll
+    + ', beslut 105)');
+
+  // ---- Godta alla: ett steg, och ett ångra tar tillbaka hela godtagandet ----
+  const foreAlla = await historiklangd(page);
+  await bf.locator('button', { hasText: 'Godta alla' }).click();
+  await stegKlart(page, foreAlla, 'Godta alla');
+  const allaGodtagna = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('plan').raknat,
+    antal: DP.Plan.byggnad().plan.length,
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    steg2: DP.Plan.byggnadsSteg()[2]
+  }));
+  kontroll(allaGodtagna.raknat.forslag === 0 && allaGodtagna.antal === 5,
+    'Godta alla för in alla förslag på en gång (' + allaGodtagna.antal + ' plan)');
+  kontroll(/godta alla 1 förslag i Plan/.test(allaGodtagna.historik),
+    'Godta alla är **ett** steg i historiken ("' + allaGodtagna.historik + '")');
+  kontroll(allaGodtagna.steg2 === false,
+    'bocken dröjer så länge den oplacerade raden ligger kvar');
+
+  await angra(page);
+  const angrat = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('plan').raknat,
+    antal: DP.Plan.byggnad().plan.length
+  }));
+  kontroll(angrat.raknat.forslag === 1 && angrat.antal === 4,
+    'ett ångra tar tillbaka hela godtagandet (' + angrat.antal + ' plan, '
+    + angrat.raknat.forslag + ' förslag igen)');
+  await gorOm(page);
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().plan.length) === 5,
+    'gör om lägger tillbaka dem');
+
+  // ---- Den oplacerade raden placeras: steget blir grönt (berättelse 30) ----
+  const forePlacera = await historiklangd(page);
+  const oplacerad = bf.locator('.bf-inlrad.oplacerad').first();
+  // Knappen är utgråad så länge fältet är tomt: ett klick som inte gör någonting tolkar
+  // planeraren som att systemet gick sönder, inte som att hon glömt fylla i.
+  kontroll(await oplacerad.locator('button', { hasText: 'Placera' }).isDisabled(),
+    'Placera är utgråad med tomt fält, och säger varför i sin titel');
+  // Sedan en beteckning som redan finns: beskedet ska komma medan planeraren skriver, som i
+  // steg 1 och i fältet för ett nytt plan.
+  await oplacerad.locator('input').fill('01');
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-inlrad.oplacerad .bf-fel'),
+    'beskedet om en upptagen beteckning');
+  kontroll(await bf.locator('.bf-inlrad.oplacerad .bf-fel').count() === 1,
+    'en beteckning som redan finns ger ett besked i klartext innan hon trycker');
+  await bf.locator('.bf-inlrad.oplacerad input').fill('04');
+  await bf.locator('.bf-inlrad.oplacerad').locator('button', { hasText: 'Placera' }).click();
+  await stegKlart(page, forePlacera, 'placera den oplacerade raden');
+  const placerat = await page.evaluate(() => ({
+    st: DP.Plan.inlasningStatus('plan'),
+    plan: DP.Plan.byggnad().plan.map(p => p.id + ':' + p.namn),
+    steg2: DP.Plan.byggnadsSteg()[2],
+    status: DP.Plan.byggnadStatus()
+  }));
+  kontroll(placerat.st.raknat.oplacerad === 0 && placerat.st.klar === true,
+    'den placerade raden är inte längre oplacerad');
+  kontroll(placerat.plan.some(p => /^04:/.test(p)),
+    'raden blev ett plan med den beteckning planeraren gav (' + placerat.plan.join(' | ') + ')');
+  kontroll(placerat.plan.some(p => p === '04:Rad utan beteckning'),
+    'benämningen från filen följde med (' + placerat.plan.join(' | ') + ')');
+  kontroll(placerat.steg2 === true,
+    'steg 2 får grön bock när bara klart återstår (beslut 83 och berättelse 30)');
+  await bild(page, 'byggnad-steg2-gront');
+
+  // ---- Ta ut filen igen, nu ifylld, och läs in den tur och retur (berättelse 17) ----
+  const igen = await taUtFil(page, 'inlasningsfil-ifylld-ut.xlsx');
+  const utArk = lasArkFil(igen.fil);
+  const planFore = await page.evaluate(() => DP.Plan.byggnad().plan.map(p => p.id + '|' + p.namn));
+  kontroll(utArk.Plan.length === 7,
+    'filen tas ut med alla sex planen ifyllda (' + (utArk.Plan.length - 1) + ' rader)');
+  kontroll((utArk.Plan[0] || []).join(',') === 'Plan,Benämning,Kapacitet',
+    'den egna kolumnen följer med ut igen (' + (utArk.Plan[0] || []).join(',') + ', beslut 89)');
+  kontroll(utArk.Plan.some(r => r[0] === '01' && r[2] === '40 pers'),
+    'det egna fältets värde följer med ut igen');
+  kontroll(utArk.Plan.some(r => r[0] === 'K1') && utArk.Plan.some(r => r[0] === 'Plan 3'),
+    'beteckningarna står kvar precis som i filen (beslut 77)');
+
+  const foreRetur = await historiklangd(page);
+  await lasInFil(page, igen.fil);
+  await vanta(page, n => DP.Plan.historik().lista.length > n, 'inläsningen tur och retur', foreRetur);
+  const retur = await page.evaluate(() => ({
+    plan: DP.Plan.byggnad().plan.map(p => p.id + '|' + p.namn),
+    st: DP.Plan.inlasningStatus('plan'),
+    steg2: DP.Plan.byggnadsSteg()[2]
+  }));
+  kontroll(retur.plan.join(' ') === planFore.join(' '),
+    'filen läses in tur och retur utan skillnad (' + retur.plan.join(' ') + ')');
+  kontroll(retur.st.raknat.forslag === 0 && retur.st.raknat.oplacerad === 0 && retur.steg2 === true,
+    'ingenting nytt att ta ställning till: alla plan fanns redan (beslut 86)');
+  // Gruppen *klart* ska räkna de plan filen bar, också de som redan fanns. Räknades bara de
+  // nya hade planeraren som läser in sin ifyllda fil en gång till fått "0 plan klara" om en
+  // byggnad full av plan, och trott att filen inte gick fram.
+  kontroll(retur.st.raknat.klar === 6,
+    'alla sex planen räknas som klara också andra gången filen läses in ('
+    + retur.st.raknat.klar + ')');
+
+  // ---- En fil som inte är inläsningsfilen säger varför ----
+  const frammande = skrivArk('inte-inlasningsfilen.xlsx', {
+    Anteckningar: [['Fyllt i av', 'Nisse'], ['Datum', '2026-11-20']]
+  });
+  await bf.locator('input[data-falt="filval"]').setInputFiles(frammande);
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-fil .bf-fel'),
+    'beskedet om en fil utan kända rubriker');
+  const besked = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode .bf-fil .bf-fel') || {}).textContent || '');
+  kontroll(/kolumnrubriker/.test(besked),
+    'en fil utan kända rubriker säger varför den inte gick att läsa ("' + besked.slice(0, 70) + '…")');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -4293,6 +4777,8 @@ async function testFristaendeFil(browser) {
     await testSkapaNyByggnad(browser);
     await testPlanlosningen(browser);
     await testStegPlan(browser);
+    await testInlasningsmodulen(browser);
+    await testInlasningsfilenPlan(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

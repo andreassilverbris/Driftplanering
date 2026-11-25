@@ -7,7 +7,8 @@
  * att den redan är inlärd: enhetligheten är viktigare (beslut 107).
  *
  * Den här filen bygger listan, byggnadslistan med status, **steg 1** (byggnadstyp, namn,
- * område och färg) och **steg 2 Plan** (lägg till plan, dra om ordningen, döp om och ta bort).
+ * område och färg) och **steg 2 Plan** (ta ut och läsa in inläsningsfilen, godta förslag,
+ * svara på det oplacerade, lägga till plan för hand, dra om ordningen, döpa om och ta bort).
  * Steg 3–4 syns med sitt läge men är tomma tills de byggs i de följande biljetterna i spåret.
  *
  * Reglerna – vad som är klart, om namnet går att använda och vad statusen heter – bor i
@@ -40,7 +41,11 @@
     drag: null,
     // Planet vars benämning redigeras på sin rad. Omdöpningen sker i listan och inte i en
     // ruta ovanpå sidan: resten av flödet frågar i panelen.
-    doper: null
+    doper: null,
+    // Inläsningen: skälet när en fil inte gick att läsa, och det planeraren skrivit i en
+    // oplacerad rads fält (nyckel → text) innan hon tryckt på *Placera*.
+    filfel: '',
+    svar: {}
   };
 
   function el(tag, cls, html) {
@@ -311,6 +316,14 @@
       'rummen och installationerna pekar på den. Benämningen är det du läser: Källarplan, ' +
       'Entréplan, Vindsplan.'));
 
+    // Inläsningsfilen först, handinmatningen under: de är två sätt att fylla i **samma** steg
+    // och inte två spår (beslut 69), men filen är det som bär en verklig byggnad och ska
+    // därför vara det planeraren möter först.
+    filrad(kropp, b);
+    // Det som återstår av inläsningen ligger **fast överst** medan resten rullas (beslut 112),
+    // så att planeraren kan dra och godta med listan över plan framför sig.
+    inlasningsgrupper(kropp, b);
+
     if (!st.rader.length) {
       kropp.appendChild(el('div', 'bf-notis',
         'Byggnaden har inga plan ännu. Lägg till det nedersta först, eller läs in dem från en ' +
@@ -365,6 +378,196 @@
     if (lagg.disabled) { lagg.title = hinder || 'Skriv planets beteckning först'; }
     rad.appendChild(lagg);
     kropp.appendChild(rad);
+  }
+
+  // ------------------------------------------------------------------
+  // Inläsningsfilen (beslut 70, 83, 89 och 90)
+  // ------------------------------------------------------------------
+  // Två knappar: *Ta ut inläsningsfil* skriver filen med det som redan är inläst (berättelse
+  // 14 och 17), och *Läs in fil* öppnar filväljaren. Samma rad, eftersom det är samma fil på
+  // väg ut och in – och mellan dem kan veckor ha gått (berättelse 15).
+  function filrad(kropp, b) {
+    var w = el('section', 'bf-fil');
+    var rad = el('div', 'knapprad');
+    rad.appendChild(knapp('Ta ut inläsningsfil', 'knapp sekundar liten-knapp', function () {
+      taUtFilen(b);
+    }, 'Spara en Excel-fil med flikarna Plan, Rum och Installationer. Det som redan är ' +
+       'inläst är ifyllt, så bara det som saknas återstår. Fyll i den själv eller skicka den ' +
+       'vidare, och läs in den här igen.'));
+    var valj = el('input', 'bf-filval');
+    valj.type = 'file';
+    // Numbers sparar som .numbers, men filen fylls i och exporteras som .xlsx – det är det
+    // formatet fastighetssystemet och Excel delar. Begränsningen är en vägledning: webbläsaren
+    // låter planeraren välja *Alla filer* ändå, och då säger inläsningen vad som gick fel.
+    valj.accept = '.xlsx,.xlsm,.xls,.csv';
+    valj.dataset.falt = 'filval';
+    valj.addEventListener('change', function () {
+      if (valj.files && valj.files[0]) { lasInFilen(valj.files[0]); }
+      // Nollställs värdet går samma fil att läsa in igen – planeraren rättar filen och väljer
+      // den en gång till, och utan detta hade webbläsaren tigit om att inget ändrats.
+      valj.value = '';
+    });
+    rad.appendChild(knapp('Läs in fil', 'knapp liten-knapp', function () {
+      valj.click();
+    }, 'Välj den ifyllda inläsningsfilen. Du kan läsa in en flik i taget – börja med Plan.'));
+    rad.appendChild(valj);
+    w.appendChild(rad);
+    if (ui.filfel) { w.appendChild(el('div', 'bf-fel', ui.filfel)); }
+    var inl = P.inlasningStatus('plan');
+    if (inl.fil) {
+      // Vad filen gav, i klartext: hur många plan som kom in, och vad som ligger kvar i de
+      // flikar som inte är byggda ännu – annars hade planeraren undrat var hennes rum tog vägen.
+      var txt2 = 'Läst in <b>' + inl.fil.namn + '</b>';
+      var delar = [];
+      if (inl.raknat.klar) { delar.push(antal(inl.raknat.klar, 'plan klart', 'plan klara')); }
+      if (inl.raknat.forslag) { delar.push(antal(inl.raknat.forslag, 'förslag', 'förslag')); }
+      if (inl.raknat.oplacerad) { delar.push(antal(inl.raknat.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
+      if (delar.length) { txt2 += ': ' + delar.join(', '); }
+      txt2 += '.';
+      if (inl.fil.rum || inl.fil.inst) {
+        txt2 += ' Filen har också ' + antal(inl.fil.rum, 'rad', 'rader') + ' i fliken Rum och ' +
+          antal(inl.fil.inst, 'rad', 'rader') + ' i fliken Installationer – de läses in i ' +
+          'steg 3 och 4, som inte är byggda ännu.';
+      }
+      if ((inl.fil.ignorerade || []).length) {
+        txt2 += ' Bladet ' + inl.fil.ignorerade.join(', ') + ' kändes inte igen på sina ' +
+          'kolumnrubriker och lästes inte.';
+      }
+      w.appendChild(el('div', 'bf-notis', txt2));
+    }
+    kropp.appendChild(w);
+  }
+
+  function taUtFilen(b) {
+    ui.filfel = '';
+    if (!DP.Inlasningsfil.taUt(P.filArk(), DP.Inlasningsfil.filnamnFor(b.namn))) {
+      ui.filfel = 'Excel-biblioteket kunde inte laddas, så filen går inte att ta ut.';
+      rita();
+    }
+  }
+
+  function lasInFilen(fil) {
+    ui.filfel = '';
+    // Halvskrivna svar hör till den förra filen. Nycklarna är radens plats i filen ('p3'), så
+    // en ny inläsning återanvänder dem – och ett svar planeraren började skriva hade följt med
+    // till en helt annan rad.
+    ui.svar = {};
+    DP.Inlasningsfil.las(fil, function (ark) {
+      var svar = P.lasInArk(ark, fil.name);
+      // En fil där inget blad kändes igen är ingen inläsning: hade steget tigit hade
+      // planeraren trott att hennes fil var tom.
+      if (svar && !svar.raknat.klar && !svar.raknat.forslag && !svar.raknat.oplacerad
+        && !svar.rum && !svar.inst) {
+        ui.filfel = 'Filen har inga rader systemet känner igen. Flikarna känns igen på sina ' +
+          'kolumnrubriker – Plan och Benämning i fliken Plan – så en fil utan rubrikrad går ' +
+          'inte att läsa. Ta ut en tom inläsningsfil och fyll i den.';
+      }
+      rita();
+    }, function (text) {
+      ui.filfel = text;
+      rita();
+    });
+  }
+
+  // De tre grupperna (beslut 83). Bara det som återstår visas som en lista att arbeta i:
+  // *klart* är redan byggnaden och står i planlistan nedanför, så en andra lista med samma
+  // plan hade varit samma uppgift två gånger.
+  function inlasningsgrupper(kropp, b) {
+    var inl = P.inlasningStatus('plan');
+    if (!inl.grupper.forslag.length && !inl.grupper.oplacerad.length) { return; }
+    var w = el('section', 'bf-oppet');
+    if (inl.grupper.forslag.length) {
+      var h = el('div', 'bf-grupphuvud');
+      h.appendChild(el('div', 'liten-rubrik',
+        'Förslag (' + inl.grupper.forslag.length + ')'));
+      h.appendChild(knapp('Godta alla', 'knapp liten-knapp', function () {
+        P.godtaAllaPlan();
+      }, 'För in alla ' + inl.grupper.forslag.length + ' förslagen på en gång. ◀ tar tillbaka ' +
+         'hela godtagandet.'));
+      w.appendChild(h);
+      w.appendChild(el('p', 'bf-grupptext',
+        'Det här tror systemet. Läs skälet och godta det, eller rätta det själv.'));
+      inl.grupper.forslag.forEach(function (r) { w.appendChild(forslagsrad(r)); });
+    }
+    if (inl.grupper.oplacerad.length) {
+      w.appendChild(el('div', 'liten-rubrik',
+        'Oplacerat (' + inl.grupper.oplacerad.length + ')'));
+      w.appendChild(el('p', 'bf-grupptext',
+        'Det här vet systemet inte. Fyll i det som fattas, så hamnar raden på plats.'));
+      inl.grupper.oplacerad.forEach(function (r) { w.appendChild(oplaceradRad(r)); });
+    }
+    kropp.appendChild(w);
+  }
+
+  // En förslagsrad: beteckningen, det raden blir, och skälen i klartext (berättelse 24).
+  function forslagsrad(r) {
+    var rad = el('div', 'bf-inlrad forslag');
+    rad.dataset.inlrad = r.key;
+    rad.appendChild(el('span', 'bf-planbet', r.falt.id));
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', namnEllerForslag(r)));
+    r.fragor.forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
+    rad.appendChild(txt);
+    var verktyg = el('div', 'bf-planverktyg');
+    verktyg.appendChild(knapp('Godta', 'knapp sekundar liten-knapp', function () {
+      P.godtaPlan(r.key);
+    }, 'För in förslaget. ◀ tar tillbaka det.'));
+    rad.appendChild(verktyg);
+    return rad;
+  }
+  // Namnet raden får: det egna om det finns, annars förslaget. Planeraren ska se vad planet
+  // kommer att heta innan hon godtar, inte efteråt.
+  function namnEllerForslag(r) {
+    if (r.falt.namn) { return r.falt.namn; }
+    var f = DP.Inlasning.fraga(r, 'benamning');
+    return f && f.forslag ? f.forslag : '(utan benämning)';
+  }
+
+  // En oplacerad rad: den fråga som saknar förslag får ett fält att svara i. En plan-rad kan
+  // bara sakna en sak – beteckningen – så fältet är det enda som behövs här. Rum och
+  // installationer dras på plats i stället, och det byggs i sina egna biljetter.
+  function oplaceradRad(r) {
+    var rad = el('div', 'bf-inlrad oplacerad');
+    rad.dataset.inlrad = r.key;
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', r.falt.namn || '(utan benämning)'));
+    r.fragor.forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
+    rad.appendChild(txt);
+    var saknas = r.fragor.filter(function (f) { return f.forslag == null; })[0];
+    if (saknas && saknas.slag === 'id') {
+      var verktyg = el('div', 'bf-planverktyg');
+      var f2 = el('input', 'bf-falt bf-smalt');
+      f2.type = 'text';
+      f2.dataset.falt = 'inlid-' + r.key;
+      f2.value = ui.svar[r.key] == null ? '' : ui.svar[r.key];
+      f2.placeholder = 't.ex. 01';
+      // Omritningen ger beskedet om beteckningen medan planeraren skriver, och `rita()` lämnar
+      // tillbaka tangentbordet till samma fält med markören där den stod.
+      f2.addEventListener('input', function () { ui.svar[r.key] = f2.value; rita(); });
+      f2.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { svaraId(r.key, f2.value); }
+      });
+      verktyg.appendChild(f2);
+      // Beskedet medan planeraren skriver, som i steg 1 och i fältet för ett nytt plan: en
+      // beteckning som redan finns ska hon få veta om innan hon trycker.
+      var hinder = ui.svar[r.key] ? P.planHinder(ui.svar[r.key]) : '';
+      var placera = knapp('Placera', 'knapp sekundar liten-knapp', function () {
+        svaraId(r.key, f2.value);
+      }, 'Ge raden en beteckning, så blir den ett plan.');
+      // Knappen är utgråad i stället för att tiga: ett klick som inte gör någonting är det
+      // planeraren tolkar som att systemet gick sönder, inte som att fältet är tomt.
+      placera.disabled = !!hinder || !ui.svar[r.key];
+      if (placera.disabled) { placera.title = hinder || 'Skriv en beteckning i fältet först'; }
+      verktyg.appendChild(placera);
+      rad.appendChild(verktyg);
+      if (hinder) { rad.appendChild(el('div', 'bf-fel', hinder)); }
+    }
+    return rad;
+  }
+  function svaraId(key, varde) {
+    if (P.planHinder(varde)) { rita(); return; }
+    delete ui.svar[key];
+    P.svaraPlan(key, 'id', varde);
   }
 
   // Ett fält med etikett i steg 2:s formulär.

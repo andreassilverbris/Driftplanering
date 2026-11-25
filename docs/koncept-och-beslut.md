@@ -385,6 +385,16 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     Installationer. *Ändra byggnad via fil* är samma sak: ta ut, ändra, läs in. Byggnadens namn och typ
     anges i flödets första steg, inte i filen. Excel-filen läses och skrivs med SheetJS i `vendor/`, som
     fungerar från `file://` utan server.
+
+    *Byggt för fliken Plan i biljett #36.* Filen tas ut med **alla tre flikarna** från första dagen,
+    även om bara Plan läses in än: den som fyller i filen ska se hela uppgiften, och flikigenkänningen
+    måste ändå kunna skilja dem åt. SheetJS ligger som **mini-bygget** (`vendor/xlsx.mini.min.js`,
+    280 kB mot 950 kB): det läser och skriver .xlsx, som är formatet både Excel och Numbers
+    exporterar till. En .numbers-fil går alltså inte att läsa direkt – planeraren exporterar till
+    .xlsx, som hon gör mot fastighetssystemet ändå. Sömmen mot filformatet bor i
+    `app/inlasningsfil.js` och ingen annanstans; allt annat arbetar med ett **ark** (en lista med
+    flikar som var och en är en lista med rader), så tolkningen går att pröva i ett test utan att en
+    fil finns.
 71. **Byggnaden lever i minnet som allt annat, men byggs för att kunna sparas.** I utbildningsversionen visas
     avbrottet (man väntar på en ifylld fil) som en status i byggnadslistan, men det överlever inte en
     omladdning. Filen bär plan, rum och installationer, så det som går förlorat är namn och typ. För att ett
@@ -454,6 +464,18 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     eller med *Godta alla* – och *oplacerat* är det systemet inte vet, som dras till rätt plan, rum eller
     typ. Steget får grön bock när bara klart återstår. Ordet *förslag* betyder samma sak som vid planerad
     tid och "föreslagen att strykas": systemet föreslår, planeraren bestämmer.
+
+    *Byggt för fliken Plan i biljett #36* (`app/inlasning.js`). Två saker visade sig bära hela modellen.
+    **Statusen är härledd ur frågorna och inget man sätter**: inga frågor → klar, alla frågor har
+    förslag → förslag, annars oplacerad. Ett fält hade kunnat säga "klar" om en rad som fortfarande har
+    en obesvarad fråga, och då hade modellen visat en gissning. Och **klara rader står inte kvar i
+    inläsningen** – de förs in i byggnaden direkt, så att ett klart plan *är* ett plan. Allt som redan
+    läser byggnaden fortsätter svara rätt utan att känna till inläsningen, och modellen kan inte visa
+    något som inte är avgjort (berättelse 55). Ett *Godta alla* är **ett** steg i historiken, och en rad
+    som blir klar förs in i byggnaden i **samma** steg som godtagandet: att godta ett förslag *är* att
+    lägga till planet, och två steg för en handling hade betytt att planeraren backar en gång och ser
+    ingenting hända. En **oplacerad** rad blir inte klar av *Godta alla*: det systemet inte vet kan
+    planeraren inte godta sig förbi.
 84. **Planens ordning föreslås och kan dras om.** Fliken Plan har bara Plan (beteckningen) och Benämning.
     Ordningen nedifrån och upp föreslås ur dem: siffror stigande, källare, "K" och negativa under 01, vind
     och teknikplan överst. I steget Plan dras ordningen om.
@@ -605,6 +627,10 @@ fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom
      tom, så att gruppen behåller sin plats och sin bredd.
 112. **Det öppna ligger kvar överst.** Förslag och oplacerat ligger fast högst upp i steget medan listan med
      plan och rum rullas, så att man kan dra något till ett rum längst ner.
+
+     *Byggt i biljett #36* (`.bf-oppet`, `position: sticky`). Gruppen fick också en **egen höjdgräns
+     och egen rullning**: en fil med trettio förslag hade annars fyllt hela panelen, och då finns
+     ingen lista med plan kvar att dra till – löftet hade ätit upp det det skulle tjäna.
 
 ## Förslag (bekräftade)
 

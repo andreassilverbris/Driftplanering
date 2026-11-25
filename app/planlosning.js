@@ -89,7 +89,11 @@
   function benamningsforslag(id) {
     var t = planTal(id);
     if (t != null && t < 0) { return t === -1 ? 'Källarplan' : 'Källarplan ' + (-t); }
-    return 'Plan ' + txt(id);
+    // Står ordet "plan" redan i beteckningen används den som den är: en inläsningsfil där
+    // planen heter "Plan 3" ska inte ge benämningen "Plan Plan 3".
+    var s = txt(id);
+    if (/^plan\b/i.test(s)) { return s.charAt(0).toUpperCase() + s.slice(1); }
+    return 'Plan ' + s;
   }
 
   // ------------------------------------------------------------------

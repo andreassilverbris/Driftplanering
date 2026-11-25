@@ -469,7 +469,12 @@
       konstanter: klona(t.konstanter || { PLANHOJD: hojd, BJALKLAG: 0.2, FRIHOJD: hojd - 0.2 }),
       plan: [],
       rum: [],
-      installationer: []
+      installationer: [],
+      // Det inlästa som ännu inte är avgjort (beslut 83). Tomt betyder att ingenting återstår
+      // – en byggnad som fyllts i för hand har ingen inläsning att avgöra. Facken för Rum och
+      // Installationer kommer med sina egna biljetter: ett tomt fack ingen läser är en
+      // gissning om hur nästa biljett ska se ut.
+      inlasning: { plan: [], infordaPlan: [], fil: null }
     };
   }
 
@@ -485,9 +490,13 @@
   function byggnadsSteg(bid) {
     var b = B(bid);
     if (!b) { return { 1: false, 2: false, 3: false, 4: false }; }
+    // Steget får grön bock när bara **klart** återstår (beslut 83): planen finns, och det som
+    // lästes in är avgjort. Ett förslag som ligger kvar betyder att planeraren inte tagit
+    // ställning, och en bock hade då sagt att byggnaden är komplett innan den är det
+    // (berättelse 30).
     return {
       1: !!(b.namn && b.typ && b.omrade),
-      2: b.plan.length > 0,
+      2: b.plan.length > 0 && inlasningStatus('plan', bid).klar,
       3: b.rum.length > 0,
       4: b.installationer.some(function (i) { return i.signifikant; })
     };
@@ -603,6 +612,12 @@
       data.plan = data.plan.filter(function (x) { return x.id !== planId; });
       data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
       data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
+      // Planet var inläst: ta det ur gruppen *klart* också, annars hade steget fortsatt räkna
+      // ett plan som inte finns. Listan är nycklad på beteckningen, som är borta nu.
+      if (data.inlasning && data.inlasning.infordaPlan) {
+        data.inlasning.infordaPlan = data.inlasning.infordaPlan
+          .filter(function (id) { return id !== planId; });
+      }
     });
   }
 
@@ -653,6 +668,191 @@
         return data.plan.filter(function (p) { return p.id === pid; })[0];
       });
     });
+  }
+
+  // ------------------------------------------------------------------
+  // Inläsning från fil (beslut 70, 83, 89 och 90)
+  // ------------------------------------------------------------------
+  // Det inlästa ligger i byggnadsdatan under `inlasning`, en lista per flik, och är därmed
+  // steg i historiken som allt annat (beslut 73): en inläsning, varje godtaget förslag och
+  // varje svar går att ångra och göra om med samma mediaspelare.
+  //
+  // **Klara rader står inte kvar i `inlasning`.** De förs in i byggnaden direkt – ett klart
+  // plan blir ett plan – och det som ligger kvar är bara det som återstår: förslag och
+  // oplacerat. Två skäl: modellen visar aldrig en gissning (berättelse 55), och allt som redan
+  // läser byggnaden (modellen, trädet, plan-knapparna, `planStatus`, bockarna) fortsätter att
+  // svara rätt utan att känna till inläsningen. Det som är klart *är* byggnaden.
+  //
+  // Den klara raden får ändå ligga kvar i listan över lästa rader, märkt `inford`, så att
+  // steget kan visa gruppen *klart* – planeraren ska se att hennes fem plan kom in, inte bara
+  // att två förslag återstår.
+  function inlasningsdel(b, flik) {
+    return ((b && b.inlasning) || {})[flik] || [];
+  }
+
+  // Läs in ett ark som ett steg. Bara fliken Plan tolkas i den här biljetten; de två andra
+  // flikarna läses ur filen och räknas, men deras rader väntar på sina biljetter i spåret.
+  //
+  // Svaret är en sammanfattning av vad inläsningen gav – antal per grupp och vilka blad som
+  // inte kändes igen – så att vyn kan säga det utan att räkna om det själv.
+  function lasInArk(ark, filnamn, bid) {
+    var b = B(bid);
+    if (!b) { return null; }
+    var fil = DP.Inlasning.lasArk(ark);
+    var rader = DP.Inlasning.tolkaPlan(fil.plan, b.plan);
+    // Gruppen *klart* är alla rader filen bar som nu ligger i byggnaden – de som förs in av
+    // den här inläsningen **och** de som redan fanns där. Räknades bara de nya hade en
+    // planerare som läser in sin ifyllda fil en andra gång fått beskedet "0 plan klara" om
+    // en byggnad full av plan, och trott att filen inte gick fram (berättelse 17).
+    var klara = rader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
+    // Bara de som inte redan finns ska läggas till; resten är samma plan en gång till.
+    var nya = klara.filter(function (r) { return !r.fanns; });
+    var kvar = rader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+    var namn = String(filnamn || 'inläsningsfilen');
+    andraByggnad('läs in ' + namn, bid, function (data) {
+      data.inlasning = data.inlasning || {};
+      // En ny inläsning ersätter den förra: planeraren läser in en rättad fil, och de gamla
+      // frågorna gällde den gamla filen.
+      data.inlasning.plan = kvar;
+      data.inlasning.infordaPlan = klara.map(function (r) { return r.falt.id; });
+      data.inlasning.fil = { namn: namn, ignorerade: fil.ignorerade,
+        egnaKolumner: fil.egnaKolumner, rum: fil.rum.length, inst: fil.inst.length };
+      forInPlan(data, nya);
+    });
+    return {
+      raknat: DP.Inlasning.raknat(rader), ignorerade: fil.ignorerade,
+      rum: fil.rum.length, inst: fil.inst.length, inforda: nya.length
+    };
+  }
+
+  // Planen förs in och hamnar i den föreslagna ordningen (beslut 84): läses källaren in efter
+  // plan 03 ska den ändå ligga underst, precis som när planeraren lägger till den för hand.
+  function forInPlan(data, rader) {
+    if (!rader.length) { return; }
+    var plan = data.plan.concat(rader.map(function (r) { return DP.Inlasning.planFranRad(r); }));
+    var ordning = DP.Planlosning.foreslagenOrdning(plan);
+    data.plan = ordning.map(function (pid) {
+      return plan.filter(function (p) { return p.id === pid; })[0];
+    });
+  }
+
+  // Godta ett förslag, eller alla på en gång (berättelse 25). Varje godtagande är ett eget
+  // steg i historiken, så ett ◀ tar tillbaka just det – och *Godta alla* är **ett** steg, så
+  // ett ◀ tar tillbaka hela godtagandet och inte ett förslag i taget.
+  //
+  // En rad som blir klar förs in i byggnaden i samma steg: att godta ett förslag *är* att
+  // lägga till planet, och två steg för en handling hade betytt att planeraren backar en gång
+  // och ser ingenting hända.
+  function godtaPlan(key, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'plan').filter(function (r) { return r.key === key; })[0];
+    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
+    var text = 'godta förslag: plan ' + rad.falt.id;
+    andraByggnad(text, bid, function (data) {
+      godtaRader(data, [key]);
+    });
+  }
+  function godtaAllaPlan(bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var nycklar = inlasningsdel(b, 'plan')
+      .filter(function (r) { return DP.Inlasning.status(r) === 'forslag'; })
+      .map(function (r) { return r.key; });
+    if (!nycklar.length) { return; }
+    andraByggnad('godta alla ' + nycklar.length + ' förslag i Plan', bid, function (data) {
+      godtaRader(data, nycklar);
+    });
+  }
+  // Godtagandet inuti ett steg: raderna godtas, de som blev klara förs in i byggnaden och
+  // försvinner ur arbetslistan. Delad av *godta ett* och *Godta alla*, så att de två aldrig
+  // kan börja skilja sig på vad ett godtagande betyder.
+  function godtaRader(data, nycklar) {
+    var rader = inlasningsdel(data, 'plan');
+    var blevKlara = [];
+    nycklar.forEach(function (key) {
+      var rad = rader.filter(function (r) { return r.key === key; })[0];
+      if (!rad) { return; }
+      DP.Inlasning.godta(rad);
+      if (DP.Inlasning.status(rad) === 'klar') { blevKlara.push(rad); }
+    });
+    if (!blevKlara.length) { return; }
+    var klaraNycklar = blevKlara.map(function (r) { return r.key; });
+    data.inlasning.plan = rader.filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
+    data.inlasning.infordaPlan = (data.inlasning.infordaPlan || [])
+      .concat(blevKlara.map(function (r) { return r.falt.id; }));
+    forInPlan(data, blevKlara);
+  }
+
+  // Besvara en fråga planeraren själv svarar på: en oplacerad rad som får sin beteckning.
+  // Samma väg som ett godtagande, så en rad som blir klar förs in i byggnaden i samma steg.
+  function svaraPlan(key, slag, varde, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'plan').filter(function (r) { return r.key === key; })[0];
+    if (!rad) { return; }
+    var v = String(varde == null ? '' : varde).trim();
+    if (!v) { return; }
+    // Beteckningen måste gå att använda, precis som när planeraren lägger till ett plan för
+    // hand: det är samma regel och samma besked (beslut 77).
+    if (slag === 'id' && planHinder(v, bid)) { return; }
+    andraByggnad('svara för inläst rad: ' + slag + ' ' + v, bid, function (data) {
+      var r2 = inlasningsdel(data, 'plan').filter(function (x) { return x.key === key; })[0];
+      if (!r2) { return false; }
+      DP.Inlasning.besvara(r2, slag, v);
+      // Ett svar på beteckningen gör benämningsförslaget meningsfullt för första gången: utan
+      // beteckning fanns ingenting att föreslå ett namn ur, så raden hade ingen sådan fråga.
+      // Nu har den ett namn att få – och raden blir ett förslag i stället för klar, vilket är
+      // rätt: planeraren ska se vad planet kommer att heta innan det hamnar i byggnaden.
+      if (slag === 'id' && !r2.falt.namn && !DP.Inlasning.fraga(r2, 'benamning')) {
+        r2.fragor.push(DP.Inlasning.benamningsfraga(v));
+      }
+      // Blev raden klar av svaret förs den in i byggnaden i samma steg, precis som ett
+      // godtagande gör: svaret *är* att planet läggs till.
+      if (DP.Inlasning.status(r2) === 'klar') { godtaRader(data, [key]); }
+    });
+  }
+
+  // Vad steget Plan har att säga om inläsningen: de tre grupperna, antalen och om något
+  // återstår. Som `planStatus` bor den här och inte i vyn (beslut 61), så att steglistan och
+  // panelen aldrig kan säga olika saker om samma inläsning.
+  //
+  // `klar` är inläsningens egen fråga: är allt inläst avgjort? Den är sann också när ingen fil
+  // är inläst – en byggnad som fyllts i för hand har ingenting ogjort.
+  //
+  // Gruppen *klart* heter **`inforda`** och inte `grupper.klar`. Det är ingen pedanteri: de
+  // klara raderna lämnar `inlasning.plan` i samma steg som de blir klara, så en `grupper.klar`
+  // hade alltid varit tom – ett svar som ser ut att bära den tredje gruppen men aldrig gör
+  // det. `grupper` är det som **återstår**, `inforda` det som kom in.
+  function inlasningStatus(flik, bid) {
+    var b = B(bid);
+    var tomt = { grupper: { forslag: [], oplacerad: [] },
+      raknat: { klar: 0, forslag: 0, oplacerad: 0 }, inforda: [], klar: true, fil: null };
+    if (!b) { return tomt; }
+    var rader = inlasningsdel(b, flik);
+    var raknat = DP.Inlasning.raknat(rader);
+    var fil = ((b.inlasning || {}).fil) || null;
+    // De införda slås upp i byggnaden själv: det är där de bor nu, och en kopia i
+    // inläsningslistan hade kunnat bli gammal. Ett plan planeraren tagit bort faller därför
+    // ur gruppen av sig självt.
+    var inforda = flik === 'plan' ? (b.inlasning || {}).infordaPlan || [] : [];
+    var klara = inforda.map(function (id) {
+      return (b.plan || []).filter(function (p) { return p.id === id; })[0];
+    }).filter(Boolean);
+    var g = DP.Inlasning.grupper(rader);
+    return {
+      grupper: { forslag: g.forslag, oplacerad: g.oplacerad },
+      raknat: { klar: klara.length, forslag: raknat.forslag, oplacerad: raknat.oplacerad },
+      inforda: klara,
+      klar: raknat.forslag === 0 && raknat.oplacerad === 0,
+      fil: fil
+    };
+  }
+
+  // Arket som ska skrivas när planeraren tar ut filen (berättelse 14 och 17). Byggnaden läses
+  // ur tillståndet, så filen bär det som är inläst nu – inte det som en gång lästes in.
+  function filArk(bid) {
+    return DP.Inlasning.tillArk(B(bid));
   }
 
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
@@ -1992,6 +2192,8 @@
     planHinder: planHinder, laggTillPlan: laggTillPlan, flyttaPlan: flyttaPlan,
     taBortPlan: taBortPlan, sattPlanNamn: sattPlanNamn, planStatus: planStatus,
     ordnaPlanEfterForslag: ordnaPlanEfterForslag,
+    lasInArk: lasInArk, godtaPlan: godtaPlan, godtaAllaPlan: godtaAllaPlan,
+    svaraPlan: svaraPlan, inlasningStatus: inlasningStatus, filArk: filArk,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
