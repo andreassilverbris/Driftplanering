@@ -674,6 +674,38 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
 93. **Utbyte och rättelse via fil.** Samma Id med **senare installationsdatum** är ett förslag om *utbyte*;
     samma Id med ändrade uppgifter men samma datum är ett förslag om *rättelse* av samma version. Båda går att
     vända. (Ersätter tanken på nytt Id för utbyte, eftersom id:t består enligt beslut 91.)
+
+    *Byggt i biljett #45.* Regeln bor i `DP.Inlasning.markBefintlig`: en installationsrad vars Id finns
+    blir ett **utbytesförslag** (`utbyte: true`, fråga av slaget `utbyte`) när `senare(byggnadens datum,
+    filens datum)` är sant, och annars det rättelseförslag som fanns förut. Att **datumet ensamt** avgör
+    är det lastbärande valet – det är vad som skiljer versionerna åt (beslut 95), och varje annan regel
+    (ett nytt fabrikat, en ny modell) hade gjort ett utbyte av en rättad felstavning. Tre saker följer av
+    att regeln är så smal:
+
+    * `senare` jämför **bara riktiga ISO-datum**. Saknar byggnaden datum är filens inte senare, utan en
+      **lucka** som fylls i tyst (samma regel som i `skillnad`, beslut 86). Det är vad som gör att en fil
+      ur en handritad byggnad – vars installationer sällan har datum i `data/` – ger byggnaden datumen i
+      stället för att föreslå fyrtio utbyten.
+    * **Vändningen** (`DP.Inlasning.vand`, `DP.Plan.vandInstForslag`) byter *fråga* och lägger undan
+      **datumet**: att vända till rättelse är att säga att datumet i filen är fel, och att ändå skriva
+      in det hade låtit byggnaden påstå att apparaten bytts utan att spara den gamla. Datumet läggs i
+      `rad.datumAndring` och kommer tillbaka när raden vänds till utbyte igen, så en rad går att vända
+      fram och tillbaka utan att något går förlorat. Radens **fält** är filens och rörs aldrig – det
+      planeraren svarar på är vad inläsningen ska *göra* med raden, inte vad som står i den. Ett utbyte
+      där **bara datumet** skiljer går inte att vända (`DP.Inlasning.vandbar`, en regel på ett ställe
+      enligt beslut 61, läst av vyns knapp och av planeringen): det finns ingenting att rätta utanför
+      datumet.
+    * Ett utbyte som **inte går att göra** – datumet ligger före byggnadens, eller installationen finns
+      inte längre – faller tillbaka på en rättelse längs samma väg, alltså utan datumet, och står i
+      svarets `hoppadeOver`. Frågan efteråt ställs också då, och säger att ingen apparat byttes:
+      planeraren tryckte i gruppen *Utbytt apparat*, och ett godtagande som tyst blev något annat är
+      just den avvikelse beslut 97 finns för. Historikens rad säger *godta ändring* och inte *godta
+      utbyte*, eftersom den ska säga vad som hände.
+    * Ett godtaget utbyte går genom **samma** `bytApparat` som formuläret i steg 4, med `ersattStatus`
+      räknat före steget (`medUtbyten`). Två vägar hade kunnat glida isär, och då hade samma apparat fått
+      olika historik beroende på om den byttes via fil eller för hand – samma skäl som `ersattInst` är ett
+      specialfall av `ersattFlera` (beslut 92). Frågan efteråt (beslut 97) är därför också densamma, och
+      ett *Godta alla* med tre utbyten ger **en** fråga och **ett** historiksteg.
 94. **När den nya apparaten är av en annan typ** följer kopplingar till åtgärder som också gäller den nya
     typen med; övriga följer inte med och syns som saknade i steg 5. Ändrad tid markeras i steg 6 och
     Balansering markeras, som vid all ändring. Samma typ ger inga följder. Hellre att det mesta blir rätt och

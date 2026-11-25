@@ -185,6 +185,10 @@
     // märket är det den läser.
     if (slag === 'andring') { rad.godtagenAndring = true; }
     if (slag === 'bort') { rad.godtagetBort = true; }
+    // Utbytet är inget värde heller (beslut 93): det säger att raden är en **ny apparat** i
+    // samma installation, och att den gamla ska sparas som en utbytt version. Vad som händer
+    // är `DP.Plan.ersattFlera`:s sak, precis som borttagningen är `instBort`:s.
+    if (slag === 'utbyte') { rad.godtagetUtbyte = true; }
   }
 
   // Godta raden: alla frågor som har ett förslag förs in och försvinner. Frågor **utan**
@@ -280,12 +284,89 @@
   // Frågan en ändrad rad får. Förslaget är `'ja'` och inte värdet: raden bär redan filens
   // uppgifter, och det planeraren svarar på är *om* byggnaden ska ändras. Att frågan har ett
   // förslag gör raden ett **förslag** och inte oplacerad, så *Godta alla* tar hela filen.
-  function andringsfraga(vad, delar) {
+  function andringsfraga(vad, delar, vandbar) {
     return { slag: 'andring', forslag: 'ja',
       text: vad + ' finns redan och filen säger något annat: ' +
         delar.map(function (d) {
           return d.etikett + ' ' + d.fore + ' → ' + d.efter;
-        }).join(', ') + '. Godta för att ändra byggnaden.' };
+        }).join(', ') + '. Godta för att ändra byggnaden.' +
+        // Bara en installationsrad talar om en apparat (beslut 93): ett plan och ett rum har
+        // ingen apparat som kan ha bytts, så varken ordet eller ett *Vänd till utbyte* hör
+        // hemma där. Texten är ren text som de övriga frågornas: vyn lägger den i ett
+        // element med `innerHTML`, och en asterisk hade stått kvar på skärmen.
+        (vandbar
+          ? ' Det är samma apparat, vars uppgifter rättas – vänd till utbyte om apparaten ' +
+            'faktiskt har bytts.'
+          : '') };
+  }
+
+  // Frågan en rad som är en **ny apparat** får (beslut 93, berättelse 79). Samma Id med ett
+  // **senare** installationsdatum är inte en rättelse av uppgifterna om den apparat som sitter
+  // där – det är en annan apparat. Datumet är det som skiljer versionerna åt (beslut 95), och
+  // därför är det datumet och ingenting annat som avgör vilket av de två förslagen raden blir.
+  //
+  // Att det är ett *förslag* och inte ett utbyte som utförs av sig självt är samma regel som
+  // för allt annat filen säger om en byggnad som finns: planeraren ser före och efter innan
+  // något skrivs över (beslut 86). Ett utbyte sparar dessutom den gamla apparaten i
+  // historiken, och det ska ingen fil göra utan att någon tagit ställning till det.
+  // Den nya apparatens uppgifter ur en rad som är ett **utbytesförslag** (beslut 93). Listan
+  // härleds ur `JAMFOR.inst` och räknas inte upp för hand: läggs en kolumn till där ska den
+  // följa med in i utbytet av sig själv, annars hade ett nytt fält kunnat visas som en
+  // skillnad i förslaget och ändå inte skrivas när planeraren godtog det.
+  //
+  // Två fält hålls utanför. **Rummet** är installationens och inte apparatens – en flytt är
+  // en flytt, och den sker vid sidan av utbytet – och **datumet** tas ur `falt` och inte ur
+  // skillnaden, eftersom det är datumet som gör raden till ett utbyte och ska skrivas också
+  // när byggnaden saknade ett att jämföra mot.
+  //
+  // Bara det raden **ändrar** följer med: ett fält filen bär oförändrat är inget den nya
+  // apparaten ändrar, och ett tomt fält är inget svar (beslut 86).
+  var EJ_APPARATEN = { rum: true, datum: true };
+  // Radmodellen kallar benämningen `namn`; installationen i byggnaden kallar den `benamning`.
+  var APPARATNAMN = { namn: 'benamning' };
+  function utbytesUppgifter(rad) {
+    var e = (rad.andring || {}).efter || {};
+    var upp = { datum: rad.falt.datum };
+    JAMFOR.inst.forEach(function (par) {
+      var falt = par[0];
+      if (EJ_APPARATEN[falt] || e[falt] == null) { return; }
+      upp[APPARATNAMN[falt] || falt] = e[falt];
+    });
+    return upp;
+  }
+
+  // Går raden att vända? Regeln bor här och inte hos de tre som frågar – vyns knapp,
+  // `DP.Plan.vandInstForslag` och `vand` själv – av samma skäl som förslagens skäl formuleras
+  // här (beslut 61): tre uträkningar av samma regel kan säga tre olika saker, och då hade
+  // knappen lovat en vändning planeringen vägrar göra.
+  //
+  // En rättelse går alltid att vända till ett utbyte. Ett utbyte går att vända bara när något
+  // **annat än datumet** skiljer: ett utbyte mot en likadan apparat har ingen rättelse i sig,
+  // och en "rättelse" av datumet vore att skriva om byggnaden så att den säger att apparaten
+  // bytts, utan att spara den gamla.
+  function vandbar(rad) {
+    if (!rad || !rad.andring || rad.bort) { return false; }
+    if (!rad.utbyte) { return true; }
+    return rad.andring.delar.some(function (d) { return d.falt !== 'datum'; });
+  }
+
+  function utbytesfraga(vad, fore, efter, delar) {
+    // De övriga ändringarna räknas upp efter datumet, inte i stället för det: ett nytt
+    // fabrikat är den nya apparatens uppgift, och planeraren ska se vad som sitter där efter
+    // utbytet. Är datumet det enda som skiljer är det ett utbyte mot en likadan apparat, och
+    // då finns ingenting mer att räkna upp.
+    var ovriga = delar.filter(function (d) { return d.falt !== 'datum'; });
+    return { slag: 'utbyte', forslag: 'ja',
+      text: vad + ' sitter sedan ' + (fore || 'ett datum som inte står i byggnaden') +
+        ', och filen säger ' + efter + ' – alltså en ny apparat' +
+        (ovriga.length
+          ? ': ' + ovriga.map(function (d) {
+            return d.etikett + ' ' + d.fore + ' → ' + d.efter;
+          }).join(', ')
+          : ' av samma slag') +
+        '. Godta för att ersätta apparaten: installationen och dess tillsyn består, och den ' +
+        'gamla apparaten sparas som en tidigare version. Vänd till rättelse om datumet i ' +
+        'filen är fel.' };
   }
 
   // Märk raden som ett ändringsförslag, eller som en rad som redan är på plats. Delad av de
@@ -303,13 +384,100 @@
       rad.luckor = {};
       s.luckor.forEach(function (d) { rad.luckor[d.falt] = rad.falt[d.falt]; });
     }
+    // Ett **senare installationsdatum** gör raden ett utbytesförslag och inte ett
+    // rättelseförslag (beslut 93). Prövningen görs före `delar.length`: ett utbyte mot en
+    // likadan apparat ändrar bara datumet, och ett sådant ändringslöst utbyte hade annars
+    // sett ut som en rad utan skillnad alls – samma apparat en gång till.
+    if (flik === 'inst' && senare(befintlig.datum, rad.falt.datum)) {
+      rad.andring = { fore: {}, efter: {}, delar: s.delar };
+      s.delar.forEach(function (d) {
+        rad.andring.fore[d.falt] = befintlig[d.falt];
+        rad.andring.efter[d.falt] = rad.falt[d.falt];
+      });
+      rad.utbyte = true;
+      rad.vad = vad;
+      rad.fragor = [utbytesfraga(vad, befintlig.datum, rad.falt.datum, s.delar)];
+      return rad;
+    }
     if (!s.delar.length) { return rad; }
     rad.andring = { fore: {}, efter: {}, delar: s.delar };
     s.delar.forEach(function (d) {
       rad.andring.fore[d.falt] = befintlig[d.falt];
       rad.andring.efter[d.falt] = rad.falt[d.falt];
     });
-    rad.fragor = [andringsfraga(vad, s.delar)];
+    // Raden bär `vad` – installationen i klartext – så att den går att formulera om när
+    // planeraren vänder förslaget. Utan den hade vändningen behövt byggnaden en andra gång,
+    // och texten kunnat bli en annan än den raden en gång fick.
+    rad.vad = vad;
+    rad.fragor = [andringsfraga(vad, s.delar, flik === 'inst')];
+    return rad;
+  }
+
+  // Är filens datum **senare** än byggnadens? Datumen är ISO (2026-11-25), så en
+  // strängjämförelse är en datumjämförelse – och ett datum som inte är skrivet så jämförs
+  // inte alls: då vet systemet inte vilket som är senare, och en gissning hade kunnat spara
+  // en apparat i historiken utan skäl.
+  //
+  // Saknar **byggnaden** datum är filens inte senare. Det är den regel som gör att en fil ur
+  // en handritad byggnad – vars installationer sällan har datum i `data/` – fyller i datumet
+  // som en lucka i stället för att föreslå tjugo utbyten (samma skäl som luckorna i
+  // `skillnad`).
+  var ISODATUM = /^\d{4}-\d{2}-\d{2}$/;
+  function senare(fore, efter) {
+    var a = txt(fore), b = txt(efter);
+    if (!ISODATUM.test(a) || !ISODATUM.test(b)) { return false; }
+    return b > a;
+  }
+
+  // Vänd förslaget: ett utbyte blir en rättelse och en rättelse ett utbyte (beslut 93,
+  // berättelse 79). Vändningen finns därför att datumet är det enda systemet har att gå på,
+  // och ett datum kan vara fel skrivet i båda riktningarna: en apparat som bytts kan ha fått
+  // det gamla datumet kvar i filen, och en rättelse av ett felskrivet datum ser ut som ett
+  // utbyte.
+  //
+  // Raden byter bara **fråga**: fälten är filens och rörs inte. Det är vad som gör att en rad
+  // går att vända fram och tillbaka utan att något går förlorat – det planeraren svarar på är
+  // vad inläsningen ska *göra* med raden, inte vad som står i den.
+  //
+  // En rättelse utan skillnader går inte att vända till: ett utbyte där **bara datumet**
+  // skiljer är ett utbyte mot en likadan apparat, och en rättelse av det hade inte rättat
+  // något – raden hade blivit klar och förts in som om filen inte sagt något. Datumet självt
+  // räknas inte, eftersom det är det som gör raden till ett utbyte: att "rätta" datumet till
+  // filens vore att skriva om byggnaden så att den säger att apparaten bytts, utan att spara
+  // den gamla.
+  function vand(rad) {
+    if (!rad || !rad.andring) { return rad; }
+    if (rad.utbyte) {
+      if (!vandbar(rad)) { return rad; }
+      rad.utbyte = false;
+      // **Datumet följer inte med till rättelsen.** Att vända till rättelse är att säga att
+      // datumet i filen är fel – det är hela skälet knappen finns – och att då skriva in det
+      // vore att låta byggnaden påstå att apparaten bytts, utan att spara den gamla. Datumet
+      // läggs undan i `datumAndring` i stället för att kastas, så att en vändning tillbaka
+      // till utbyte får det igen: raden ska gå att vända fram och tillbaka utan att något går
+      // förlorat.
+      var datum = rad.andring.delar.filter(function (d) { return d.falt === 'datum'; })[0];
+      if (datum) {
+        rad.datumAndring = { del: datum, fore: rad.andring.fore.datum,
+          efter: rad.andring.efter.datum };
+        rad.andring.delar = rad.andring.delar.filter(function (d) { return d.falt !== 'datum'; });
+        delete rad.andring.fore.datum;
+        delete rad.andring.efter.datum;
+      }
+      rad.fragor = [andringsfraga(rad.vad, rad.andring.delar, true)];
+      return rad;
+    }
+    // Tillbaka till utbyte: datumet är det som gör raden till ett utbyte, så det läggs
+    // tillbaka först – och det ligger först i listan, som det gjorde när tolkningen byggde den.
+    if (rad.datumAndring) {
+      rad.andring.delar = [rad.datumAndring.del].concat(rad.andring.delar);
+      rad.andring.fore.datum = rad.datumAndring.fore;
+      rad.andring.efter.datum = rad.datumAndring.efter;
+      delete rad.datumAndring;
+    }
+    rad.utbyte = true;
+    rad.fragor = [utbytesfraga(rad.vad, rad.andring.fore.datum, rad.falt.datum,
+      rad.andring.delar)];
     return rad;
   }
 
@@ -1080,6 +1248,8 @@
     planMatchning: planMatchning, nrMatchning: nrMatchning,
     grupper: grupper, raknat: raknat, planFranRad: planFranRad,
     skillnad: skillnad, bortForslag: bortForslag, JAMFOR: JAMFOR,
+    vand: vand, vandbar: vandbar, senare: senare, utbytesfraga: utbytesfraga,
+    utbytesUppgifter: utbytesUppgifter,
     tillArk: tillArk, pad3: pad3, tal: tal
   };
 })();

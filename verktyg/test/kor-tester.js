@@ -8192,6 +8192,447 @@ async function testInlasningMotBefintlig(browser) {
   await ip.close();
 }
 
+
+// ------------------------------------------------------------------
+// Utbyte och rättelse via inläsningsfilen (beslut 93, biljett #45)
+// ------------------------------------------------------------------
+// En ombyggnad där apparater bytts förs in via filen: samma Id med ett **senare**
+// installationsdatum är en ny apparat, och samma Id med samma datum men andra uppgifter är en
+// rättelse av den som sitter där. Vilket det är vet bara datumet, och vilket planeraren
+// *menade* vet bara hon – därför går båda att vända.
+async function testUtbyteViaFil(browser) {
+  console.log('Utbyte och rättelse via inläsningsfilen (beslut 93, biljett #45)');
+
+  // ---- Först modulen, utan DOM (beslut 61) ----
+  // Skillnaden mellan utbyte och rättelse är en regel om datum, och den ska gå att läsa i ett
+  // test utan att en webbläsare finns. Fyra fall: senare datum, samma datum, ett datum
+  // byggnaden saknar och ett datum som inte är skrivet som ett datum.
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  const modulen = await page.evaluate(() => {
+    const b = { plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', nta: 96 }],
+      installationer: [
+        { id: '0001', typ: 'handbrandslackare', rum: '01-001', benamning: 'Handbrandsläckare 3',
+          beteckning: 'HB01', fabrikat: 'Presto', datum: '2020-04-01', signifikant: true },
+        { id: '0002', typ: 'handbrandslackare', rum: '01-001', benamning: 'Handbrandsläckare 3',
+          beteckning: 'HB02', fabrikat: 'Presto', datum: '2020-04-01', signifikant: true },
+        { id: '0003', typ: 'handbrandslackare', rum: '01-001', benamning: 'Handbrandsläckare 3',
+          beteckning: 'HB03', fabrikat: 'Presto', signifikant: true }
+      ] };
+    const rad = (id, fabrikat, datum) => ({ plan: '01', rum: '001',
+      benamning: 'Handbrandsläckare 3', beteckning: 'HB0' + id.slice(-1), instTyp: '',
+      fabrikat: fabrikat, modell: '', id: id, externtId: '', datum: datum, egna: {} });
+    const rader = DP.Inlasning.tolkaInst([
+      // Senare datum och nytt fabrikat: ett utbyte
+      rad('0001', 'Dafo', '2026-03-10'),
+      // Samma datum, nytt fabrikat: en rättelse
+      rad('0002', 'Dafo', '2020-04-01'),
+      // Byggnaden saknar datum: filens är ingen jämförelse att göra, så datumet är en lucka
+      rad('0003', 'Presto', '2026-03-10')
+    ], b, []);
+    const ut = rader.map(r => ({
+      status: DP.Inlasning.status(r), utbyte: !!r.utbyte,
+      slag: (r.fragor[0] || {}).slag,
+      skal: (r.fragor[0] || {}).text || '',
+      delar: (r.andring || { delar: [] }).delar.map(d => d.falt).join(','),
+      luckor: Object.keys(r.luckor || {}).join(',')
+    }));
+    // Vändningen: båda riktningarna, och tillbaka igen – fälten är filens och rörs inte.
+    const vant = [DP.Inlasning.vand(rader[0]), DP.Inlasning.vand(rader[1])].map(r => ({
+      utbyte: !!r.utbyte, slag: r.fragor[0].slag, fabrikat: r.falt.fabrikat,
+      datum: r.falt.datum, status: DP.Inlasning.status(r)
+    }));
+    // Vänd till rättelse: **datumet följer inte med**. Att vända är att säga att datumet i
+    // filen är fel, och att ändå skriva in det hade låtit byggnaden påstå att apparaten bytts
+    // utan att spara den gamla.
+    const utanDatum = { delar: rader[0].andring.delar.map(d => d.falt).join(','),
+      efter: Object.keys(rader[0].andring.efter).join(',') };
+    const tillbaka = DP.Inlasning.vand(rader[0]);
+    const medDatumIgen = { delar: rader[0].andring.delar.map(d => d.falt).join(','),
+      efter: rader[0].andring.efter.datum };
+    // Ett utbyte där **bara** datumet skiljer har ingen rättelse i sig: det går inte att vända.
+    const baraDatum = DP.Inlasning.tolkaInst([rad('0001', 'Presto', '2026-03-10')], b, [])[0];
+    const forsokVand = DP.Inlasning.vand(baraDatum);
+    return { ut: ut, vant: vant, utanDatum: utanDatum, medDatumIgen: medDatumIgen,
+      tillbaka: { utbyte: !!tillbaka.utbyte, slag: tillbaka.fragor[0].slag },
+      baraDatum: { utbyte: !!baraDatum.utbyte, delar: baraDatum.andring.delar.map(d => d.falt).join(',') },
+      forsokVand: { utbyte: !!forsokVand.utbyte, slag: forsokVand.fragor[0].slag },
+      senare: [DP.Inlasning.senare('2020-04-01', '2026-03-10'),
+        DP.Inlasning.senare('2026-03-10', '2020-04-01'),
+        DP.Inlasning.senare('', '2026-03-10'),
+        DP.Inlasning.senare('2020-04-01', 'våren 2026')] };
+  });
+  kontroll(modulen.ut[0].utbyte === true && modulen.ut[0].slag === 'utbyte'
+    && modulen.ut[0].status === 'forslag' && modulen.ut[0].delar === 'fabrikat,datum',
+    'samma Id med senare installationsdatum blir ett förslag om utbyte ('
+    + modulen.ut[0].slag + ', ' + modulen.ut[0].delar + ', beslut 93)');
+  kontroll(/ny apparat/.test(modulen.ut[0].skal) && /tidigare version/.test(modulen.ut[0].skal),
+    'och skälet säger i klartext att det är en ny apparat vars föregångare sparas ("'
+    + modulen.ut[0].skal.slice(0, 90) + '")');
+  kontroll(modulen.ut[1].utbyte === false && modulen.ut[1].slag === 'andring'
+    && modulen.ut[1].status === 'forslag' && modulen.ut[1].delar === 'fabrikat',
+    'samma Id med samma datum och ändrat fabrikat blir ett förslag om rättelse ('
+    + modulen.ut[1].slag + ', ' + modulen.ut[1].delar + ')');
+  kontroll(/samma apparat/.test(modulen.ut[1].skal),
+    'och säger att det är samma apparat vars uppgifter rättas ("'
+    + modulen.ut[1].skal.slice(0, 80) + '")');
+  kontroll(modulen.ut[2].utbyte === false && modulen.ut[2].status === 'klar'
+    && modulen.ut[2].luckor === 'datum',
+    'ett datum byggnaden saknar är ingen jämförelse att göra: det fylls som en lucka ('
+    + modulen.ut[2].status + ', ' + modulen.ut[2].luckor + ')');
+  kontroll(modulen.senare.join(' ') === 'true false false false',
+    'senare() jämför bara riktiga ISO-datum, och ett datum byggnaden saknar är inte tidigare ('
+    + modulen.senare.join(' ') + ')');
+  kontroll(modulen.vant[0].utbyte === false && modulen.vant[0].slag === 'andring'
+    && modulen.vant[1].utbyte === true && modulen.vant[1].slag === 'utbyte',
+    'båda förslagen går att vända, till rättelse respektive utbyte (beslut 93)');
+  kontroll(modulen.vant[0].fabrikat === 'Dafo' && modulen.vant[0].datum === '2026-03-10'
+    && modulen.vant[0].status === 'forslag',
+    'vändningen byter bara fråga: filens uppgifter står kvar orörda ('
+    + modulen.vant[0].fabrikat + ', ' + modulen.vant[0].datum + ')');
+  kontroll(modulen.utanDatum.delar === 'fabrikat' && modulen.utanDatum.efter === 'fabrikat',
+    'en vändning till rättelse lämnar datumet: det är ju datumet som sades vara fel ('
+    + modulen.utanDatum.delar + ', beslut 93)');
+  kontroll(modulen.tillbaka.utbyte === true && modulen.tillbaka.slag === 'utbyte',
+    'och raden går att vända tillbaka igen (' + modulen.tillbaka.slag + ')');
+  kontroll(modulen.medDatumIgen.delar === 'datum,fabrikat'
+    && modulen.medDatumIgen.efter === '2026-03-10',
+    'och får då tillbaka datumet: inget går förlorat av att vända fram och tillbaka ('
+    + modulen.medDatumIgen.delar + ')');
+  kontroll(modulen.baraDatum.utbyte === true && modulen.baraDatum.delar === 'datum'
+    && modulen.forsokVand.utbyte === true,
+    'ett utbyte mot en likadan apparat har ingen rättelse i sig och går inte att vända ('
+    + modulen.baraDatum.delar + ')');
+
+  // ---- En uttagen fil innehåller inga utbytta versioner (beslut 96, berättelse 83) ----
+  // Historiken stannar i systemet. Annars växer filen med varje utbyte, och den som fyller i
+  // börjar ändra i historik.
+  const utanVersioner = await page.evaluate(() => {
+    const ark = DP.Inlasning.tillArk({ plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', nta: 96 }],
+      installationer: [{ id: '0001', typ: 'handbrandslackare', rum: '01-001',
+        benamning: 'Handbrandsläckare 3', beteckning: 'HB01', fabrikat: 'Dafo',
+        datum: '2026-03-10', signifikant: true,
+        versioner: [{ id: '0001:1', typ: 'handbrandslackare', benamning: 'Handbrandsläckare 3',
+          beteckning: 'HB01', fabrikat: 'Presto', datum: '2020-04-01',
+          slutdatum: '2026-03-10' }] }] });
+    const flik = ark.filter(f => f.namn === 'Installationer')[0];
+    const kolId = flik.rader[0].indexOf('Id');
+    return { rader: flik.rader.length - 1,
+      idn: flik.rader.slice(1).map(r => r[kolId]).join(' '),
+      kolumner: flik.rader[0].join(' ') };
+  });
+  kontroll(utanVersioner.rader === 1 && utanVersioner.idn === '0001',
+    'en uttagen fil bär bara nuvarande versioner, aldrig de utbytta ('
+    + utanVersioner.rader + ' rad: ' + utanVersioner.idn + ', beslut 96)');
+  kontroll(utanVersioner.kolumner.indexOf('Slutdatum') < 0,
+    'och har ingen kolumn för slutdatum: historiken står inte i filen ('
+    + utanVersioner.kolumner + ')');
+  await page.close();
+
+  // ---- Och nu hela vägen genom sidan, mot en byggnad som finns ----
+  // Kasern 1 med standardplanering, så att installationerna har tillsyn att bevara. Filen tas
+  // ut, ändras utanför appen och läses in igen – precis som när en ombyggnad kommer tillbaka.
+  const ip = await nySida(browser, URL_INDEX, 'kasern1');
+  await ip.evaluate(() => DP.Plan.andra('Standardplanering för provet',
+    st => DP.Flode.skrivStandard(st, 'kasern1')));
+  await vanta(ip, () => DP.Plan.byggnadKlar('kasern1'), 'Kasern 1 klar i alla sex stegen');
+  await ip.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(ip, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const ibf = ip.locator('#byggnadsflode');
+  await ibf.locator('.steg-kort[data-bsteg="4"] .steg-huvud').click();
+  await vanta(ip, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="4"] .steg-kropp'),
+    'steg 4 öppet');
+
+  // Två installationer plockas i sidan, så att datafilen kan ändras utan att testet låser sig:
+  // en med tillsyn att bevara (den som byts) och en till (den som rättas).
+  const valda = await ip.evaluate(() => {
+    const P = DP.Plan, s = P.state('kasern1');
+    const medTillsyn = P.signifikanta('kasern1')
+      .filter(x => s.kopplingar.some(k => k.inst === x.id));
+    const i = medTillsyn[0], j = medTillsyn[1] || P.signifikanta('kasern1')[1];
+    return {
+      byts: { id: i.id, bet: i.beteckning, rum: i.rum, typ: i.typ,
+        kopplingar: s.kopplingar.filter(k => k.inst === i.id).length },
+      rattas: { id: j.id, bet: j.beteckning, rum: j.rum }
+    };
+  });
+  kontroll(valda.byts.kopplingar > 0,
+    'en installation med tillsyn att bevara finns i Kasern 1 (' + valda.byts.bet + ', '
+    + valda.byts.kopplingar + ' kopplingar)');
+
+  const utTagen = await taUtFil(ip, 'utbyte-utTagen.xlsx');
+  const ark = lasArkFil(utTagen.fil);
+  const rubrik = ark.Installationer[0];
+  const kol = n => rubrik.indexOf(n);
+  // Kasern 1 är handritad och dess installationer saknar installationsdatum i `data/`
+  // (beslut 101). Ett datum byggnaden saknar är en lucka och ingen jämförelse, så filen läses
+  // in en första gång med datum på allt – det är så byggnaden *får* sina datum.
+  const medDatum = ark.Installationer.map((r, n) => {
+    if (n === 0) { return r; }
+    const kopia = r.slice();
+    kopia[kol('Installationsdatum')] = '2020-04-01';
+    return kopia;
+  });
+  await lasInFil(ip, skrivArk('utbyte-datum.xlsx',
+    { Plan: ark.Plan, Rum: ark.Rum, Installationer: medDatum }));
+  const fyllda = await ip.evaluate(({ byts }) => ({
+    datum: DP.Plan.inst(byts.id).datum,
+    raknat: DP.Plan.inlasningStatus('inst').raknat
+  }), valda);
+  kontroll(fyllda.datum === '2020-04-01' && fyllda.raknat.utbyten === 0
+    && fyllda.raknat.andrade === 0,
+    'ett installationsdatum byggnaden saknade fylls i ur filen utan att bli ett utbyte ('
+    + fyllda.datum + ', ' + JSON.stringify(fyllda.raknat) + ', beslut 93)');
+
+  // Nu ombyggnaden: en apparat bytt (senare datum och nytt fabrikat) och en rättad (samma
+  // datum, nytt fabrikat).
+  const rad = id => medDatum.filter((r, n) => n > 0 && r[kol('Id')] === id)[0];
+  const bytt = rad(valda.byts.id).slice();
+  bytt[kol('Installationsdatum')] = '2026-03-10';
+  bytt[kol('Fabrikat')] = 'Dafo';
+  bytt[kol('Modell')] = 'DF6';
+  const rattad = rad(valda.rattas.id).slice();
+  rattad[kol('Fabrikat')] = 'Housegard';
+  const andrade = medDatum.map((r, n) => {
+    if (n === 0) { return r; }
+    if (r[kol('Id')] === valda.byts.id) { return bytt; }
+    if (r[kol('Id')] === valda.rattas.id) { return rattad; }
+    return r;
+  });
+  await lasInFil(ip, skrivArk('utbyte-ombyggnad.xlsx',
+    { Plan: ark.Plan, Rum: ark.Rum, Installationer: andrade }));
+
+  const forslagen = await ip.evaluate(({ byts, rattas }) => {
+    const st = DP.Plan.inlasningStatus('inst');
+    const hitta = (grupp, id) => (st.grupper[grupp] || [])
+      .filter(r => r.falt.id === id)[0] || null;
+    const u = hitta('utbyten', byts.id), a = hitta('andrade', rattas.id);
+    return {
+      raknat: st.raknat,
+      utbyte: u && { utbyte: !!u.utbyte, key: u.key,
+        delar: u.andring.delar.map(d => d.etikett).join(','),
+        skal: u.fragor[0].text },
+      rattelse: a && { utbyte: !!a.utbyte, key: a.key,
+        delar: a.andring.delar.map(d => d.etikett).join(',') },
+      // Ingenting händer förrän förslaget godtas (berättelse 74 och beslut 86)
+      fabrikat: DP.Plan.inst(byts.id).fabrikat,
+      datum: DP.Plan.inst(byts.id).datum,
+      versioner: DP.Plan.instVersioner(byts.id).length,
+      steg4: DP.Plan.byggnadsSteg('kasern1')[4],
+      rubriker: Array.from(document.querySelectorAll('#byggnadsflode .bf-oppet .liten-rubrik'))
+        .map(e => e.textContent.replace(/\s*\(\d+\)$/, ''))
+    };
+  }, valda);
+  kontroll(forslagen.raknat.utbyten === 1 && forslagen.raknat.andrade === 1,
+    'filen ger ett utbyte och en rättelse, räknade för sig ('
+    + JSON.stringify(forslagen.raknat) + ', beslut 93)');
+  kontroll(forslagen.utbyte && forslagen.utbyte.utbyte === true
+    && /Installationsdatum/.test(forslagen.utbyte.delar),
+    'utbytesförslaget pekar ut datumet som skillnaden ('
+    + (forslagen.utbyte || {}).delar + ')');
+  kontroll(forslagen.rattelse && forslagen.rattelse.utbyte === false
+    && forslagen.rattelse.delar === 'Fabrikat',
+    'rättelseförslaget bär bara den ändrade uppgiften ('
+    + (forslagen.rattelse || {}).delar + ')');
+  kontroll(forslagen.rubriker.indexOf('Utbytt apparat') >= 0
+    && forslagen.rubriker.indexOf('Rättat') >= 0,
+    'vyn visar de två som egna grupper (' + forslagen.rubriker.join(', ') + ')');
+  kontroll(forslagen.fabrikat !== 'Dafo' && forslagen.datum === '2020-04-01'
+    && forslagen.versioner === 0,
+    'och ingenting händer förrän förslaget godtas: apparaten är orörd ('
+    + forslagen.fabrikat + ', ' + forslagen.datum + ', ' + forslagen.versioner
+    + ' versioner, berättelse 74)');
+  kontroll(forslagen.steg4 === false,
+    'steg 4 är ogrönt så länge skillnaden inte är avgjord (beslut 83)');
+  await bild(ip, 'utbyte-via-fil-forslag');
+
+  // ---- Vändningen i vyn: ett klick, och raden byter vad godtagandet gör ----
+  const foreVand = await historikpos(ip);
+  await ibf.locator('.bf-inlrad.utbyte button', { hasText: 'Vänd till rättelse' }).first().click();
+  await stegKlartPos(ip, foreVand, 'vänd utbytet till en rättelse');
+  const vand = await ip.evaluate(({ byts }) => {
+    const st = DP.Plan.inlasningStatus('inst');
+    const r = (st.grupper.andrade || []).filter(x => x.falt.id === byts.id)[0];
+    return { utbyten: st.raknat.utbyten, andrade: st.raknat.andrade,
+      hittad: !!r, fabrikat: r && r.andring.efter.fabrikat,
+      text: DP.Plan.historik().lista.slice(-1)[0] };
+  }, valda);
+  kontroll(vand.utbyten === 0 && vand.andrade === 2 && vand.hittad,
+    'ett klick vänder utbytet till en rättelse (' + vand.utbyten + ' utbyten, '
+    + vand.andrade + ' rättelser, beslut 93)');
+  kontroll(vand.fabrikat === 'Dafo',
+    'och filens uppgifter står kvar orörda i förslaget (' + vand.fabrikat + ')');
+  kontroll(/vänd till rättelse/.test(vand.text),
+    'vändningen är ett steg i historiken med text i klartext ("' + vand.text + '")');
+  // Och den vända raden godtagen rättar uppgifterna **utan** att skriva in det datum
+  // planeraren just sagt var fel: hade datumet följt med hade byggnaden påstått att apparaten
+  // bytts, utan någon version som visar det.
+  const foreVandGodta = await historikpos(ip);
+  await ibf.locator('.bf-inlrad.andrad:not(.utbyte)').filter({ hasText: valda.byts.bet })
+    .locator('button', { hasText: 'Godta' }).first().click();
+  await stegKlartPos(ip, foreVandGodta, 'godta den vända rättelsen');
+  const vandGodtagen = await ip.evaluate(({ byts }) => ({
+    fabrikat: DP.Plan.inst(byts.id).fabrikat, datum: DP.Plan.inst(byts.id).datum,
+    versioner: DP.Plan.instVersioner(byts.id).length,
+    dialog: !!document.querySelector('.dlg')
+  }), valda);
+  kontroll(vandGodtagen.datum === '2020-04-01' && vandGodtagen.versioner === 0,
+    'en vänd rättelse lämnar installationsdatumet orört och sparar ingen version ('
+    + vandGodtagen.datum + ', ' + vandGodtagen.versioner + ' versioner, beslut 93)');
+  kontroll(vandGodtagen.fabrikat === 'Dafo',
+    'men för in de övriga uppgifterna ur filen (' + vandGodtagen.fabrikat + ')');
+  kontroll(vandGodtagen.dialog === false,
+    'och ställer ingen fråga om tillsynen: apparaten är densamma');
+  await angra(ip);
+  await angra(ip);
+  const angradVand = await ip.evaluate(() => DP.Plan.inlasningStatus('inst').raknat);
+  kontroll(angradVand.utbyten === 1 && angradVand.andrade === 1,
+    'ett ångra tar tillbaka vändningen (' + JSON.stringify(angradVand) + ')');
+
+  // ---- Godta utbytet: apparaten byts, installationen och tillsynen består ----
+  const foreGodta = await historikpos(ip);
+  await ibf.locator('.bf-inlrad.utbyte button', { hasText: 'Godta' }).first().click();
+  await stegKlartPos(ip, foreGodta, 'godta utbytet');
+  const efter = await ip.evaluate(({ byts }) => {
+    const P = DP.Plan, i = P.inst(byts.id), s = P.state('kasern1');
+    return { id: i.id, rum: i.rum, fabrikat: i.fabrikat, modell: i.modell, datum: i.datum,
+      versioner: P.instVersioner(byts.id).map(v => ({ id: v.id, fabrikat: v.fabrikat,
+        datum: v.datum, slutdatum: v.slutdatum })),
+      kopplingar: s.kopplingar.filter(k => k.inst === byts.id).length,
+      text: P.historik().lista.slice(-1)[0],
+      utbyten: P.inlasningStatus('inst').raknat.utbyten,
+      // Frågan efter utbytet (beslut 97) är densamma som i steg 4
+      dialog: (document.querySelector('.dlg .dlg-titel') || {}).textContent || '',
+      dialogtext: (document.querySelector('.dlg') || {}).textContent || ''
+    };
+  }, valda);
+  kontroll(efter.id === valda.byts.id && efter.rum === valda.byts.rum
+    && efter.kopplingar === valda.byts.kopplingar,
+    'installationen behåller id, rum och all sin tillsyn (' + efter.id + ' i ' + efter.rum
+    + ', ' + efter.kopplingar + ' kopplingar, beslut 91)');
+  kontroll(efter.fabrikat === 'Dafo' && efter.modell === 'DF6' && efter.datum === '2026-03-10',
+    'den nya apparatens uppgifter står på installationen (' + efter.fabrikat + ' '
+    + efter.modell + ', ' + efter.datum + ')');
+  kontroll(efter.versioner.length === 1 && efter.versioner[0].id === valda.byts.id + ':1'
+    && efter.versioner[0].datum === '2020-04-01'
+    && efter.versioner[0].slutdatum === '2026-03-10',
+    'den gamla apparaten sparades som en utbytt version med sina två datum ('
+    + JSON.stringify(efter.versioner[0]) + ', beslut 91 och 95)');
+  kontroll(/godta utbyte/.test(efter.text),
+    'utbytet är ett steg i historiken som säger att det var ett utbyte ("' + efter.text + '")');
+  kontroll(efter.utbyten === 0, 'och förslaget är avgjort (' + efter.utbyten + ' kvar)');
+  kontroll(/samma tillsyn som förut/.test(efter.dialog),
+    'frågan efter utbytet är densamma som efter ett utbyte för hand ("' + efter.dialog
+    + '", beslut 97)');
+  await bild(ip, 'utbyte-via-fil-fraga');
+  await ip.locator('.dlg button', { hasText: 'Ja, samma tillsyn' }).click();
+  await vanta(ip, () => !document.querySelector('.dlg'), 'frågan besvarad');
+
+  // Ett ångra tar tillbaka både apparaten och versionen: utbytet var ett steg.
+  await angra(ip);
+  const angrat = await ip.evaluate(({ byts }) => ({
+    fabrikat: DP.Plan.inst(byts.id).fabrikat, datum: DP.Plan.inst(byts.id).datum,
+    versioner: DP.Plan.instVersioner(byts.id).length,
+    utbyten: DP.Plan.inlasningStatus('inst').raknat.utbyten
+  }), valda);
+  kontroll(angrat.datum === '2020-04-01' && angrat.versioner === 0 && angrat.utbyten === 1,
+    'ett ångra tar tillbaka den gamla apparaten, versionen och förslaget ('
+    + angrat.datum + ', ' + angrat.versioner + ' versioner)');
+  await gorOm(ip);
+
+  // ---- Godta rättelsen: uppgifterna ändras, ingen version sparas ----
+  const foreRatt = await historikpos(ip);
+  await ibf.locator('.bf-inlrad.andrad:not(.utbyte) button', { hasText: 'Godta' }).first().click();
+  await stegKlartPos(ip, foreRatt, 'godta rättelsen');
+  const rattat = await ip.evaluate(({ rattas }) => ({
+    fabrikat: DP.Plan.inst(rattas.id).fabrikat,
+    versioner: DP.Plan.instVersioner(rattas.id).length,
+    text: DP.Plan.historik().lista.slice(-1)[0],
+    klar: DP.Plan.inlasningStatus('inst').klar,
+    steg4: DP.Plan.byggnadsSteg('kasern1')[4],
+    dialog: !!document.querySelector('.dlg')
+  }), valda);
+  kontroll(rattat.fabrikat === 'Housegard' && rattat.versioner === 0,
+    'en godtagen rättelse ändrar uppgifterna utan att spara en utbytt version ('
+    + rattat.fabrikat + ', ' + rattat.versioner + ' versioner, beslut 93)');
+  kontroll(rattat.dialog === false,
+    'och ställer ingen fråga om tillsynen: apparaten är densamma (beslut 97)');
+  kontroll(/godta ändring/.test(rattat.text),
+    'rättelsen är ett steg i historiken ("' + rattat.text + '")');
+  kontroll(rattat.klar && rattat.steg4 === true,
+    'steg 4 blir grönt när både utbytet och rättelsen är avgjorda ('
+    + rattat.steg4 + ', beslut 83)');
+
+  // ---- Filen tas ut igen: historiken stannar i systemet (beslut 96) ----
+  // Byggnaden bär nu en verklig utbytt version, så uttaget prövar kravet och inte bara koden:
+  // en fil som saknade versioner att utelämna hade varit ett test utan innehåll.
+  const harVersion = await ip.evaluate(({ byts }) => DP.Plan.instVersioner(byts.id).length, valda);
+  kontroll(harVersion === 1,
+    'byggnaden bär en utbytt version när filen tas ut (' + harVersion + ')');
+  const efteratFil = await taUtFil(ip, 'utbyte-efterat.xlsx');
+  const efteratArk = lasArkFil(efteratFil.fil);
+  const idn = efteratArk.Installationer.slice(1).map(r => r[kol('Id')]);
+  kontroll(!idn.some(id => String(id).indexOf(':') >= 0),
+    'filen som tas ut efter utbytet bär inga utbytta versioner (' + idn.length
+    + ' rader, ingen med :1, beslut 96 och berättelse 83)');
+  const nuvarande = efteratArk.Installationer.slice(1)
+    .filter(r => r[kol('Id')] === valda.byts.id)[0];
+  kontroll(nuvarande && nuvarande[kol('Fabrikat')] === 'Dafo'
+    && nuvarande[kol('Installationsdatum')] === '2026-03-10',
+    'och bär den nya apparatens uppgifter (' + (nuvarande || [])[kol('Fabrikat')] + ', '
+    + (nuvarande || [])[kol('Installationsdatum')] + ')');
+  // En fil som tas ut och läses in oförändrad ger inga förslag: tur-och-retur-löftet gäller
+  // också efter ett utbyte.
+  await lasInFil(ip, skrivArk('utbyte-retur.xlsx', efteratArk));
+  const retur = await ip.evaluate(() => DP.Plan.inlasningStatus('inst').raknat);
+  kontroll(retur.utbyten === 0 && retur.andrade === 0 && retur.nytt === 0
+    && retur.oplacerad === 0,
+    'och läses in oförändrad utan att något föreslås (' + JSON.stringify(retur) + ')');
+
+  // ---- Ett utbyte som inte går att göra faller tillbaka på en rättelse, och säger det ----
+  // Datumet är det enda som **krävs** för ett utbyte (beslut 95), och ett datum som ligger
+  // före byggnadens är inget utbyte. Raden godtas ändå – filens uppgifter är ett svar – men
+  // att apparaten inte byttes får inte ske tyst: planeraren tryckte i gruppen *Utbytt
+  // apparat*, och utan besked hade hon trott att den gamla låg i historiken (beslut 97).
+  const bakat = rad(valda.rattas.id).slice();
+  bakat[kol('Installationsdatum')] = '2026-06-01';
+  bakat[kol('Fabrikat')] = 'Presto';
+  await lasInFil(ip, skrivArk('utbyte-bakat.xlsx', { Plan: ark.Plan, Rum: ark.Rum,
+    Installationer: medDatum.map((r, n) => (n > 0 && r[kol('Id')] === valda.rattas.id
+      ? bakat : r)) }));
+  // Det är ett giltigt utbyte så länge filen ligger framåt i tiden. Nu backas byggnadens egen
+  // apparat förbi filens datum, så att utbytet inte längre går att göra.
+  await ip.evaluate(({ rattas }) => DP.Plan.andraByggnad('senare datum för provet', 'kasern1',
+    data => { data.installationer.filter(i => i.id === rattas.id)[0].datum = '2026-12-01'; }),
+    valda);
+  const omojligt = await ip.evaluate(({ rattas }) => {
+    const st = DP.Plan.inlasningStatus('inst');
+    const r = (st.grupper.utbyten || []).filter(x => x.falt.id === rattas.id)[0];
+    const svar = r ? DP.Plan.godtaInst(r.key, 'kasern1') : null;
+    return { fanns: !!r, svar: svar && { ersatta: svar.ersatta.length,
+      hoppade: svar.hoppadeOver.length, skal: (svar.hoppadeOver[0] || {}).skal },
+      fabrikat: DP.Plan.inst(rattas.id).fabrikat,
+      datum: DP.Plan.inst(rattas.id).datum,
+      versioner: DP.Plan.instVersioner(rattas.id).length,
+      text: DP.Plan.historik().lista.slice(-1)[0] };
+  }, valda);
+  kontroll(omojligt.fanns && omojligt.svar && omojligt.svar.ersatta === 0
+    && omojligt.svar.hoppade === 1 && /före den gamla/.test(omojligt.svar.skal || ''),
+    'ett utbyte som inte går att göra hoppas över med skälet i klartext ("'
+    + ((omojligt.svar || {}).skal || '') + '", beslut 95)');
+  kontroll(omojligt.versioner === 0 && omojligt.datum === '2026-12-01'
+    && omojligt.fabrikat === 'Presto',
+    'uppgifterna förs ändå in som en rättelse, utan utbytt version och utan att datumet '
+    + 'skrivs om (' + omojligt.fabrikat + ', ' + omojligt.datum + ')');
+  kontroll(/godta ändring/.test(omojligt.text),
+    'och historiken säger ändring och inte utbyte: den säger vad som hände ("'
+    + omojligt.text + '")');
+
+  kontroll(ip.fel.length === 0, 'inga JavaScript-fel ' + ip.fel.join(' | '));
+  await ip.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -8223,6 +8664,7 @@ async function testInlasningMotBefintlig(browser) {
     await testAndraByggnad(browser);
     await testInlasningMotBefintlig(browser);
     await testUtbyte(browser);
+    await testUtbyteViaFil(browser);
     await testUtbyteFlera(browser);
     await testFristaendeFil(browser);
   } catch (e) {

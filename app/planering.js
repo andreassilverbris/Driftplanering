@@ -1094,9 +1094,14 @@
   // Historikens text för ett godtagande. De tre sorternas förslag säger olika saker, och
   // mediaspelarens lista ska gå att läsa utan att planeraren öppnar steget: *godta förslag* är
   // att något läggs till, *godta ändring* att byggnaden skrivs om, *godta borttagning* att
-  // något försvinner (beslut 86).
+  // något försvinner (beslut 86) – och *godta utbyte* att apparaten byts och den gamla sparas
+  // som en tidigare version (beslut 93).
   function godtaText(rad, vad) {
     if (rad.bort) { return 'godta borttagning: ' + vad; }
+    // Ett utbyte via fil säger något annat än en rättelse (beslut 93): apparaten byts och den
+    // gamla sparas som en tidigare version. Mediaspelarens rad ska skilja de två, eftersom
+    // ett ◀ tar tillbaka olika saker.
+    if (rad.utbyte) { return 'godta utbyte: ' + vad; }
     if (rad.andring) { return 'godta ändring: ' + vad; }
     return 'godta förslag: ' + vad;
   }
@@ -1750,25 +1755,74 @@
   // Därför är en okänd typ en fråga **utan förslag**, till skillnad från en okänd rumstyp som
   // får *Övrigt rum*: en felfärgad rumstyp gör modellen schematisk, men en felgissad
   // installationstyp gör att planeraren kopplar fel tillsyn – eller ingen.
+  // Svaret är `null` när inget utbyte var med i godtagandet, och annars samma svar
+  // `ersattFlera` ger – `{ ersatta, hoppadeOver, tappade, byterTyp }`. Vyn ställer frågan efter
+  // ett utbyte (beslut 97) på exakt samma sätt vare sig utbytet kom ur formuläret i steg 4
+  // eller ur filen: det är samma utbyte, och planeraren ska inte behöva lära sig två svar på
+  // samma händelse.
   function godtaInst(key, bid) {
     var b = B(bid);
-    if (!b) { return; }
+    if (!b) { return null; }
     var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
-    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
-    andraByggnadOchPlanering(godtaText(rad, instRadNamn(rad)), bid, function (data, st) {
-      godtaInstRader(data, st, [key]);
+    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return null; }
+    return medUtbyten(bid, [rad], function (n) {
+      return godtaText(rad.utbyte && !n ? { andring: rad.andring } : rad, instRadNamn(rad));
+    }, function (data, st, utbytePerRad) {
+      godtaInstRader(data, st, [key], utbytePerRad);
     });
   }
   function godtaAllaInst(bid) {
     var b = B(bid);
-    if (!b) { return; }
-    var nycklar = inlasningsdel(b, 'inst')
-      .filter(gaarIEttSvep)
-      .map(function (r) { return r.key; });
-    if (!nycklar.length) { return; }
-    andraByggnadOchPlanering('godta alla ' + nycklar.length + ' förslag i Installationer', bid,
-      function (data, st) { godtaInstRader(data, st, nycklar); });
+    if (!b) { return null; }
+    var rader = inlasningsdel(b, 'inst').filter(gaarIEttSvep);
+    if (!rader.length) { return null; }
+    var nycklar = rader.map(function (r) { return r.key; });
+    return medUtbyten(bid, rader, 'godta alla ' + nycklar.length + ' förslag i Installationer',
+      function (data, st, utbytePerRad) { godtaInstRader(data, st, nycklar, utbytePerRad); });
   }
+
+  // Godtagandet med utbytena uträknade **före** steget (beslut 93). Att det sker här och inte
+  // inuti steget är samma skäl som i `ersattFlera`: `ersattStatus` räknar på de kopplingar som
+  // finns, och efteråt finns de som revs inte kvar att räkna. Vyns besked och frågan efteråt
+  // ska dessutom läsa samma uträkning (beslut 61).
+  //
+  // Delad av *Godta* och *Godta alla*, så att ett utbyte ur filen gör samma sak oavsett om
+  // planeraren godtog raden eller hela filen – och så att ett *Godta alla* med tre utbyten är
+  // **ett** steg, precis som ett utbyte av många (beslut 92).
+  function medUtbyten(bid, rader, text, fn) {
+    var id = bid || aktiv;
+    var b = B(id);
+    var utbytePerRad = {};
+    var ersatta = [];
+    var hoppadeOver = [];
+    var tappade = [];
+    var byterTyp = false;
+    rader.forEach(function (rad) {
+      if (!rad.utbyte) { return; }
+      var upp = DP.Inlasning.utbytesUppgifter(rad);
+      var hinder = ersattHinder(rad.falt.id, upp, id);
+      var vad = hinder ? null : ersattStatus(rad.falt.id, upp, id);
+      if (!vad) {
+        hoppadeOver.push({ id: rad.falt.id, namn: instNamn(b, rad.falt.id),
+          skal: hinder || 'Installationen finns inte längre.' });
+        return;
+      }
+      utbytePerRad[rad.key] = vad;
+      ersatta.push({ id: rad.falt.id, version: vad.version, tappade: vad.tappade });
+      tappade = tappade.concat(vad.tappade);
+      if (vad.byterTyp) { byterTyp = true; }
+    });
+    // Texten säger vad som **hände** och inte vad raden hette. Gick utbytet inte att göra
+    // fördes filens uppgifter in som en rättelse, och då hade "godta utbyte" i mediaspelaren
+    // lovat en utbytt version som inte finns.
+    andraByggnadOchPlanering(typeof text === 'function' ? text(ersatta.length) : text, id,
+      function (data, st) { fn(data, st, utbytePerRad); });
+    if (!ersatta.length && !hoppadeOver.length) { return null; }
+    return { ersatta: ersatta, hoppadeOver: hoppadeOver, tappade: tappade,
+      byterTyp: byterTyp };
+  }
+
+
   // Installationen i klartext för historikens rad: beteckningen och benämningen, det
   // planeraren känner igen den på. Mediaspelarens lista ska gå att läsa utan att gissa.
   function instRadNamn(rad) {
@@ -1781,7 +1835,7 @@
   }
 
   // Godtagandet inuti ett steg, som `godtaRader` för plan och `godtaRumRader` för rum.
-  function godtaInstRader(data, st, nycklar) {
+  function godtaInstRader(data, st, nycklar, utbytePerRad) {
     var rader = inlasningsdel(data, 'inst');
     var blevKlara = [];
     var klara = [];
@@ -1793,9 +1847,25 @@
       klara.push(rad);
       if (rad.godtagetBort) {
         instBort(data, st, rad.nyckel);
-      } else if (rad.godtagenAndring) {
+      } else if (rad.godtagetUtbyte && (utbytePerRad || {})[key]) {
+        utbyteFranRad(data, st, rad, utbytePerRad[key]);
+      } else if (rad.godtagenAndring || rad.godtagetUtbyte) {
+        // Ett utbyte som inte gick att utföra – datumet dög inte, eller installationen fanns
+        // inte längre – faller tillbaka på en rättelse av uppgifterna. Raden är ändå godtagen,
+        // och uppgifterna i filen ska inte bli liggande osagda: det planeraren tappar är den
+        // utbytta versionen, och `hoppadeOver` i svaret säger varför.
+        //
+        // Vägen dit är `vand`, samma som när planeraren vänder själv: **datumet följer inte
+        // med**. Utbytet nekades ofta just för att datumet var omöjligt, och att ändå skriva
+        // in det hade låtit byggnaden påstå att apparaten bytts – utan någon version som
+        // visar det.
+        // Skiljer **bara** datumet går raden inte att vända, och då finns ingenting att
+        // rätta: det enda filen sa var att apparaten bytts, och det gick inte att göra.
+        // Raden är ändå avgjord – den försvinner ur listan nedan – men byggnaden står orörd.
+        var gickAttVanda = rad.godtagetUtbyte ? DP.Inlasning.vandbar(rad) : true;
+        if (rad.godtagetUtbyte && gickAttVanda) { DP.Inlasning.vand(rad); }
         var i = data.installationer.filter(function (x) { return x.id === rad.falt.id; })[0];
-        if (i) { andraInstFranRad(i, rad); }
+        if (i && rad.andring && gickAttVanda) { andraInstFranRad(i, rad); }
       } else {
         blevKlara.push(rad);
       }
@@ -1831,6 +1901,31 @@
       delete i.x;
       delete i.z;
     }
+    if (rad.egna && Object.keys(rad.egna).length) { i.egna = rad.egna; }
+  }
+
+  // Utbytet fört in ur en inläst rad (beslut 93, berättelse 79). Vägen är **samma**
+  // `bytApparat` som formuläret i steg 4 går, och det är hela poängen: en apparat som byts via
+  // fil ska få sin utbytta version, sitt datum och sin tillsyn behandlad likadant som en som
+  // byts för hand. Två vägar hade kunnat glida isär, och då hade samma utbyte gett olika
+  // historik beroende på var planeraren råkade göra det (samma skäl som `ersattInst` är ett
+  // specialfall av `ersattFlera`, beslut 92).
+  //
+  // **Rummet** är installationens och inte apparatens: har raden flyttat installationen till
+  // ett annat rum är det en flytt, och den sker vid sidan av utbytet – i samma steg, eftersom
+  // filen säger båda sakerna om samma rad.
+  function utbyteFranRad(data, st, rad, vad) {
+    var i = data.installationer.filter(function (x) { return x.id === rad.falt.id; })[0];
+    if (!i) { return; }
+    var e = (rad.andring || {}).efter || {};
+    if (e.rum != null && e.rum !== i.rum) {
+      i.rum = e.rum;
+      // Platsen i rummet räknas av planlösningen (beslut 78), som i `andraInstFranRad`.
+      delete i.x;
+      delete i.z;
+    }
+    bytApparat(data, st, rad.falt.id, DP.Inlasning.utbytesUppgifter(rad), vad,
+      rad.falt.datum);
     if (rad.egna && Object.keys(rad.egna).length) { i.egna = rad.egna; }
   }
 
@@ -2482,8 +2577,8 @@
   // det. `grupper` är det som **återstår**, `inforda` det som kom in.
   function inlasningStatus(flik, bid) {
     var b = B(bid);
-    var tomt = { grupper: { forslag: [], andrade: [], bort: [], oplacerad: [] },
-      raknat: { klar: 0, forslag: 0, oplacerad: 0, nytt: 0, andrade: 0, bort: 0 },
+    var tomt = { grupper: { forslag: [], utbyten: [], andrade: [], bort: [], oplacerad: [] },
+      raknat: { klar: 0, forslag: 0, oplacerad: 0, nytt: 0, utbyten: 0, andrade: 0, bort: 0 },
       inforda: [], klar: true, fil: null };
     if (!b) { return tomt; }
     var rader = inlasningsdel(b, flik);
@@ -2512,16 +2607,46 @@
     // En blandad lista hade krävt att planeraren läste varje skäl för att se vad ett *Godta
     // alla* skulle göra – och det som tas bort är det hon behöver titta närmast på.
     var nytt = g.forslag.filter(function (r) { return !r.andring && !r.bort; });
-    var andrade = g.forslag.filter(function (r) { return r.andring; });
+    // Utbytena står för sig (beslut 93): ett godtaget utbyte sparar den gamla apparaten i
+    // historiken och kan riva tillsyn, en rättelse skriver bara om uppgifterna. Två saker som
+    // gör olika mot byggnaden hör inte i samma lista, av samma skäl som *ändrat* och *saknas
+    // i filen* skildes åt (beslut 86).
+    var utbyten = g.forslag.filter(function (r) { return r.andring && r.utbyte && !r.bort; });
+    var andrade = g.forslag.filter(function (r) { return r.andring && !r.utbyte && !r.bort; });
     var bort = g.forslag.filter(function (r) { return r.bort; });
     return {
-      grupper: { forslag: nytt, andrade: andrade, bort: bort, oplacerad: g.oplacerad },
+      grupper: { forslag: nytt, utbyten: utbyten, andrade: andrade, bort: bort,
+        oplacerad: g.oplacerad },
       raknat: { klar: klara.length, forslag: raknat.forslag, oplacerad: raknat.oplacerad,
-        nytt: nytt.length, andrade: andrade.length, bort: bort.length },
+        nytt: nytt.length, utbyten: utbyten.length, andrade: andrade.length,
+        bort: bort.length },
       inforda: klara,
       klar: raknat.forslag === 0 && raknat.oplacerad === 0,
       fil: fil
     };
+  }
+
+  // Vänd förslaget mellan utbyte och rättelse (beslut 93, berättelse 79). Det är ett steg i
+  // historiken som alla andra svar på en inläst rad, så ett ◀ tar tillbaka vändningen.
+  //
+  // Vändningen finns därför att **datumet är det enda systemet har att gå på**. Ett datum som
+  // står kvar oförändrat i filen fast apparaten bytts ser ut som en rättelse, och ett datum
+  // som rättas för att det var felskrivet ser ut som ett utbyte. Vilket det är vet bara
+  // planeraren, och att hon kan säga det utan att ändra i filen är skillnaden mellan en
+  // gissning hon kan rätta och en hon måste gå runt.
+  function vandInstForslag(key, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
+    // Vad som går att vända svarar inläsningen på (`DP.Inlasning.vandbar`), så att vyns knapp
+    // och det här steget aldrig kan vara oense om samma rad (beslut 61).
+    if (!DP.Inlasning.vandbar(rad)) { return; }
+    var till = rad.utbyte ? 'rättelse' : 'utbyte';
+    andraByggnad('vänd till ' + till + ': ' + instRadNamn(rad), bid, function (data) {
+      var r2 = inlasningsdel(data, 'inst').filter(function (x) { return x.key === key; })[0];
+      if (!r2) { return false; }
+      DP.Inlasning.vand(r2);
+    });
   }
 
   // Låt det stå: ett förslag att ta bort avvisas (beslut 86, berättelse 74). Förslaget
@@ -3941,6 +4066,7 @@
     laggTillRum: laggTillRum, flyttaRum: flyttaRum, rumHinder: rumHinder,
     nastaRumsnummer: nastaRumsnummer,
     godtaInst: godtaInst, godtaAllaInst: godtaAllaInst, svaraInst: svaraInst,
+    vandInstForslag: vandInstForslag,
     instStatus: instStatus, sattInstTyp: sattInstTyp, taBortInst: taBortInst,
     laggTillInst: laggTillInst, flyttaInst: flyttaInst, instHinder: instHinder,
     ersattInst: ersattInst, ersattHinder: ersattHinder, ersattStatus: ersattStatus,

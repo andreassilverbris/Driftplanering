@@ -794,6 +794,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
    ska ta ställning till. */
 .bf-inlrad.andrad { border-left: 3px solid var(--accent); }
 .bf-inlrad.bortforslag { border-left: 3px solid #8a8f98; }
+/* Ett utbyte via fil (beslut 93) gör mer mot byggnaden än en rättelse: den gamla apparaten
+   sparas i historiken och tillsyn kan falla bort. Den egna färgen är samma orange som
+   utbytets blinkning i modellen, så att de två hänger ihop för ögat. */
+.bf-inlrad.andrad.utbyte { border-left: 3px solid #e07b26; }
 /* Före och efter per fält, i en rad som går att läsa av i en kolumn: etikett, det som står nu,
    pilen och det filen säger. Monospace på talen hade varit en annan sorts tabell – de ska
    läsas som ord, inte räknas ihop. */
@@ -4935,6 +4939,10 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // märket är det den läser.
     if (slag === 'andring') { rad.godtagenAndring = true; }
     if (slag === 'bort') { rad.godtagetBort = true; }
+    // Utbytet är inget värde heller (beslut 93): det säger att raden är en **ny apparat** i
+    // samma installation, och att den gamla ska sparas som en utbytt version. Vad som händer
+    // är `DP.Plan.ersattFlera`:s sak, precis som borttagningen är `instBort`:s.
+    if (slag === 'utbyte') { rad.godtagetUtbyte = true; }
   }
 
   // Godta raden: alla frågor som har ett förslag förs in och försvinner. Frågor **utan**
@@ -5030,12 +5038,89 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // Frågan en ändrad rad får. Förslaget är `'ja'` och inte värdet: raden bär redan filens
   // uppgifter, och det planeraren svarar på är *om* byggnaden ska ändras. Att frågan har ett
   // förslag gör raden ett **förslag** och inte oplacerad, så *Godta alla* tar hela filen.
-  function andringsfraga(vad, delar) {
+  function andringsfraga(vad, delar, vandbar) {
     return { slag: 'andring', forslag: 'ja',
       text: vad + ' finns redan och filen säger något annat: ' +
         delar.map(function (d) {
           return d.etikett + ' ' + d.fore + ' → ' + d.efter;
-        }).join(', ') + '. Godta för att ändra byggnaden.' };
+        }).join(', ') + '. Godta för att ändra byggnaden.' +
+        // Bara en installationsrad talar om en apparat (beslut 93): ett plan och ett rum har
+        // ingen apparat som kan ha bytts, så varken ordet eller ett *Vänd till utbyte* hör
+        // hemma där. Texten är ren text som de övriga frågornas: vyn lägger den i ett
+        // element med `innerHTML`, och en asterisk hade stått kvar på skärmen.
+        (vandbar
+          ? ' Det är samma apparat, vars uppgifter rättas – vänd till utbyte om apparaten ' +
+            'faktiskt har bytts.'
+          : '') };
+  }
+
+  // Frågan en rad som är en **ny apparat** får (beslut 93, berättelse 79). Samma Id med ett
+  // **senare** installationsdatum är inte en rättelse av uppgifterna om den apparat som sitter
+  // där – det är en annan apparat. Datumet är det som skiljer versionerna åt (beslut 95), och
+  // därför är det datumet och ingenting annat som avgör vilket av de två förslagen raden blir.
+  //
+  // Att det är ett *förslag* och inte ett utbyte som utförs av sig självt är samma regel som
+  // för allt annat filen säger om en byggnad som finns: planeraren ser före och efter innan
+  // något skrivs över (beslut 86). Ett utbyte sparar dessutom den gamla apparaten i
+  // historiken, och det ska ingen fil göra utan att någon tagit ställning till det.
+  // Den nya apparatens uppgifter ur en rad som är ett **utbytesförslag** (beslut 93). Listan
+  // härleds ur `JAMFOR.inst` och räknas inte upp för hand: läggs en kolumn till där ska den
+  // följa med in i utbytet av sig själv, annars hade ett nytt fält kunnat visas som en
+  // skillnad i förslaget och ändå inte skrivas när planeraren godtog det.
+  //
+  // Två fält hålls utanför. **Rummet** är installationens och inte apparatens – en flytt är
+  // en flytt, och den sker vid sidan av utbytet – och **datumet** tas ur `falt` och inte ur
+  // skillnaden, eftersom det är datumet som gör raden till ett utbyte och ska skrivas också
+  // när byggnaden saknade ett att jämföra mot.
+  //
+  // Bara det raden **ändrar** följer med: ett fält filen bär oförändrat är inget den nya
+  // apparaten ändrar, och ett tomt fält är inget svar (beslut 86).
+  var EJ_APPARATEN = { rum: true, datum: true };
+  // Radmodellen kallar benämningen `namn`; installationen i byggnaden kallar den `benamning`.
+  var APPARATNAMN = { namn: 'benamning' };
+  function utbytesUppgifter(rad) {
+    var e = (rad.andring || {}).efter || {};
+    var upp = { datum: rad.falt.datum };
+    JAMFOR.inst.forEach(function (par) {
+      var falt = par[0];
+      if (EJ_APPARATEN[falt] || e[falt] == null) { return; }
+      upp[APPARATNAMN[falt] || falt] = e[falt];
+    });
+    return upp;
+  }
+
+  // Går raden att vända? Regeln bor här och inte hos de tre som frågar – vyns knapp,
+  // `DP.Plan.vandInstForslag` och `vand` själv – av samma skäl som förslagens skäl formuleras
+  // här (beslut 61): tre uträkningar av samma regel kan säga tre olika saker, och då hade
+  // knappen lovat en vändning planeringen vägrar göra.
+  //
+  // En rättelse går alltid att vända till ett utbyte. Ett utbyte går att vända bara när något
+  // **annat än datumet** skiljer: ett utbyte mot en likadan apparat har ingen rättelse i sig,
+  // och en "rättelse" av datumet vore att skriva om byggnaden så att den säger att apparaten
+  // bytts, utan att spara den gamla.
+  function vandbar(rad) {
+    if (!rad || !rad.andring || rad.bort) { return false; }
+    if (!rad.utbyte) { return true; }
+    return rad.andring.delar.some(function (d) { return d.falt !== 'datum'; });
+  }
+
+  function utbytesfraga(vad, fore, efter, delar) {
+    // De övriga ändringarna räknas upp efter datumet, inte i stället för det: ett nytt
+    // fabrikat är den nya apparatens uppgift, och planeraren ska se vad som sitter där efter
+    // utbytet. Är datumet det enda som skiljer är det ett utbyte mot en likadan apparat, och
+    // då finns ingenting mer att räkna upp.
+    var ovriga = delar.filter(function (d) { return d.falt !== 'datum'; });
+    return { slag: 'utbyte', forslag: 'ja',
+      text: vad + ' sitter sedan ' + (fore || 'ett datum som inte står i byggnaden') +
+        ', och filen säger ' + efter + ' – alltså en ny apparat' +
+        (ovriga.length
+          ? ': ' + ovriga.map(function (d) {
+            return d.etikett + ' ' + d.fore + ' → ' + d.efter;
+          }).join(', ')
+          : ' av samma slag') +
+        '. Godta för att ersätta apparaten: installationen och dess tillsyn består, och den ' +
+        'gamla apparaten sparas som en tidigare version. Vänd till rättelse om datumet i ' +
+        'filen är fel.' };
   }
 
   // Märk raden som ett ändringsförslag, eller som en rad som redan är på plats. Delad av de
@@ -5053,13 +5138,100 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       rad.luckor = {};
       s.luckor.forEach(function (d) { rad.luckor[d.falt] = rad.falt[d.falt]; });
     }
+    // Ett **senare installationsdatum** gör raden ett utbytesförslag och inte ett
+    // rättelseförslag (beslut 93). Prövningen görs före `delar.length`: ett utbyte mot en
+    // likadan apparat ändrar bara datumet, och ett sådant ändringslöst utbyte hade annars
+    // sett ut som en rad utan skillnad alls – samma apparat en gång till.
+    if (flik === 'inst' && senare(befintlig.datum, rad.falt.datum)) {
+      rad.andring = { fore: {}, efter: {}, delar: s.delar };
+      s.delar.forEach(function (d) {
+        rad.andring.fore[d.falt] = befintlig[d.falt];
+        rad.andring.efter[d.falt] = rad.falt[d.falt];
+      });
+      rad.utbyte = true;
+      rad.vad = vad;
+      rad.fragor = [utbytesfraga(vad, befintlig.datum, rad.falt.datum, s.delar)];
+      return rad;
+    }
     if (!s.delar.length) { return rad; }
     rad.andring = { fore: {}, efter: {}, delar: s.delar };
     s.delar.forEach(function (d) {
       rad.andring.fore[d.falt] = befintlig[d.falt];
       rad.andring.efter[d.falt] = rad.falt[d.falt];
     });
-    rad.fragor = [andringsfraga(vad, s.delar)];
+    // Raden bär `vad` – installationen i klartext – så att den går att formulera om när
+    // planeraren vänder förslaget. Utan den hade vändningen behövt byggnaden en andra gång,
+    // och texten kunnat bli en annan än den raden en gång fick.
+    rad.vad = vad;
+    rad.fragor = [andringsfraga(vad, s.delar, flik === 'inst')];
+    return rad;
+  }
+
+  // Är filens datum **senare** än byggnadens? Datumen är ISO (2026-11-25), så en
+  // strängjämförelse är en datumjämförelse – och ett datum som inte är skrivet så jämförs
+  // inte alls: då vet systemet inte vilket som är senare, och en gissning hade kunnat spara
+  // en apparat i historiken utan skäl.
+  //
+  // Saknar **byggnaden** datum är filens inte senare. Det är den regel som gör att en fil ur
+  // en handritad byggnad – vars installationer sällan har datum i `data/` – fyller i datumet
+  // som en lucka i stället för att föreslå tjugo utbyten (samma skäl som luckorna i
+  // `skillnad`).
+  var ISODATUM = /^\d{4}-\d{2}-\d{2}$/;
+  function senare(fore, efter) {
+    var a = txt(fore), b = txt(efter);
+    if (!ISODATUM.test(a) || !ISODATUM.test(b)) { return false; }
+    return b > a;
+  }
+
+  // Vänd förslaget: ett utbyte blir en rättelse och en rättelse ett utbyte (beslut 93,
+  // berättelse 79). Vändningen finns därför att datumet är det enda systemet har att gå på,
+  // och ett datum kan vara fel skrivet i båda riktningarna: en apparat som bytts kan ha fått
+  // det gamla datumet kvar i filen, och en rättelse av ett felskrivet datum ser ut som ett
+  // utbyte.
+  //
+  // Raden byter bara **fråga**: fälten är filens och rörs inte. Det är vad som gör att en rad
+  // går att vända fram och tillbaka utan att något går förlorat – det planeraren svarar på är
+  // vad inläsningen ska *göra* med raden, inte vad som står i den.
+  //
+  // En rättelse utan skillnader går inte att vända till: ett utbyte där **bara datumet**
+  // skiljer är ett utbyte mot en likadan apparat, och en rättelse av det hade inte rättat
+  // något – raden hade blivit klar och förts in som om filen inte sagt något. Datumet självt
+  // räknas inte, eftersom det är det som gör raden till ett utbyte: att "rätta" datumet till
+  // filens vore att skriva om byggnaden så att den säger att apparaten bytts, utan att spara
+  // den gamla.
+  function vand(rad) {
+    if (!rad || !rad.andring) { return rad; }
+    if (rad.utbyte) {
+      if (!vandbar(rad)) { return rad; }
+      rad.utbyte = false;
+      // **Datumet följer inte med till rättelsen.** Att vända till rättelse är att säga att
+      // datumet i filen är fel – det är hela skälet knappen finns – och att då skriva in det
+      // vore att låta byggnaden påstå att apparaten bytts, utan att spara den gamla. Datumet
+      // läggs undan i `datumAndring` i stället för att kastas, så att en vändning tillbaka
+      // till utbyte får det igen: raden ska gå att vända fram och tillbaka utan att något går
+      // förlorat.
+      var datum = rad.andring.delar.filter(function (d) { return d.falt === 'datum'; })[0];
+      if (datum) {
+        rad.datumAndring = { del: datum, fore: rad.andring.fore.datum,
+          efter: rad.andring.efter.datum };
+        rad.andring.delar = rad.andring.delar.filter(function (d) { return d.falt !== 'datum'; });
+        delete rad.andring.fore.datum;
+        delete rad.andring.efter.datum;
+      }
+      rad.fragor = [andringsfraga(rad.vad, rad.andring.delar, true)];
+      return rad;
+    }
+    // Tillbaka till utbyte: datumet är det som gör raden till ett utbyte, så det läggs
+    // tillbaka först – och det ligger först i listan, som det gjorde när tolkningen byggde den.
+    if (rad.datumAndring) {
+      rad.andring.delar = [rad.datumAndring.del].concat(rad.andring.delar);
+      rad.andring.fore.datum = rad.datumAndring.fore;
+      rad.andring.efter.datum = rad.datumAndring.efter;
+      delete rad.datumAndring;
+    }
+    rad.utbyte = true;
+    rad.fragor = [utbytesfraga(rad.vad, rad.andring.fore.datum, rad.falt.datum,
+      rad.andring.delar)];
     return rad;
   }
 
@@ -5830,6 +6002,8 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     planMatchning: planMatchning, nrMatchning: nrMatchning,
     grupper: grupper, raknat: raknat, planFranRad: planFranRad,
     skillnad: skillnad, bortForslag: bortForslag, JAMFOR: JAMFOR,
+    vand: vand, vandbar: vandbar, senare: senare, utbytesfraga: utbytesfraga,
+    utbytesUppgifter: utbytesUppgifter,
     tillArk: tillArk, pad3: pad3, tal: tal
   };
 })();
@@ -7049,9 +7223,14 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // Historikens text för ett godtagande. De tre sorternas förslag säger olika saker, och
   // mediaspelarens lista ska gå att läsa utan att planeraren öppnar steget: *godta förslag* är
   // att något läggs till, *godta ändring* att byggnaden skrivs om, *godta borttagning* att
-  // något försvinner (beslut 86).
+  // något försvinner (beslut 86) – och *godta utbyte* att apparaten byts och den gamla sparas
+  // som en tidigare version (beslut 93).
   function godtaText(rad, vad) {
     if (rad.bort) { return 'godta borttagning: ' + vad; }
+    // Ett utbyte via fil säger något annat än en rättelse (beslut 93): apparaten byts och den
+    // gamla sparas som en tidigare version. Mediaspelarens rad ska skilja de två, eftersom
+    // ett ◀ tar tillbaka olika saker.
+    if (rad.utbyte) { return 'godta utbyte: ' + vad; }
     if (rad.andring) { return 'godta ändring: ' + vad; }
     return 'godta förslag: ' + vad;
   }
@@ -7705,25 +7884,74 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // Därför är en okänd typ en fråga **utan förslag**, till skillnad från en okänd rumstyp som
   // får *Övrigt rum*: en felfärgad rumstyp gör modellen schematisk, men en felgissad
   // installationstyp gör att planeraren kopplar fel tillsyn – eller ingen.
+  // Svaret är `null` när inget utbyte var med i godtagandet, och annars samma svar
+  // `ersattFlera` ger – `{ ersatta, hoppadeOver, tappade, byterTyp }`. Vyn ställer frågan efter
+  // ett utbyte (beslut 97) på exakt samma sätt vare sig utbytet kom ur formuläret i steg 4
+  // eller ur filen: det är samma utbyte, och planeraren ska inte behöva lära sig två svar på
+  // samma händelse.
   function godtaInst(key, bid) {
     var b = B(bid);
-    if (!b) { return; }
+    if (!b) { return null; }
     var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
-    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
-    andraByggnadOchPlanering(godtaText(rad, instRadNamn(rad)), bid, function (data, st) {
-      godtaInstRader(data, st, [key]);
+    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return null; }
+    return medUtbyten(bid, [rad], function (n) {
+      return godtaText(rad.utbyte && !n ? { andring: rad.andring } : rad, instRadNamn(rad));
+    }, function (data, st, utbytePerRad) {
+      godtaInstRader(data, st, [key], utbytePerRad);
     });
   }
   function godtaAllaInst(bid) {
     var b = B(bid);
-    if (!b) { return; }
-    var nycklar = inlasningsdel(b, 'inst')
-      .filter(gaarIEttSvep)
-      .map(function (r) { return r.key; });
-    if (!nycklar.length) { return; }
-    andraByggnadOchPlanering('godta alla ' + nycklar.length + ' förslag i Installationer', bid,
-      function (data, st) { godtaInstRader(data, st, nycklar); });
+    if (!b) { return null; }
+    var rader = inlasningsdel(b, 'inst').filter(gaarIEttSvep);
+    if (!rader.length) { return null; }
+    var nycklar = rader.map(function (r) { return r.key; });
+    return medUtbyten(bid, rader, 'godta alla ' + nycklar.length + ' förslag i Installationer',
+      function (data, st, utbytePerRad) { godtaInstRader(data, st, nycklar, utbytePerRad); });
   }
+
+  // Godtagandet med utbytena uträknade **före** steget (beslut 93). Att det sker här och inte
+  // inuti steget är samma skäl som i `ersattFlera`: `ersattStatus` räknar på de kopplingar som
+  // finns, och efteråt finns de som revs inte kvar att räkna. Vyns besked och frågan efteråt
+  // ska dessutom läsa samma uträkning (beslut 61).
+  //
+  // Delad av *Godta* och *Godta alla*, så att ett utbyte ur filen gör samma sak oavsett om
+  // planeraren godtog raden eller hela filen – och så att ett *Godta alla* med tre utbyten är
+  // **ett** steg, precis som ett utbyte av många (beslut 92).
+  function medUtbyten(bid, rader, text, fn) {
+    var id = bid || aktiv;
+    var b = B(id);
+    var utbytePerRad = {};
+    var ersatta = [];
+    var hoppadeOver = [];
+    var tappade = [];
+    var byterTyp = false;
+    rader.forEach(function (rad) {
+      if (!rad.utbyte) { return; }
+      var upp = DP.Inlasning.utbytesUppgifter(rad);
+      var hinder = ersattHinder(rad.falt.id, upp, id);
+      var vad = hinder ? null : ersattStatus(rad.falt.id, upp, id);
+      if (!vad) {
+        hoppadeOver.push({ id: rad.falt.id, namn: instNamn(b, rad.falt.id),
+          skal: hinder || 'Installationen finns inte längre.' });
+        return;
+      }
+      utbytePerRad[rad.key] = vad;
+      ersatta.push({ id: rad.falt.id, version: vad.version, tappade: vad.tappade });
+      tappade = tappade.concat(vad.tappade);
+      if (vad.byterTyp) { byterTyp = true; }
+    });
+    // Texten säger vad som **hände** och inte vad raden hette. Gick utbytet inte att göra
+    // fördes filens uppgifter in som en rättelse, och då hade "godta utbyte" i mediaspelaren
+    // lovat en utbytt version som inte finns.
+    andraByggnadOchPlanering(typeof text === 'function' ? text(ersatta.length) : text, id,
+      function (data, st) { fn(data, st, utbytePerRad); });
+    if (!ersatta.length && !hoppadeOver.length) { return null; }
+    return { ersatta: ersatta, hoppadeOver: hoppadeOver, tappade: tappade,
+      byterTyp: byterTyp };
+  }
+
+
   // Installationen i klartext för historikens rad: beteckningen och benämningen, det
   // planeraren känner igen den på. Mediaspelarens lista ska gå att läsa utan att gissa.
   function instRadNamn(rad) {
@@ -7736,7 +7964,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   }
 
   // Godtagandet inuti ett steg, som `godtaRader` för plan och `godtaRumRader` för rum.
-  function godtaInstRader(data, st, nycklar) {
+  function godtaInstRader(data, st, nycklar, utbytePerRad) {
     var rader = inlasningsdel(data, 'inst');
     var blevKlara = [];
     var klara = [];
@@ -7748,9 +7976,25 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       klara.push(rad);
       if (rad.godtagetBort) {
         instBort(data, st, rad.nyckel);
-      } else if (rad.godtagenAndring) {
+      } else if (rad.godtagetUtbyte && (utbytePerRad || {})[key]) {
+        utbyteFranRad(data, st, rad, utbytePerRad[key]);
+      } else if (rad.godtagenAndring || rad.godtagetUtbyte) {
+        // Ett utbyte som inte gick att utföra – datumet dög inte, eller installationen fanns
+        // inte längre – faller tillbaka på en rättelse av uppgifterna. Raden är ändå godtagen,
+        // och uppgifterna i filen ska inte bli liggande osagda: det planeraren tappar är den
+        // utbytta versionen, och `hoppadeOver` i svaret säger varför.
+        //
+        // Vägen dit är `vand`, samma som när planeraren vänder själv: **datumet följer inte
+        // med**. Utbytet nekades ofta just för att datumet var omöjligt, och att ändå skriva
+        // in det hade låtit byggnaden påstå att apparaten bytts – utan någon version som
+        // visar det.
+        // Skiljer **bara** datumet går raden inte att vända, och då finns ingenting att
+        // rätta: det enda filen sa var att apparaten bytts, och det gick inte att göra.
+        // Raden är ändå avgjord – den försvinner ur listan nedan – men byggnaden står orörd.
+        var gickAttVanda = rad.godtagetUtbyte ? DP.Inlasning.vandbar(rad) : true;
+        if (rad.godtagetUtbyte && gickAttVanda) { DP.Inlasning.vand(rad); }
         var i = data.installationer.filter(function (x) { return x.id === rad.falt.id; })[0];
-        if (i) { andraInstFranRad(i, rad); }
+        if (i && rad.andring && gickAttVanda) { andraInstFranRad(i, rad); }
       } else {
         blevKlara.push(rad);
       }
@@ -7786,6 +8030,31 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       delete i.x;
       delete i.z;
     }
+    if (rad.egna && Object.keys(rad.egna).length) { i.egna = rad.egna; }
+  }
+
+  // Utbytet fört in ur en inläst rad (beslut 93, berättelse 79). Vägen är **samma**
+  // `bytApparat` som formuläret i steg 4 går, och det är hela poängen: en apparat som byts via
+  // fil ska få sin utbytta version, sitt datum och sin tillsyn behandlad likadant som en som
+  // byts för hand. Två vägar hade kunnat glida isär, och då hade samma utbyte gett olika
+  // historik beroende på var planeraren råkade göra det (samma skäl som `ersattInst` är ett
+  // specialfall av `ersattFlera`, beslut 92).
+  //
+  // **Rummet** är installationens och inte apparatens: har raden flyttat installationen till
+  // ett annat rum är det en flytt, och den sker vid sidan av utbytet – i samma steg, eftersom
+  // filen säger båda sakerna om samma rad.
+  function utbyteFranRad(data, st, rad, vad) {
+    var i = data.installationer.filter(function (x) { return x.id === rad.falt.id; })[0];
+    if (!i) { return; }
+    var e = (rad.andring || {}).efter || {};
+    if (e.rum != null && e.rum !== i.rum) {
+      i.rum = e.rum;
+      // Platsen i rummet räknas av planlösningen (beslut 78), som i `andraInstFranRad`.
+      delete i.x;
+      delete i.z;
+    }
+    bytApparat(data, st, rad.falt.id, DP.Inlasning.utbytesUppgifter(rad), vad,
+      rad.falt.datum);
     if (rad.egna && Object.keys(rad.egna).length) { i.egna = rad.egna; }
   }
 
@@ -8437,8 +8706,8 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // det. `grupper` är det som **återstår**, `inforda` det som kom in.
   function inlasningStatus(flik, bid) {
     var b = B(bid);
-    var tomt = { grupper: { forslag: [], andrade: [], bort: [], oplacerad: [] },
-      raknat: { klar: 0, forslag: 0, oplacerad: 0, nytt: 0, andrade: 0, bort: 0 },
+    var tomt = { grupper: { forslag: [], utbyten: [], andrade: [], bort: [], oplacerad: [] },
+      raknat: { klar: 0, forslag: 0, oplacerad: 0, nytt: 0, utbyten: 0, andrade: 0, bort: 0 },
       inforda: [], klar: true, fil: null };
     if (!b) { return tomt; }
     var rader = inlasningsdel(b, flik);
@@ -8467,16 +8736,46 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // En blandad lista hade krävt att planeraren läste varje skäl för att se vad ett *Godta
     // alla* skulle göra – och det som tas bort är det hon behöver titta närmast på.
     var nytt = g.forslag.filter(function (r) { return !r.andring && !r.bort; });
-    var andrade = g.forslag.filter(function (r) { return r.andring; });
+    // Utbytena står för sig (beslut 93): ett godtaget utbyte sparar den gamla apparaten i
+    // historiken och kan riva tillsyn, en rättelse skriver bara om uppgifterna. Två saker som
+    // gör olika mot byggnaden hör inte i samma lista, av samma skäl som *ändrat* och *saknas
+    // i filen* skildes åt (beslut 86).
+    var utbyten = g.forslag.filter(function (r) { return r.andring && r.utbyte && !r.bort; });
+    var andrade = g.forslag.filter(function (r) { return r.andring && !r.utbyte && !r.bort; });
     var bort = g.forslag.filter(function (r) { return r.bort; });
     return {
-      grupper: { forslag: nytt, andrade: andrade, bort: bort, oplacerad: g.oplacerad },
+      grupper: { forslag: nytt, utbyten: utbyten, andrade: andrade, bort: bort,
+        oplacerad: g.oplacerad },
       raknat: { klar: klara.length, forslag: raknat.forslag, oplacerad: raknat.oplacerad,
-        nytt: nytt.length, andrade: andrade.length, bort: bort.length },
+        nytt: nytt.length, utbyten: utbyten.length, andrade: andrade.length,
+        bort: bort.length },
       inforda: klara,
       klar: raknat.forslag === 0 && raknat.oplacerad === 0,
       fil: fil
     };
+  }
+
+  // Vänd förslaget mellan utbyte och rättelse (beslut 93, berättelse 79). Det är ett steg i
+  // historiken som alla andra svar på en inläst rad, så ett ◀ tar tillbaka vändningen.
+  //
+  // Vändningen finns därför att **datumet är det enda systemet har att gå på**. Ett datum som
+  // står kvar oförändrat i filen fast apparaten bytts ser ut som en rättelse, och ett datum
+  // som rättas för att det var felskrivet ser ut som ett utbyte. Vilket det är vet bara
+  // planeraren, och att hon kan säga det utan att ändra i filen är skillnaden mellan en
+  // gissning hon kan rätta och en hon måste gå runt.
+  function vandInstForslag(key, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
+    // Vad som går att vända svarar inläsningen på (`DP.Inlasning.vandbar`), så att vyns knapp
+    // och det här steget aldrig kan vara oense om samma rad (beslut 61).
+    if (!DP.Inlasning.vandbar(rad)) { return; }
+    var till = rad.utbyte ? 'rättelse' : 'utbyte';
+    andraByggnad('vänd till ' + till + ': ' + instRadNamn(rad), bid, function (data) {
+      var r2 = inlasningsdel(data, 'inst').filter(function (x) { return x.key === key; })[0];
+      if (!r2) { return false; }
+      DP.Inlasning.vand(r2);
+    });
   }
 
   // Låt det stå: ett förslag att ta bort avvisas (beslut 86, berättelse 74). Förslaget
@@ -9896,6 +10195,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     laggTillRum: laggTillRum, flyttaRum: flyttaRum, rumHinder: rumHinder,
     nastaRumsnummer: nastaRumsnummer,
     godtaInst: godtaInst, godtaAllaInst: godtaAllaInst, svaraInst: svaraInst,
+    vandInstForslag: vandInstForslag,
     instStatus: instStatus, sattInstTyp: sattInstTyp, taBortInst: taBortInst,
     laggTillInst: laggTillInst, flyttaInst: flyttaInst, instHinder: instHinder,
     ersattInst: ersattInst, ersattHinder: ersattHinder, ersattStatus: ersattStatus,
@@ -13629,6 +13929,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     var r = P.inlasningStatus(flik).raknat;
     var delar = [];
     if (r.nytt) { delar.push(antal(r.nytt, 'förslag', 'förslag')); }
+    if (r.utbyten) { delar.push(antal(r.utbyten, 'utbytt apparat', 'utbytta apparater')); }
     if (r.andrade) { delar.push(antal(r.andrade, 'ändrad rad', 'ändrade rader')); }
     if (r.bort) { delar.push(antal(r.bort, 'rad', 'rader') + ' som saknas i filen'); }
     if (r.oplacerad) { delar.push(antal(r.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
@@ -14036,6 +14337,9 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       // av dem vill ta bort ett rum hade sagt för lite: planeraren ska se att filen föreslår
       // en borttagning innan hon öppnar gruppen.
       if (inl.raknat.nytt) { delar.push(antal(inl.raknat.nytt, 'nytt', 'nya') + ' som förslag'); }
+      if (inl.raknat.utbyten) {
+        delar.push(antal(inl.raknat.utbyten, 'apparat som bytts', 'apparater som bytts'));
+      }
       if (inl.raknat.andrade) { delar.push(antal(inl.raknat.andrade, 'ändrad', 'ändrade')); }
       if (inl.raknat.bort) { delar.push(antal(inl.raknat.bort, 'rad', 'rader') + ' som saknas i filen'); }
       if (inl.raknat.oplacerad) { delar.push(antal(inl.raknat.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
@@ -14089,7 +14393,8 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // steg, och det som skiljer raderna är vilka frågor de bär – inte hur en grupp ser ut.
   function inlasningsgrupper(kropp, b, flik) {
     var inl = P.inlasningStatus(flik);
-    if (!inl.grupper.forslag.length && !inl.grupper.andrade.length
+    if (!inl.grupper.forslag.length && !inl.grupper.utbyten.length
+      && !inl.grupper.andrade.length
       && !inl.grupper.bort.length && !inl.grupper.oplacerad.length) { return; }
     var w = el('section', 'bf-oppet');
     if (inl.grupper.forslag.length) {
@@ -14105,14 +14410,36 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // Ändrat och saknas i filen står för sig (beslut 86): de tre förslagen gör tre olika saker
     // mot byggnaden, och det som skriver om eller tar bort något som finns är det planeraren
     // behöver titta närmast på.
+    // Utbytena står före rättelserna (beslut 93): de gör mest mot byggnaden av de två – den
+    // gamla apparaten sparas i historiken och tillsyn kan falla bort – och det planeraren
+    // behöver titta närmast på ska ligga högst.
+    if (inl.grupper.utbyten.length) {
+      var hu = el('div', 'bf-grupphuvud');
+      hu.appendChild(el('div', 'liten-rubrik',
+        'Utbytt apparat (' + inl.grupper.utbyten.length + ')'));
+      if (!inl.grupper.forslag.length) { hu.appendChild(godtaAllaKnapp(flik, inl)); }
+      w.appendChild(hu);
+      w.appendChild(el('p', 'bf-grupptext',
+        'Samma Id, men ett senare installationsdatum – alltså en ny apparat i samma ' +
+        'installation. Godta för att ersätta apparaten: installationen, dess id och dess ' +
+        'tillsyn består, och den gamla apparaten sparas som en tidigare version.'));
+      inl.grupper.utbyten.forEach(function (r) { w.appendChild(andradRad(r, flik)); });
+    }
     if (inl.grupper.andrade.length) {
       var ha = el('div', 'bf-grupphuvud');
+      // *Rättat* bara i Installationer, där det står mot *Utbytt apparat*: ett plan och ett
+      // rum har ingen apparat som kan ha bytts, så där är *Ändrat* fortfarande det enda som
+      // sägs om raden (beslut 93).
       ha.appendChild(el('div', 'liten-rubrik',
-        'Ändrat (' + inl.grupper.andrade.length + ')'));
-      if (!inl.grupper.forslag.length) { ha.appendChild(godtaAllaKnapp(flik, inl)); }
+        (flik === 'inst' ? 'Rättat (' : 'Ändrat (') + inl.grupper.andrade.length + ')'));
+      if (!inl.grupper.forslag.length && !inl.grupper.utbyten.length) {
+        ha.appendChild(godtaAllaKnapp(flik, inl));
+      }
       w.appendChild(ha);
-      w.appendChild(el('p', 'bf-grupptext',
-        'Det här finns redan, och filen säger något annat. Godta för att ändra byggnaden.'));
+      w.appendChild(el('p', 'bf-grupptext', flik === 'inst'
+        ? 'Det här finns redan, och filen säger något annat om samma apparat. Godta för att ' +
+          'rätta uppgifterna i byggnaden.'
+        : 'Det här finns redan, och filen säger något annat. Godta för att ändra byggnaden.'));
       inl.grupper.andrade.forEach(function (r) { w.appendChild(andradRad(r, flik)); });
     }
     if (inl.grupper.bort.length) {
@@ -14148,19 +14475,38 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // att låta en tom cell radera ett rum är en annan, och den ska aldrig gå i ett svep
   // (beslut 86 och berättelse 74).
   function godtaAllaKnapp(flik, inl) {
-    var antalet = inl.grupper.forslag.length + inl.grupper.andrade.length;
+    var antalet = inl.grupper.forslag.length + inl.grupper.utbyten.length
+      + inl.grupper.andrade.length;
+    var namnen = inl.grupper.utbyten.map(instNamnet);
     return knapp('Godta alla', 'knapp liten-knapp', function () {
-      if (flik === 'inst') { P.godtaAllaInst(); }
-      else if (flik === 'rum') { P.godtaAllaRum(); }
+      if (flik === 'inst') {
+        // Utbytena i svepet är **ett** steg med de nya förslagen, som allt annat *Godta alla*
+        // gör, och frågan efteråt ställs en gång för dem alla (beslut 97) – av samma skäl som
+        // ett utbyte av tjugo apparater ger en fråga och inte tjugo.
+        var svar = P.godtaAllaInst();
+        if (svar && (svar.ersatta.length || svar.hoppadeOver.length)) {
+          fragaEfterUtbyteFlera(namnen, svar);
+        }
+      } else if (flik === 'rum') { P.godtaAllaRum(); }
       else { P.godtaAllaPlan(); }
     }, 'För in alla ' + antalet + ' förslagen på en gång, utom de som föreslår att något ' +
-       'tas bort. ◀ tar tillbaka hela godtagandet.');
+       'tas bort. ◀ tar tillbaka hela godtagandet.' +
+       (inl.grupper.utbyten.length
+         ? ' ' + antal(inl.grupper.utbyten.length, 'apparat byts', 'apparater byts') +
+           ' och sparas som tidigare versioner.'
+         : ''));
   }
 
   // En ändrad rad: före och efter per fält (berättelse 73). Skillnaden visas som en egen rad
   // per fält och inte som en mening, så att planeraren kan läsa av vad som ändras i en kolumn.
+  //
+  // Samma rad bär både ett **utbyte** och en **rättelse** (beslut 93): de visar samma före och
+  // efter, och det som skiljer dem är vad ett godtagande *gör* – att byta apparaten och spara
+  // den gamla, eller att rätta uppgifterna om den som sitter där. Därför är det samma rad med
+  // två knappar och inte två olika rader: planeraren jämför ett förslag mot sin egen fil, och
+  // ska slippa leta efter samma installation i två former.
   function andradRad(r, flik) {
-    var rad = el('div', 'bf-inlrad andrad');
+    var rad = el('div', 'bf-inlrad andrad' + (r.utbyte ? ' utbyte' : ''));
     rad.dataset.inlrad = r.key;
     rad.appendChild(el('span', 'bf-planbet', beteckningFor(r, flik)));
     var txt = el('div', 'bf-btext');
@@ -14173,15 +14519,55 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       r2.appendChild(el('span', 'bf-fe-efter', d.efter));
       txt.appendChild(r2);
     });
+    // Skälet står på utbytesraden men inte på rättelseraden: en rättelse säger sig själv med
+    // sitt före och efter, medan ett utbyte gör något mer än det syns – det sparar den gamla
+    // apparaten och kan riva tillsyn – och det ska planeraren kunna läsa innan hon godtar.
+    if (r.utbyte) {
+      (r.fragor || []).forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
+    }
     rad.appendChild(txt);
     var verktyg = el('div', 'bf-planverktyg');
     verktyg.appendChild(knapp('Godta', 'knapp sekundar liten-knapp', function () {
-      if (flik === 'inst') { P.godtaInst(r.key); }
+      if (flik === 'inst') { godtaInstrad(r); }
       else if (flik === 'rum') { P.godtaRum(r.key); }
       else { P.godtaPlan(r.key); }
-    }, 'Ändra byggnaden efter filen. ◀ tar tillbaka ändringen.'));
+    }, r.utbyte
+      ? 'Ersätt apparaten. Installationen och dess tillsyn består, och den gamla apparaten ' +
+        'sparas som en tidigare version. ◀ tar tillbaka utbytet.'
+      : 'Ändra byggnaden efter filen. ◀ tar tillbaka ändringen.'));
+    // Vändningen (beslut 93, berättelse 79). Den finns bara för en installation, och bara när
+    // raden går att vända – vad som gör det svarar `DP.Inlasning.vandbar` på, så att knappen
+    // aldrig lovar en vändning planeringen vägrar göra (beslut 61).
+    if (flik === 'inst' && DP.Inlasning.vandbar(r)) {
+      verktyg.appendChild(knapp(r.utbyte ? 'Vänd till rättelse' : 'Vänd till utbyte',
+        'lank', function () {
+          P.vandInstForslag(r.key);
+        }, r.utbyte
+          ? 'Datumet i filen är fel: det är samma apparat, vars uppgifter rättas. Ingen ' +
+            'tidigare version sparas.'
+          : 'Apparaten har faktiskt bytts: den gamla sparas som en tidigare version och ' +
+            'den nya får filens uppgifter.'));
+    }
     rad.appendChild(verktyg);
     return rad;
+  }
+
+  // Godta en installationsrad, och ställ frågan efter utbytet när godtagandet var ett utbyte
+  // (beslut 93 och 97). Frågan är **samma** som efter ett utbyte i steg 4: det är samma
+  // händelse, och planeraren ska inte behöva lära sig två svar på den.
+  function godtaInstrad(r) {
+    var svar = P.godtaInst(r.key);
+    // Också ett utbyte som **inte** gick att göra säger till. Raden godtas ändå – filens
+    // uppgifter förs in som en rättelse – men att apparaten inte byttes är just den tysta
+    // avvikelsen beslut 97 finns för: planeraren tryckte på *Godta* i gruppen *Utbytt
+    // apparat*, och utan ett besked hade hon trott att den gamla apparaten låg i historiken.
+    if (svar && (svar.ersatta.length || svar.hoppadeOver.length)) {
+      fragaEfterUtbyteFlera([instNamnet(r)], svar);
+    }
+  }
+  // Installationen som planeraren känner igen den på raden: beteckningen och benämningen.
+  function instNamnet(r) {
+    return (r.falt.beteckning ? r.falt.beteckning + ' ' : '') + (r.falt.namn || r.falt.id);
   }
 
   // En rad som finns i byggnaden men saknas i filen (berättelse 74). Två svar, och båda är
@@ -15418,17 +15804,27 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // hänt.
     var vilka = namnen.length && namnen.length <= 6
       ? ' – ' + DP.Dialog.esc(namnen.join(', ')) : '';
-    var html = '<p>Du har ersatt apparaten i <b>' +
-      antal(n, 'installation', 'installationer') + '</b>' + vilka + '. ' +
-      'Installationerna och deras id består, och de gamla apparaterna ligger kvar som ' +
-      'tidigare versioner. Hela utbytet är <b>ett steg</b> i historiken, så ett ◀ tar ' +
-      'tillbaka allt.</p>';
+    // Gick **ingen** apparat att byta är det enda som hänt att inga byttes, och då får frågan
+    // inte inleda med att de blev ersatta. Det händer bara via filen (beslut 93): formuläret i
+    // steg 4 spärras av `ersattHinder` innan planeraren trycker, men en inläst rad godtas och
+    // faller tillbaka på en rättelse – och att apparaten står kvar ska hon få veta.
+    var html = n
+      ? '<p>Du har ersatt apparaten i <b>' +
+        antal(n, 'installation', 'installationer') + '</b>' + vilka + '. ' +
+        'Installationerna och deras id består, och de gamla apparaterna ligger kvar som ' +
+        'tidigare versioner. Hela utbytet är <b>ett steg</b> i historiken, så ett ◀ tar ' +
+        'tillbaka allt.</p>'
+      : '<p><b>Ingen apparat byttes.</b> Uppgifterna i filen fördes ändå in som en rättelse ' +
+        'av den apparat som sitter där, så ingen tidigare version sparades. Ett ◀ tar ' +
+        'tillbaka ändringen.</p>';
     // De markerade som **inte** byttes sägs här och inte bara i beskedet före. Frågan är det
     // enda planeraren ser när hon tryckt, och markeringen är då redan borta: att tre av tjugo
     // står kvar utan att någon sagt det är just den tysta avvikelsen beslut 97 finns för.
     if ((svar.hoppadeOver || []).length) {
-      html += '<p><b>' + antal(svar.hoppadeOver.length, 'markerad installation byttes',
-        'markerade installationer byttes') + ' inte</b>: ' +
+      html += '<p><b>' + (n
+        ? antal(svar.hoppadeOver.length, 'installation byttes', 'installationer byttes') +
+          ' inte'
+        : 'Skälet') + '</b>: ' +
         DP.Dialog.esc(svar.hoppadeOver.map(function (h) {
           return h.namn + ' (' + h.skal + ')';
         }).join('; ')) + '</p>';
@@ -15444,13 +15840,16 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
         DP.Dialog.esc(Object.keys(namn).join(', ')) + '. Installationerna syns nu som ' +
         'saknade i steg 5.</p>';
     }
-    html += '<p>Ska de nya ha samma tillsyn som förut?</p>';
+    // Frågan om tillsynen ställs bara när något faktiskt byttes: byttes ingen apparat är
+    // tillsynen oförändrad, och en fråga om den hade varit en fråga utan innehåll.
+    if (n) { html += '<p>Ska de nya ha samma tillsyn som förut?</p>'; }
     DP.Dialog.visa({
-      titel: n === 1 ? 'Ska den nya ha samma tillsyn som förut?'
-        : 'Ska de nya ha samma tillsyn som förut?',
+      titel: !n ? 'Apparaten byttes inte'
+        : n === 1 ? 'Ska den nya ha samma tillsyn som förut?'
+          : 'Ska de nya ha samma tillsyn som förut?',
       html: html,
       bredd: 560,
-      knappar: [
+      knappar: n ? [
         { text: 'Ja, samma tillsyn', prim: true },
         { text: n === 1 ? 'Nej, visa den i Planering' : 'Nej, visa dem i Planering',
           gor: function () {
@@ -15461,7 +15860,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
             var inst = svar.ersatta.map(function (e) { return P.inst(e.id); }).filter(Boolean);
             if (inst.length && DP.viewer) { DP.viewer.blinka(inst, 2200, 0xe07b26); }
           } }
-      ]
+      ] : [{ text: 'Jag förstår', prim: true }]
     });
   }
 

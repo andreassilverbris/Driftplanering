@@ -93,7 +93,7 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
 | `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Inläsningens tre grupper ritas av **samma** kod för alla tre flikarna: det som skiljer raderna är vilka frågor de bär, och det svarar `DP.Inlasning` på. I steg 4 är **rummet** droppmålet i sin helhet och inte en plats mellan två rader – ordningen inom ett rum betyder ingenting, eftersom platsen räknas fram – så där märks rummet i stället för att en linje ritas. *Ersätt* öppnar utbytesformuläret **på installationens rad**, som typvalet gör, och frågan efter utbytet (beslut 97) är den enda dialogen i steget vid sidan av borttagningens |
-| `app/inlasning.js` | `DP.Inlasning`: inläsningsfilens tolkning utan DOM. `lasArk(ark)` delar ett ark i flikarna Plan, Rum och Installationer (igenkänning på **kolumnrubrikerna**, rubrikraden hittad under tabellrubriker och tomma rader), okända kolumner blir **egna fält** (beslut 89), och `tolkaPlan(rader, befintliga)` och `tolkaRum(rader, byggnad)` ger radmodellen `{ key, rad, egna, falt, fragor }` där statusen är **härledd**: inga frågor → *klar*, alla frågor har förslag → *förslag*, annars → *oplacerad* (beslut 83). Rumsraden matchas förlåtande på plan (`planMatchning`) och rumsnummer (`nrMatchning`), rumstypen läses ur benämningen och NTA föreslås ur rumstypen (beslut 76, 77, 79 och 80). `tolkaInst(rader, byggnad, blivandeRum)` matchar en installation på **plan + rumsnummer** (`rumMatchning`): saknas planet och numret finns på ett enda plan blir det ett förslag, på flera plan oplacerat (beslut 86), installationstypen läses ur benämningen och en **okänd typ får inget förslag** (beslut 81), och ett tomt Id får ett id från systemet (`nyttInstId`). `blivandeRum` är de nycklar inläsningens egna rumsförslag ger, så en installation i ett rum som själv är ett förslag är klar och syns när rummet gör det (beslut 110). `godta`/`besvara` för in svaren, `nastaLedigaNr` svarar vid en nummerkrock (beslut 110), `tillArk(byggnad)` är filen på väg ut – där rummets nyckel delas upp i kolumnerna Plan och Rum. Mot en **befintlig** byggnad visar tolkningen skillnaden (beslut 86): en rad vars identitet finns får `andring: { fore, efter, delar }` och en fråga av slaget `andring`, `skillnad(flik, befintlig, falt)` skiljer **motsägelser** (frågas om) från **luckor** (fält byggnaden saknar – fylls i tyst), och `bortForslag(flik, byggnad, kom, barFliken)` ger raderna för det som finns i byggnaden men saknas i filen (`bort: true`, fråga av slaget `bort`) |
+| `app/inlasning.js` | `DP.Inlasning`: inläsningsfilens tolkning utan DOM. `lasArk(ark)` delar ett ark i flikarna Plan, Rum och Installationer (igenkänning på **kolumnrubrikerna**, rubrikraden hittad under tabellrubriker och tomma rader), okända kolumner blir **egna fält** (beslut 89), och `tolkaPlan(rader, befintliga)` och `tolkaRum(rader, byggnad)` ger radmodellen `{ key, rad, egna, falt, fragor }` där statusen är **härledd**: inga frågor → *klar*, alla frågor har förslag → *förslag*, annars → *oplacerad* (beslut 83). Rumsraden matchas förlåtande på plan (`planMatchning`) och rumsnummer (`nrMatchning`), rumstypen läses ur benämningen och NTA föreslås ur rumstypen (beslut 76, 77, 79 och 80). `tolkaInst(rader, byggnad, blivandeRum)` matchar en installation på **plan + rumsnummer** (`rumMatchning`): saknas planet och numret finns på ett enda plan blir det ett förslag, på flera plan oplacerat (beslut 86), installationstypen läses ur benämningen och en **okänd typ får inget förslag** (beslut 81), och ett tomt Id får ett id från systemet (`nyttInstId`). `blivandeRum` är de nycklar inläsningens egna rumsförslag ger, så en installation i ett rum som själv är ett förslag är klar och syns när rummet gör det (beslut 110). `godta`/`besvara` för in svaren, `nastaLedigaNr` svarar vid en nummerkrock (beslut 110), `tillArk(byggnad)` är filen på väg ut – där rummets nyckel delas upp i kolumnerna Plan och Rum. Mot en **befintlig** byggnad visar tolkningen skillnaden (beslut 86): en rad vars identitet finns får `andring: { fore, efter, delar }` och en fråga av slaget `andring`, `skillnad(flik, befintlig, falt)` skiljer **motsägelser** (frågas om) från **luckor** (fält byggnaden saknar – fylls i tyst), och `bortForslag(flik, byggnad, kom, barFliken)` ger raderna för det som finns i byggnaden men saknas i filen (`bort: true`, fråga av slaget `bort`). En installationsrad vars Id finns och vars **installationsdatum är senare** blir i stället ett **utbytesförslag** (`utbyte: true`, fråga av slaget `utbyte`) – `senare(fore, efter)` jämför bara riktiga ISO-datum – och `vand(rad)` vänder mellan utbyte och rättelse utan att röra radens fält (beslut 93) |
 | `app/inlasningsfil.js` | `DP.Inlasningsfil`: sömmen mot .xlsx (SheetJS i `vendor/`). `las(blob, nar, fel)` ger ett ark, `taUt(ark, filnamn)` laddar ner en .xlsx. Allt annat arbetar med ark, så tolkningen går att pröva utan att en fil finns |
 | `app/planlosning.js` | `DP.Planlosning`: byggnadens form utan DOM. `foreslagenOrdning(plan)` ger planens ordning nedifrån och upp ur beteckning och benämning (beslut 84), `planTal` tolkar P1/1/Plan 1 → 1 och källare negativt, `benamningsforslag(id)` namnet ett plan utan benämning får, `laggUtRum(byggnad, rum)` **rummens rektanglar** ur byggnadstypens regel (beslut 78), `kategoriFor(rumstyp)` modellens sort, `laggUtInstallationer` **installationernas plats i rummet** jämnt längs väggen mot korridoren (beslut 78), och `form(byggnad)` byggnaden med `elev` per plan, räknade rektanglar, **skal** för de plan som saknar rum (beslut 85) och de **övriga** installationerna genererade ur rumstyperna (berättelse 57). Handritade byggnader lämnas orörda och får inga genererade övriga ovanpå sina egna (beslut 101). `areor(byggnad)` ger **BRA och BTA per plan och byggnad** ur rummens egna tal eller ur modellens rektangel, märkta `beraknad` (beslut 79) – och `VAGG_TJ`, väggtjockleken både uträkningen och viewern ritar med |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
@@ -260,6 +260,32 @@ Skriptens ordning i `index.html` spelar roll:
   ur Kasern 1 gett ett förslag per rum, eftersom de handritade byggnaderna varken har rumstyp eller
   NTA i `data/` (beslut 101) – och med den är filen vägen att ge dem talen. Ett handritat rum
   behåller dock sin ritade modellsort: dess golvfärg är ritad.
+- **Utbyte och rättelse via filen (beslut 93, biljett #45).** En installationsrad vars Id finns kan
+  säga två olika saker, och det är **installationsdatumet** som avgör vilket. Är filens datum
+  *senare* än byggnadens är raden en **ny apparat**: ett utbytesförslag (`utbyte: true`) som godtaget
+  går genom **samma** `bytApparat` som formuläret i steg 4, med utbytt version, bevarad tillsyn och
+  frågan efteråt (beslut 91–97). Är datumet detsamma – eller filen tyst om det – är raden en
+  **rättelse** av den apparat som sitter där, och ändrar bara uppgifterna. Att datumet ensamt avgör
+  är poängen: det är vad som skiljer versionerna åt (beslut 95), och varje bredare regel hade gjort
+  ett utbyte av en rättad felstavning. Ett datum byggnaden *saknar* är ingen jämförelse utan en
+  **lucka** som fylls i tyst (som i `skillnad`), så en fil ur en handritad byggnad ger byggnaden
+  datumen i stället för att föreslå fyrtio utbyten. Båda förslagen går att **vända** –
+  `vandInstForslag(key, bid)`, ett eget historiksteg – eftersom datumet kan vara fel skrivet åt båda
+  hållen. Vändningen byter *fråga* och lägger undan **datumet** (`rad.datumAndring`, tillbaka när raden
+  vänds till utbyte igen): att vända till rättelse är att säga att datumet är fel, och att ändå skriva
+  in det hade låtit byggnaden påstå att apparaten bytts utan att spara den gamla. Radens fält är
+  filens och rörs aldrig. Vad som går att vända svarar `DP.Inlasning.vandbar(rad)` på – en regel på
+  ett ställe (beslut 61), läst av vyns knapp och av planeringen – och ett utbyte där bara datumet
+  skiljer går inte att vända. Ett utbyte som **inte går att göra** faller tillbaka på en rättelse längs
+  samma väg, alltså utan datumet, står i svarets `hoppadeOver`, får frågan efteråt ändå (den säger att
+  ingen apparat byttes) och en historikrad som säger *godta ändring*.
+  `godtaInst` och `godtaAllaInst` svarar därför med `{ ersatta, hoppadeOver, tappade, byterTyp }` –
+  samma svar som `ersattFlera` – när godtagandet bar ett utbyte, så att vyn kan ställa **en** fråga om
+  hela svepet. Utbytena räknas ut **före** steget (`medUtbyten`), av samma skäl som i `ersattFlera`:
+  efteråt finns de rivna kopplingarna inte att räkna. `inlasningStatus().grupper` har därför
+  `forslag`, `utbyten`, `andrade`, `bort` och `oplacerad`, och filen bär fortfarande bara **nuvarande
+  versioner** när den tas ut (beslut 96): en utbytt version är en apparat och ingen installation, så
+  `tillArk` möter den aldrig.
 - **Utbyte: apparaten byts, installationen består (beslut 91–95 och 97, biljett #43).**
   `DP.Plan.ersattInst(instId, { datum, fabrikat, modell, externtId, typ }, bid)` ersätter apparaten
   i en installation. **Id:t, rummet och tillsynen står kvar** – kopplingar och avvikande texter
@@ -643,7 +669,7 @@ svaret, också det ett steg i historiken. Ett godtaget förslag att ta bort rive
 samma steg, precis som knappen *Ta bort*. En fil som tas ut och läses in oförändrad ger inga
 förslag alls, och ett fält byggnaden *saknar* räknas som en lucka filen fyller i och inte som en
 ändring: det är så de handritade byggnaderna kan få sina rumstyper och areor. Utbytet via fil
-(beslut 93) hör till biljett #45.
+(beslut 93) byggdes i biljett #45.
 Trettonde biljetten, **utbyte av en installation** (beslut 91–95 och 97, biljett #43), är byggd:
 planeraren trycker *Ersätt* på installationens rad i steg 4 och fyller i den nya apparatens
 uppgifter där – installationsdatum, fabrikat, modell och externt id, och typen bakom en länk när
@@ -677,6 +703,24 @@ Frågan efteråt gäller alla de ersatta, säger vilka kopplingar som föll bort
 Planering* öppnar steg 5 med **alla** de ersatta blinkande i modellen. Markeringen rensas mot det
 som finns vid varje omritning och faller när planeraren byter byggnad: ett id som inte går att
 peka ut i steg 4 är ingen markering.
+Femtonde biljetten, **utbyte och rättelse via inläsningsfilen** (beslut 93, biljett #45), är
+byggd: en ombyggnad där apparater bytts förs in med filen, som allt annat. En rad med samma Id och
+ett **senare installationsdatum** blir ett förslag om **utbyte** – apparaten byts, den gamla sparas
+som en tidigare version, och installationen, dess id och dess tillsyn består – medan samma Id med
+samma datum och ändrade uppgifter blir ett förslag om **rättelse** av den apparat som sitter där.
+Det är datumet ensamt som avgör, eftersom det är datumet som skiljer versionerna åt: ett nytt
+fabrikat kan lika gärna vara en rättad felstavning. Ett datum byggnaden saknar är ingen jämförelse
+utan en lucka filen fyller i, så en fil ur en handritad byggnad ger byggnaden datumen i stället för
+att föreslå fyrtio utbyten. De två står som **egna grupper** i steget – *Utbytt apparat* och
+*Rättat* – och båda går att **vända** med ett klick, eftersom ett datum kan vara fel skrivet åt
+båda hållen: vändningen byter vad ett godtagande gör, och filens uppgifter står kvar orörda. Vänder
+planeraren ett utbyte till en rättelse skrivs datumet **inte** in – det var ju datumet hon sa var
+fel – och detsamma gäller ett utbyte systemet inte kan göra, som faller tillbaka på en rättelse och
+säger det i frågan efteråt.
+Ett godtaget utbyte går samma väg som utbytet i steg 4, med samma utbytta version och **samma
+fråga** efteråt, och ett *Godta alla* med flera utbyten är ett steg i historiken och en fråga.
+Filen bär fortfarande bara nuvarande versioner när den tas ut: historiken stannar i systemet
+(beslut 96).
 
 Kända begränsningar:
 - Installationernas plats **i** rummet är schematisk: de fördelas jämnt längs väggen mot korridoren,
@@ -696,8 +740,6 @@ Kända begränsningar:
   visar ett streck. Det slår på just kasernens korridorsplan. Modellens egen brist är biljett #48.
 - Byggnadstypernas planlösningsregel finns för de tre typer som har tabeller (Garage, Kasern,
   Hangar). De fyra nya typerna i beslut 72 är inte inlagda ännu.
-- Ett **utbyte via fil** – samma Id med senare installationsdatum (beslut 93) – känns inte igen ännu:
-  raden blir ett vanligt förslag om *ändring* av samma version. Det byggs i biljett #45.
 - Ett förslag att ta bort uppstår bara när filens flik bär **minst en** av byggnadens egna rader
   (beslut 86). En fil som bara har nya rader är ett tillägg, och en fil som bara har Plan-fliken säger
   ingenting om rummen. Regeln gissar mot att något tas bort, så en fil där planeraren råkat byta ut

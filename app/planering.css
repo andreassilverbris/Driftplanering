@@ -618,6 +618,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
    ska ta ställning till. */
 .bf-inlrad.andrad { border-left: 3px solid var(--accent); }
 .bf-inlrad.bortforslag { border-left: 3px solid #8a8f98; }
+/* Ett utbyte via fil (beslut 93) gör mer mot byggnaden än en rättelse: den gamla apparaten
+   sparas i historiken och tillsyn kan falla bort. Den egna färgen är samma orange som
+   utbytets blinkning i modellen, så att de två hänger ihop för ögat. */
+.bf-inlrad.andrad.utbyte { border-left: 3px solid #e07b26; }
 /* Före och efter per fält, i en rad som går att läsa av i en kolumn: etikett, det som står nu,
    pilen och det filen säger. Monospace på talen hade varit en annan sorts tabell – de ska
    läsas som ord, inte räknas ihop. */
