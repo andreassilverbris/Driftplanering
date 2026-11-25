@@ -435,6 +435,27 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     enligt byggnadstypens regel (i en kasern längs korridoren, ena sidan och tillbaka längs den andra).
     Följer verklighetens numrering inte regeln blir modellen schematisk, inte fel. Ordningen på ett plan
     går att dra om; fri ritning finns inte.
+
+    *Byggt i biljett #37* (`DP.Planlosning.laggUtRum`, utan DOM). Regelns **parametrar** ligger i
+    byggnadstypen (`planlosning: { regel, djup, korrBredd, langd }`, beslut 99) och uträkningen i
+    modulen – två regler finns: `korridor` (kasernens form) och `hall` (garagets och hangarens, ett
+    stort utrymme med rummen längs ena långsidan). Rummen delas mellan korridorens sidor **mitt i
+    nummerordningen** – första halvan ut längs ena sidan, andra halvan tillbaka längs den andra –
+    och norra sidan läggs ut baklänges längs x, så att rundan faktiskt går medurs och inte fram
+    och tillbaka. Att dela på halva NTA:n i stället hade sett jämnare ut i en byggnad med lika
+    rum, men brutit rundan så fort ett rum dominerar: en hall på 500 m² hade legat ensam på sin
+    sida och nästa rum i ordningen hamnat längst bort på den andra. Rundan är det planeraren
+    läser i modellen; symmetrin är bara en följd av rummen. Varje rums rektangel speglar dess
+    **egen NTA**, också hallens – planeraren jämför summan i steget mot modellen, och de två ska
+    stämma. Ett rum vars rumstyp är **korridor** blir korridoren själv och ligger inte i ledet:
+    en byggnad med två korridorer på tvären hade sett ut som ett fel. Rektangeln räknas i `form()`
+    och skrivs **inte** till byggnadsdatan (beslut 71), så ett rum som dras om får sin nya plats
+    utan att något behöver rensas.
+
+    Sadeltakets bas följer nu byggnadens faktiska topp för **varje räknad** byggnad, inte bara
+    när något plan är skal (preciserar beslut 85). Skiljelinjen går vid om byggnaden är **ritad
+    eller räknad** – de handritade bär egna elevationer i datafilen (beslut 101) – eftersom ett hus
+    som nyss blev färdigt annars plötsligt hade fått ett tak som svävar tre meter upp.
 79. **Areor och volym per rum, summor uppåt** (SS 21054:2020). Per rum: **NTA** krävs och ger golvytan i
     modellen; **NTV** (nettovolym) är valfri och ger rumshöjden som NTV ÷ NTA – annars gäller byggnadstypens
     standardhöjd; **BRA** och **BTA** är valfria; *temperaturreglerad* lagras utan funktion. Per plan och
@@ -442,9 +463,26 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     fram ur modellen (BRA innanför ytterväggarna, BTA utanför) och märks *beräknad*. BTA per rum är
     tveksamt enligt standarden (den mäts till ytterväggens utsida), men fastighetssystemet aggregerar areor
     uppåt från rum, så fältet finns.
+
+    *Byggt för rummen i biljett #37.* NTA-förslaget tas ur **rumstypens** standardvärde och inte ur
+    ett gemensamt tal: en korridor är lång och ett WC litet, och ett gemensamt standardvärde hade
+    gett en byggnad där allt är lika stort. Byter planeraren rumstyp på en rad som väntar på NTA
+    byts förslaget med den. NTA summeras per plan och byggnad; **BRA och BTA summeras bara när
+    alla rum har dem** och visas annars som ett streck – ett tal som är hälften av den verkliga
+    arean är värre än inget tal. Att räkna fram dem ur modellen och märka dem *beräknad* hör till
+    en senare biljett.
 80. **Rumstypen läses ur benämningen.** Ingen kolumn för rumstyp: systemet känner igen korridor, trapphus,
     WC, logement osv. ur benämningen utifrån byggnadstypens vanliga rumstyper. Det okända blir ett förslag
     *Övrigt rum* som ändras med ett klick. Rumstypen styr bara placeringen i modellen.
+    (Justerat av beslut 109: kolumnen finns, men är valfri.)
+
+    *Byggt i biljett #37* (`data/rumstyper.js`). Tabellen är **data** (beslut 99): varje typ bär namn,
+    kategori (den sort viewern färgar golvet efter), standard-NTA och igenkänningsmönster, och
+    **tabellens ordning är regeln** – det mest utpekande mönstret prövas först. *Övrigt rum* står i
+    tabellen som en riktig rumstyp och inte som ett felläge: modellen ska kunna ritas, och planeraren
+    byter typen med ett klick på rummets egen rad. "Gillestuga" känns med flit **inte** igen – den är
+    exemplet i beslut 109 på en benämning som ska mötas av förslaget och av kolumnen Rumstyp, inte av
+    en gissning som råkar bli rätt.
 81. **Fliken Installationer har bara signifikanta installationer.** Övriga installationer genereras ur
     byggnadstyp och rumstyp, som i dag. Kolumner: Plan, Rum, Benämning, Beteckning, Fabrikat, Modell, Id,
     Externt id. Tomt Id ger ett id från systemet. Installationstypen föreslås ur benämningen; en okänd typ
@@ -615,10 +653,22 @@ fyllde i den i Numbers och läste in den: **grundgreppet håller**. Det här kom
 110. **Ett rumsnummer som krockar ger ett förslag.** Dras ett rum till ett plan där numret redan finns
      (Vindsförråd 05-001 till plan 03, som redan har 03-001) föreslås nästa lediga nummer. Annars hade två
      rum haft samma plan + nummer, och ingen vet vilket installationerna sitter i.
+
+     *Byggt i biljett #37.* Krocken prövas **när raden blir klar** och inte vid inläsningen: planet kan
+     självt vara ett förslag, och vilket rum raden pekar på vet man först när plan och nummer är
+     avgjorda. Raden **står då kvar** som ett förslag med det nya numret i stället för att försvinna
+     ner i byggnaden – planeraren ska se vad systemet gjorde med hennes rum, inte hitta det på en plats
+     hon inte valde. Nummer som tas av rader som godtas i **samma** steg räknas som upptagna, annars
+     hade ett *Godta alla* kunnat ge två rum samma nummer.
 111. **Modellen växer med stegen även när allt kommer från en fil** (preciserar beslut 85). I steget Plan
      visas bara planen som skal – i fel ordning ligger källaren överst, vilket gör förslaget om ordningen
      självklart. Rummen syns från steget Rum eller när Plan är grönt, installationerna från steget
      Installationer eller när Rum är grönt.
+
+     *Rummen byggda i biljett #37:* de visas så fort de är **klara**, och det kräver ingen regel om
+     vilket steg planeraren står i. Klara rader ligger i byggnaden (beslut 83) och förslag gör det
+     inte, så modellen kan aldrig visa en gissning – ett plan vars rum alla är förslag står kvar som
+     skal tills de godtas.
 
      *Byggt i biljett #35 för plan och skal.* Verktygsfältets utgråning hör hit: `uppdateraVerktyg()` i
      `ui.js` stänger av Innerväggar och Rumsnamn utan rum, Röntgen utan signifikanta installationer, och

@@ -3802,7 +3802,7 @@ async function testRumsnumrering(browser) {
 // med entréplanet på marken, och en handritad byggnad rörs inte (beslut 101). Går något av
 // dem förlorat ritas modellen tyst fel, och planeraren tror att byggnaden ser ut så.
 async function testPlanlosningen(browser) {
-  console.log('Planlösningen: skalet och planens ordning (beslut 84, 85 och 101)');
+  console.log('Planlösningen: skalet, planens ordning och rummens placering (beslut 78, 84, 85, 99 och 101)');
   const page = await nySida(browser, URL_INDEX);
 
   // ---- Ordningen föreslås ur beteckning och benämning (beslut 84) ----
@@ -3906,6 +3906,135 @@ async function testPlanlosningen(browser) {
   kontroll(hojd[0].hojd === 10, 'rumshöjden räknas som NTV ÷ NTA (' + hojd[0].hojd + ' m)');
   kontroll(hojd[1].hojd === 3.3,
     'ett rum utan NTV får byggnadstypens standardhöjd (' + hojd[1].hojd + ' m)');
+
+  // ---- Rummen läggs ut enligt byggnadstypens regel (beslut 78, biljett #37) ----
+  // Ett inläst rum bär ingen rektangel: filen har NTA och ingenting om var rummet ligger.
+  // Det som ska hålla är att rummen inte överlappar, ligger i nummerordning medurs runt
+  // korridoren och får rätt bredd ur NTA. Går det fel ser modellen ut som en byggnad där
+  // rummen står i varandra, och då är det inte uppenbart om felet är geometrins eller vyns.
+  const utlagt = await page.evaluate(() => {
+    // En kasern: korridor plus sex rum på båda sidor, alla med NTA men utan rect.
+    const rum = [
+      { nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', nta: 96 },
+      { nr: '002', namn: 'Logement 1', plan: '01', rumstyp: 'logement', nta: 36 },
+      { nr: '003', namn: 'Logement 2', plan: '01', rumstyp: 'logement', nta: 36 },
+      { nr: '004', namn: 'WC/Dusch', plan: '01', rumstyp: 'wcdusch', nta: 36 },
+      { nr: '005', namn: 'Logement 3', plan: '01', rumstyp: 'logement', nta: 36 },
+      { nr: '006', namn: 'Logement 4', plan: '01', rumstyp: 'logement', nta: 36 },
+      { nr: '007', namn: 'Förråd', plan: '01', rumstyp: 'forrad', nta: 36 }
+    ];
+    const svar = DP.Planlosning.laggUtRum({ typ: 'kasern' }, rum);
+    // Formen genom hela vägen: rummen utan rect får en räknad, och höjden ur NTV.
+    const f = DP.Planlosning.form({
+      namn: 'Prov', typ: 'kasern', stil: { tak: 'platt' },
+      konstanter: { FRIHOJD: 3.3, BJALKLAG: 0.2 },
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: rum.concat([{ nr: '008', namn: 'Fläktrum', plan: '01', rumstyp: 'teknik', nta: 40, ntv: 400 }]),
+      installationer: []
+    });
+    function overlappar(a, b) {
+      return a[0] < b[2] - 0.001 && b[0] < a[2] - 0.001
+        && a[1] < b[3] - 0.001 && b[1] < a[3] - 0.001;
+    }
+    const krockar = [];
+    f.rum.forEach((a, i) => f.rum.slice(i + 1).forEach(b => {
+      if (overlappar(a.rect, b.rect)) { krockar.push(a.nr + '/' + b.nr); }
+    }));
+    const vid = nr => svar.rum.filter(o => o.r.nr === nr)[0].rect;
+    return {
+      krockar,
+      // Korridoren löper genom hela planet, mellan de två rumsraderna
+      korridor: vid('001'),
+      langd: Math.round(svar.langd * 10) / 10,
+      djup: svar.djup,
+      // Rummen på de två sidorna: z skiljer dem åt
+      sidor: ['002', '003', '004', '005', '006', '007'].map(nr => {
+        const r = vid(nr);
+        return { nr, syd: r[1] < svar.djup / 2 - 0.1, x0: Math.round(r[0] * 10) / 10 };
+      }),
+      // Bredden ur NTA: ett logement på 36 m² i ett 6 m djupt led är 6 m brett
+      bredd002: Math.round((vid('002')[2] - vid('002')[0]) * 10) / 10,
+      // Skalet är borta när planet har rum
+      skal: f.rum.filter(r => r.skal).length,
+      // Höjden ur NTV ÷ NTA också för ett rum regeln lade ut
+      flakthojd: (f.rum.filter(r => r.nr === '008')[0] || {}).hojd,
+      // Rumstypen blir den sort viewern färgar golvet efter
+      wcTyp: (f.rum.filter(r => r.nr === '004')[0] || {}).typ
+    };
+  });
+  kontroll(utlagt.krockar.length === 0,
+    'rummen regeln lade ut överlappar inte varandra (' + (utlagt.krockar.join(', ') || 'inga krockar') + ')');
+  kontroll(utlagt.korridor[0] === 0 && Math.abs(utlagt.korridor[2] - utlagt.langd) < 0.01,
+    'korridoren löper genom hela planet (x ' + utlagt.korridor[0] + '–'
+    + Math.round(utlagt.korridor[2] * 10) / 10 + ' av ' + utlagt.langd + ')');
+  kontroll(utlagt.korridor[1] > 0 && utlagt.korridor[3] < utlagt.djup,
+    'korridoren ligger mellan de två rumsraderna (z ' + utlagt.korridor[1] + '–'
+    + utlagt.korridor[3] + ' av ' + utlagt.djup + ')');
+  kontroll(utlagt.bredd002 === 6,
+    'rummets bredd kommer ur NTA: 36 m² i ett 6 m djupt led är 6 m brett (' + utlagt.bredd002 + ' m)');
+  // Medurs i nummerordning: de första rummen på ena sidan med växande x, de sista på den
+  // andra med **avtagande** x – rundan går runt korridoren och inte fram och tillbaka.
+  const syd = utlagt.sidor.filter(s => s.syd), norr = utlagt.sidor.filter(s => !s.syd);
+  kontroll(syd.length > 0 && norr.length > 0,
+    'rummen delas mellan korridorens två sidor (' + syd.length + ' mot ' + norr.length + ')');
+  kontroll(syd.every((s, i) => i === 0 || s.x0 > syd[i - 1].x0),
+    'rummen på första sidan ligger i nummerordning längs byggnaden ('
+    + syd.map(s => s.nr + '@' + s.x0).join(' ') + ')');
+  kontroll(norr.every((s, i) => i === 0 || s.x0 < norr[i - 1].x0),
+    'rummen på andra sidan ligger i nummerordning tillbaka – rundan går medurs ('
+    + norr.map(s => s.nr + '@' + s.x0).join(' ') + ')');
+  kontroll(utlagt.skal === 0,
+    'ett plan som fått rum är inget skal längre (' + utlagt.skal + ' skal)');
+  kontroll(utlagt.flakthojd === 10,
+    'ett rum regeln lade ut får också sin höjd ur NTV ÷ NTA (' + utlagt.flakthojd + ' m)');
+  kontroll(utlagt.wcTyp === 'personal',
+    'rumstypen blir den sort modellen färgar golvet efter (' + utlagt.wcTyp + ')');
+
+  // Hallregeln: ett garage är ett stort utrymme med några rum längs ena sidan.
+  const hall = await page.evaluate(() => {
+    const svar = DP.Planlosning.laggUtRum({ typ: 'garage' }, [
+      { nr: '001', namn: 'Vagnhall', plan: '01', rumstyp: 'ovrigt', nta: 240 },
+      { nr: '002', namn: 'Förråd', plan: '01', rumstyp: 'forrad', nta: 24 },
+      { nr: '003', namn: 'WC', plan: '01', rumstyp: 'wcdusch', nta: 12 }
+    ]);
+    const vid = nr => svar.rum.filter(o => o.r.nr === nr)[0].rect;
+    function overlappar(a, b) {
+      return a[0] < b[2] - 0.001 && b[0] < a[2] - 0.001
+        && a[1] < b[3] - 0.001 && b[1] < a[3] - 0.001;
+    }
+    return {
+      hallYta: Math.round((vid('001')[2] - vid('001')[0]) * (vid('001')[3] - vid('001')[1])),
+      smaYta: Math.round((vid('002')[2] - vid('002')[0]) * (vid('002')[3] - vid('002')[1])),
+      krock: overlappar(vid('001'), vid('002')) || overlappar(vid('002'), vid('003'))
+    };
+  });
+  kontroll(!hall.krock, 'hallregelns rum överlappar inte heller');
+  kontroll(hall.hallYta > hall.smaYta * 3,
+    'det stora utrymmet blir hallen och rummen en rad längs sidan ('
+    + hall.hallYta + ' m² mot ' + hall.smaYta + ' m²)');
+  // Hallens rektangel ska spegla dess NTA. Sträcktes den över hela planet hade planeraren
+  // jämfört NTA-summan i steget mot en modell där hallen är för stor.
+  kontroll(hall.hallYta === 240 && hall.smaYta === 24,
+    'rummens yta i modellen är deras NTA, också hallens (' + hall.hallYta + ' och '
+    + hall.smaYta + ' m²)');
+
+  // ---- Rundan håller också när ett rum dominerar NTA:n ----
+  // Delades sidorna på halva NTA:n i stället för mitt i nummerordningen hade ett rum på
+  // 500 m² legat ensamt på sin sida, och nästa rum i ordningen hamnat längst bort på den
+  // andra – rundan hade blivit ett hopp i stället för en runda.
+  const dominerar = await page.evaluate(() => {
+    const svar = DP.Planlosning.laggUtRum({ typ: 'kasern' }, [
+      { nr: '001', namn: 'Lektionssal', plan: '01', rumstyp: 'kontor', nta: 500 },
+      { nr: '002', namn: 'Kontor', plan: '01', rumstyp: 'kontor', nta: 24 },
+      { nr: '003', namn: 'Kontor', plan: '01', rumstyp: 'kontor', nta: 24 },
+      { nr: '004', namn: 'Städ', plan: '01', rumstyp: 'stad', nta: 18 }
+    ]);
+    return svar.rum.map(o => ({ nr: o.r.nr, syd: o.rect[1] < svar.djup / 2 - 0.1 }))
+      .sort((a, b) => a.nr < b.nr ? -1 : 1);
+  });
+  kontroll(dominerar[0].syd && dominerar[1].syd && !dominerar[2].syd && !dominerar[3].syd,
+    'sidorna delas mitt i nummerordningen, så rundan håller när ett rum dominerar ('
+    + dominerar.map(d => d.nr + (d.syd ? ':syd' : ':norr')).join(' ') + ')');
 
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
@@ -4362,7 +4491,7 @@ async function testFristaendeFil(browser) {
 // gränssnittet som en rad på fel ställe, och då är det inte uppenbart om felet är tolkningens
 // eller vyns. Här är svaret precis vad modulen tänkte.
 async function testInlasningsmodulen(browser) {
-  console.log('Inläsningens tolkning fristående (beslut 83, 89 och berättelse 19, 24 och 31)');
+  console.log('Inläsningens tolkning fristående: Plan och Rum (beslut 76–80, 83, 89, 108–110)');
   const page = await nySida(browser, URL_INDEX);
 
   // Ett ark som en fil som gått via Numbers: tabellrubriken "Plan" på egen rad överst, en tom
@@ -4488,6 +4617,169 @@ async function testInlasningsmodulen(browser) {
   kontroll(ark[0].rader[1].join(',') === '01,Entréplan,40 pers',
     'det egna fältet följer med ut igen (' + ark[0].rader[1].join(',') + ', beslut 89)');
 
+  // ==================================================================
+  // Fliken Rum (biljett #37, beslut 76, 77, 79, 80, 108, 109 och 110)
+  // ==================================================================
+  // Ett rum pekas ut med plan + rumsnummer, och båda matchas förlåtande. Det som prövas är
+  // det en fil ur verkligheten gör: planen skrivna som P1 och 1, rumsnummer utan nollor,
+  // benämningar systemet inte känner igen, saknad NTA och ett plan som inte finns.
+  // Standard-NTA ur tabellen och inte en siffra i testet: det är tabellen som är regeln
+  // (beslut 99), och ett test som skriver 36 hade gått sönder av en justering som är rätt.
+  const stdNta = await page.evaluate(() => ({ wcdusch: DP.rumstyper.wcdusch.nta }));
+  const rum = await page.evaluate(() => {
+    const byggnad = {
+      plan: [{ id: '00', namn: 'Källarplan' }, { id: '01', namn: 'Entréplan' },
+        { id: '02', namn: 'Plan 2' }],
+      rum: []
+    };
+    const rader = DP.Inlasning.tolkaRum([
+      // Exakt plan, tresiffrigt nummer, känd benämning, NTA: klar
+      { plan: '01', nr: '001', namn: 'Korridor', nta: '96', egna: {} },
+      // "P1" matchas förlåtande mot 01, numret fylls ut: förslag
+      { plan: 'P1', nr: '2', namn: 'Logement 1:1', nta: '36', egna: {} },
+      // Okänd benämning: förslaget Övrigt rum
+      { plan: '02', nr: '001', namn: 'Gillestuga', nta: '48', egna: {} },
+      // Saknad NTA: förslag med rumstypens standardvärde
+      { plan: '02', nr: '002', namn: 'WC/D', nta: '', egna: {} },
+      // Plan som inte finns: oplacerad
+      { plan: '07', nr: '001', namn: 'Vindsförråd', nta: '20', egna: {} },
+      // NTV ger höjden, BRA/BTA och Temperaturreglerad läses in
+      { plan: '00', nr: '001', namn: 'Fläktrum', nta: '40', ntv: '400', bra: '44',
+        bta: '48', temp: 'Ja', egna: { Kommentar: 'Nytt aggregat' } },
+      // Kolumnen Rumstyp går före benämningen (beslut 109)
+      { plan: '00', nr: '002', namn: 'Gillestuga', rumstyp: 'Dagrum', nta: '60', egna: {} }
+    ], byggnad);
+    return rader.map(r => ({
+      plan: r.falt.plan, nr: r.falt.nr, namn: r.falt.namn, rumstyp: r.falt.rumstyp,
+      nta: r.falt.nta, ntv: r.falt.ntv, bra: r.falt.bra, bta: r.falt.bta, temp: r.falt.temp,
+      status: DP.Inlasning.status(r), egna: r.egna,
+      skal: r.fragor.map(f => f.slag + ': ' + f.text),
+      forslag: r.fragor.reduce((o, f) => { o[f.slag] = f.forslag; return o; }, {})
+    }));
+  });
+  kontroll(rum[0].status === 'klar' && rum[0].plan === '01' && rum[0].nr === '001'
+    && rum[0].rumstyp === 'korridor' && rum[0].nta === 96,
+    'ett rum med exakt plan, tresiffrigt nummer, känd benämning och NTA är klart ('
+    + JSON.stringify({ p: rum[0].plan, nr: rum[0].nr, typ: rum[0].rumstyp }) + ')');
+  kontroll(rum[1].status === 'forslag' && rum[1].forslag.plan === '01' && rum[1].forslag.nr === '002',
+    'P1 matchas mot plan 01 och numret 2 fylls ut till 002 – båda som förslag ('
+    + JSON.stringify(rum[1].forslag) + ', beslut 77)');
+  kontroll(rum[1].skal.some(s => /P1 tolkas som plan 01/.test(s))
+    && rum[1].skal.some(s => /fylls ut till 002/.test(s)),
+    'skälen står i klartext ("' + rum[1].skal.join('" / "') + '", berättelse 24)');
+  kontroll(rum[1].rumstyp === 'logement',
+    'rumstypen läses ur benämningen "Logement 1:1" (' + rum[1].rumstyp + ', beslut 80)');
+  kontroll(rum[2].status === 'forslag' && rum[2].forslag.rumstyp === 'ovrigt'
+    && /Gillestuga känns inte igen/.test(rum[2].skal.join(' ')),
+    'en okänd benämning blir förslaget Övrigt rum (' + rum[2].forslag.rumstyp + ', beslut 80)');
+  kontroll(rum[3].status === 'forslag' && rum[3].rumstyp === 'wcdusch'
+    && rum[3].forslag.nta === stdNta.wcdusch,
+    'en saknad NTA blir ett förslag med rumstypens standardvärde (' + rum[3].forslag.nta
+    + ' m² för WC/D, beslut 79 och berättelse 40)');
+  kontroll(rum[4].status === 'oplacerad'
+    && /inget plan 07/.test(rum[4].skal.join(' ')),
+    'ett rum på ett plan som inte finns blir oplacerat och säger varför ("'
+    + rum[4].skal.join(' ') + '", berättelse 37)');
+  kontroll(rum[5].status === 'klar' && rum[5].ntv === 400 && rum[5].bra === 44
+    && rum[5].bta === 48 && rum[5].temp === true,
+    'NTV, BRA, BTA och Temperaturreglerad läses in (' + JSON.stringify(
+      { ntv: rum[5].ntv, bra: rum[5].bra, bta: rum[5].bta, temp: rum[5].temp }) + ', beslut 79)');
+  kontroll(rum[5].egna.Kommentar === 'Nytt aggregat',
+    'en egen kolumn i fliken Rum blir ett eget fält (' + rum[5].egna.Kommentar + ', beslut 89)');
+  kontroll(rum[6].rumstyp === 'dagrum' && rum[6].status === 'klar',
+    'kolumnen Rumstyp går före benämningen när den är ifylld (' + rum[6].rumstyp + ', beslut 109)');
+
+  // ---- Rumstyperna ur benämningen: skrivsätten ur fastighetssystemet ----
+  const typer = await page.evaluate(() => ({
+    korr: DP.rumstypFor('Korr.'),
+    korridor: DP.rumstypFor('Korridor'),
+    trapp: DP.rumstypFor('Trapphus'),
+    wc: DP.rumstypFor('WC/D'),
+    logement: DP.rumstypFor('Logement 2:4'),
+    sovsal: DP.rumstypFor('Sovsal'),
+    kok: DP.rumstypFor('Kök'),
+    fika: DP.rumstypFor('Fikarum'),
+    pentry: DP.rumstypFor('Pentry'),
+    forrad: DP.rumstypFor('Materielförråd'),
+    okand: DP.rumstypFor('Gillestuga'),
+    // Kolumnen tar emot både id:t filen bär och det namn planeraren ser (beslut 109)
+    avId: DP.rumstypAv('wcdusch'),
+    avNamn: DP.rumstypAv('WC/Dusch'),
+    avOkand: DP.rumstypAv('Gillestuga')
+  }));
+  kontroll(typer.korr === 'korridor' && typer.korridor === 'korridor'
+    && typer.trapp === 'trapphus' && typer.wc === 'wcdusch'
+    && typer.logement === 'logement' && typer.sovsal === 'logement',
+    'de vanliga skrivsätten känns igen (' + JSON.stringify(typer).slice(0, 110) + ', beslut 80)');
+  kontroll(typer.kok === 'kok' && typer.fika === 'fikarum' && typer.pentry === 'fikarum',
+    'Kök och Fikarum är egna rumstyper (beslut 108)');
+  kontroll(typer.forrad === 'forrad' && typer.okand === null,
+    'en okänd benämning känns inte igen alls, och blir då ett förslag (' + typer.okand + ')');
+  kontroll(typer.avId === 'wcdusch' && typer.avNamn === 'wcdusch' && typer.avOkand === null,
+    'kolumnen Rumstyp tar emot både id och namn (' + typer.avId + ', ' + typer.avNamn + ')');
+
+  // ---- Ett rum som redan finns är ingen nyhet, som ett plan som redan finns ----
+  const fannsRum = await page.evaluate(() => {
+    const rader = DP.Inlasning.tolkaRum([
+      { plan: '01', nr: '001', namn: 'Korridor', nta: '96', egna: {} },
+      { plan: '01', nr: '002', namn: 'Entré', nta: '48', egna: {} }
+    ], {
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', nta: 96 }]
+    });
+    return rader.map(r => ({ nr: r.falt.nr, fanns: !!r.fanns, status: DP.Inlasning.status(r) }));
+  });
+  kontroll(fannsRum[0].fanns === true && fannsRum[1].fanns === false,
+    'ett rum som redan finns märks som befintligt (' + JSON.stringify(fannsRum) + ', beslut 86)');
+
+  // ---- Nästa lediga rumsnummer när numret krockar (beslut 110) ----
+  const ledigt = await page.evaluate(() => ({
+    nasta: DP.Inlasning.nastaLedigaNr('03', {
+      rum: [{ plan: '03', nr: '001' }, { plan: '03', nr: '002' }, { plan: '05', nr: '003' }]
+    }),
+    // Rader som godtas i samma steg räknas också som upptagna
+    medUtom: DP.Inlasning.nastaLedigaNr('03', {
+      rum: [{ plan: '03', nr: '001' }]
+    }, ['002', '003'])
+  }));
+  kontroll(ledigt.nasta === '003',
+    'nästa lediga nummer på planet föreslås (' + ledigt.nasta + ', beslut 110)');
+  kontroll(ledigt.medUtom === '004',
+    'nummer som tas av rader i samma steg räknas som upptagna (' + ledigt.medUtom + ')');
+
+  // ---- Arket som tas ut bär rumstypen som namn, så kolumnen går tur och retur ----
+  const rumArk = await page.evaluate(() => {
+    const ark = DP.Inlasning.tillArk({
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', nta: 96,
+        ntv: 300, bra: 100, bta: 110, temp: true, egna: { Kommentar: 'Ny matta' } }],
+      installationer: []
+    });
+    const rumFlik = ark.filter(f => f.namn === 'Rum')[0];
+    return { rubriker: rumFlik.rader[0], rad: rumFlik.rader[1] };
+  });
+  kontroll(rumArk.rubriker.join(',') === 'Plan,Rum,Benämning,Rumstyp,NTA,NTV,BRA,BTA,Temperaturreglerad,Kommentar',
+    'fliken Rum tas ut med sina kolumner och den egna sist (' + rumArk.rubriker.join(',') + ')');
+  kontroll(rumArk.rad[3] === 'Korridor' && rumArk.rad[8] === 'Ja' && rumArk.rad[9] === 'Ny matta',
+    'rumstypen tas ut som sitt namn och Temperaturreglerad som Ja (' + rumArk.rad.join(',')
+    + ', beslut 109)');
+  // Tur och retur: det som tas ut ska läsas tillbaka till samma rum
+  const returRum = await page.evaluate(() => {
+    const ark = DP.Inlasning.tillArk({
+      plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', nta: 96,
+        ntv: 300, bra: 100, bta: 110, temp: true, egna: { Kommentar: 'Ny matta' } }],
+      installationer: []
+    });
+    const fil = DP.Inlasning.lasArk(ark);
+    const rader = DP.Inlasning.tolkaRum(fil.rum, { plan: [{ id: '01', namn: 'Entréplan' }], rum: [] });
+    return { status: DP.Inlasning.status(rader[0]), rum: DP.Inlasning.rumFranRad(rader[0]) };
+  });
+  kontroll(returRum.status === 'klar' && returRum.rum.rumstyp === 'korridor'
+    && returRum.rum.nta === 96 && returRum.rum.ntv === 300 && returRum.rum.temp === true
+    && returRum.rum.egna.Kommentar === 'Ny matta',
+    'ett rum går tur och retur via ta ut utan skillnad (' + JSON.stringify(returRum.rum) + ')');
+
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
@@ -4564,8 +4856,10 @@ async function testInlasningsfilenPlan(browser) {
       oplaceratSkal: (st.grupper.oplacerad[0] || { fragor: [] }).fragor.map(f => f.text).join(' '),
       historik: DP.Plan.historik().lista.slice(-1)[0],
       steg2: DP.Plan.byggnadsSteg()[2],
-      // Modellen visar bara det som är klart (berättelse 55): tre skal, inte sex
+      // Modellen visar bara det som är klart (berättelse 55): skal på de plan som ännu
+      // inte har rum. Plan 01 fick fliken Rums enda rad och är därför inte skal längre.
       skal3d: DP.viewer.b.rum.filter(r => r.skal).length,
+      skalPlan: DP.viewer.b.rum.filter(r => r.skal).map(r => r.plan).join(' '),
       // Förslag och oplacerat ligger fast överst (beslut 112)
       sticky: (() => {
         const n = document.querySelector('#byggnadsflode .bf-oppet');
@@ -4588,8 +4882,9 @@ async function testInlasningsfilenPlan(browser) {
     'inläsningen är ett steg i historiken med text i klartext ("' + inlast.historik + '")');
   kontroll(inlast.steg2 === false,
     'steg 2 får ingen bock så länge förslag och oplacerat ligger kvar (beslut 83 och berättelse 30)');
-  kontroll(inlast.skal3d === 3,
-    'modellen visar bara de klara planen – ingen gissning (' + inlast.skal3d + ' skal, berättelse 55)');
+  kontroll(inlast.skal3d === 2 && !/\b01\b/.test(inlast.skalPlan),
+    'modellen visar bara de klara planen, och plan 01 är inget skal längre när dess rum ' +
+    'lästes in (' + inlast.skal3d + ' skal: ' + inlast.skalPlan + ', berättelse 55)');
   kontroll(inlast.sticky === 'sticky',
     'förslag och oplacerat är satt att ligga fast överst (' + inlast.sticky + ', beslut 112)');
   // Att CSS-egenskapen är satt säger bara att någon skrev den. Det som ska hålla är att
@@ -4753,6 +5048,295 @@ async function testInlasningsfilenPlan(browser) {
   await page.close();
 }
 
+
+// Steget Rum genom hela sidan: läs in fliken Rum, godta förslagen, svara på det oplacerade,
+// se rummen växa fram i modellen och ta ut filen igen (biljett #37, berättelse 21, 36, 39–42,
+// 51 och 55).
+//
+// Det som prövas är planerarens hela väg med en riktig .xlsx skriven utanför appen. Går
+// matchningen eller placeringen fel ser hon en byggnad där rummen står i varandra, och det
+// märks först när någon försöker lägga in en riktig byggnad.
+async function testStegRum(browser) {
+  console.log('Steget Rum från inläsningsfilen och rummen i modellen (beslut 76–80, 110 och 111)');
+  const page = await nySida(browser, URL_INDEX);
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('.val[data-typ="kasern"]').click();
+  await bf.locator('input[data-falt="namn"]').fill('Kasern 5');
+  await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+  await vanta(page, () => DP.Plan.byggnad().namn === 'Kasern 5', 'byggnaden skapad');
+
+  // ---- En fil med plan och rum i samma inläsning (berättelse 16) ----
+  // Skrivsätten är med flit olika, som i fastighetssystemet: planen 00, 01 och 02, rummen
+  // med och utan inledande nollor, en benämning systemet inte känner igen, ett rum utan NTA,
+  // ett rum med NTV som ska bli högt och ett rum på ett plan som inte finns.
+  // Steg 3 öppnas innan filen läses in: det är där planeraren står när hon fyller i rummen,
+  // och steglistan är hennes väg dit. Filraden finns i både steg 2 och 3 – det är **en** fil
+  // med tre flikar (beslut 70).
+  await bf.locator('.steg-kort[data-bsteg="3"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"].oppen'),
+    'steg 3 öppet');
+
+  const fil = skrivArk('rum-ifylld.xlsx', {
+    Plan: [
+      ['Plan', 'Benämning'],
+      ['00', 'Källarplan'],
+      ['01', 'Entréplan'],
+      ['02', 'Plan 2']
+    ],
+    Rum: [
+      ['Plan', 'Rum', 'Benämning', 'Rumstyp', 'NTA', 'NTV', 'BRA', 'BTA', 'Temperaturreglerad', 'Kommentar'],
+      // Klara: exakt plan, tresiffriga nummer, kända benämningar, NTA ifylld
+      ['01', '001', 'Korridor', '', '96', '', '', '', 'Ja', ''],
+      ['01', '002', 'Entré', '', '48', '', '', '', 'Ja', 'Ny dörr'],
+      ['01', '003', 'Logement 1:1', '', '36', '', '', '', 'Ja', ''],
+      ['01', '004', 'Logement 1:2', '', '36', '', '', '', 'Ja', ''],
+      // Högt rum: NTV ÷ NTA ger 10 m (beslut 79, berättelse 41)
+      ['00', '001', 'Fläktrum', '', '40', '400', '44', '48', 'Nej', ''],
+      // Förslag: planet skrivet P2 och numret utan nollor
+      ['P2', '1', 'Korridor', '', '96', '', '', '', 'Ja', ''],
+      // Förslag: benämningen känns inte igen – Övrigt rum (beslut 80)
+      ['02', '002', 'Gillestuga', '', '60', '', '', '', 'Ja', ''],
+      // Förslag: NTA saknas – rumstypens standardvärde (beslut 79)
+      ['02', '003', 'WC/D', '', '', '', '', '', 'Ja', ''],
+      // Oplacerad: plan 07 finns inte (berättelse 37)
+      ['07', '001', 'Vindsförråd', '', '20', '', '', '', 'Nej', '']
+    ],
+    Installationer: [['Plan', 'Rum', 'Benämning', 'Fabrikat', 'Id'],
+      ['01', '001', 'Handbrandsläckare 3', 'Dafo', '0001']]
+  });
+  await lasInFil(page, fil);
+
+  // Planen kom in i samma inläsning, och rummen matchades mot dem: ett rum på plan 01 ska
+  // inte bli oplacerat bara för att plan 01 kom i samma fil.
+  const inlast = await page.evaluate(() => {
+    const st = DP.Plan.inlasningStatus('rum');
+    return {
+      raknat: st.raknat,
+      plan: DP.Plan.byggnad().plan.map(p => p.id),
+      rum: DP.Plan.byggnad().rum.map(r => DP.rumNyckel(r.plan, r.nr) + ':' + r.namn),
+      forslag: st.grupper.forslag.map(r => r.falt.namn || '(utan namn)'),
+      skal: st.grupper.forslag.map(r => r.fragor.map(f => f.text).join(' ')),
+      oplacerade: st.grupper.oplacerad.length,
+      oplaceratSkal: (st.grupper.oplacerad[0] || { fragor: [] }).fragor.map(f => f.text).join(' '),
+      historik: DP.Plan.historik().lista.slice(-1)[0],
+      steg: DP.Plan.byggnadsSteg(),
+      // Modellen visar bara det som är klart (berättelse 55): plan 01 och 00 har rum,
+      // plan 02 är fortfarande skal eftersom dess rum alla är förslag.
+      skalPlan: DP.viewer.b.rum.filter(r => r.skal).map(r => r.plan).join(' '),
+      // Rummen i modellen har rektanglar regeln räknat fram (beslut 78)
+      modellRum: DP.viewer.b.rum.filter(r => !r.skal).length,
+      // Och ett rum med stor NTV är högt (berättelse 41)
+      flakthojd: (DP.viewer.b.rum.filter(r => r.namn === 'Fläktrum')[0] || {}).hojd
+    };
+  });
+  kontroll(inlast.plan.join(' ') === '00 01 02',
+    'planen kom in i samma inläsning (' + inlast.plan.join(' ') + ')');
+  kontroll(inlast.raknat.klar === 5 && inlast.raknat.forslag === 3 && inlast.raknat.oplacerad === 1,
+    'rumsraderna delas i klart, förslag och oplacerat (' + JSON.stringify(inlast.raknat) + ')');
+  kontroll(inlast.rum.length === 5 && inlast.rum.some(r => /^01-001:Korridor/.test(r)),
+    'de klara rummen förs in i byggnaden (' + inlast.rum.join(' | ') + ')');
+  kontroll(inlast.skal.some(s => /P2 tolkas som plan 02/.test(s)),
+    'planet P2 matchas förlåtande och säger det i klartext ("'
+    + inlast.skal.filter(s => /P2/.test(s))[0] + '", beslut 77)');
+  kontroll(inlast.skal.some(s => /Gillestuga känns inte igen/.test(s)),
+    'en okänd benämning blir förslaget Övrigt rum och säger varför (beslut 80)');
+  kontroll(inlast.skal.some(s => /saknar NTA/.test(s)),
+    'ett rum utan NTA får rumstypens standardvärde som förslag (beslut 79)');
+  kontroll(inlast.oplacerade === 1 && /inget plan 07/.test(inlast.oplaceratSkal),
+    'rummet på ett plan som inte finns är oplacerat ("' + inlast.oplaceratSkal + '")');
+  kontroll(/läs in rum-ifylld\.xlsx/.test(inlast.historik),
+    'hela filen – plan och rum – är **ett** steg i historiken ("' + inlast.historik + '")');
+  kontroll(inlast.steg[2] === true && inlast.steg[3] === false,
+    'steg 2 är grönt men steg 3 inte: förslag och oplacerat ligger kvar (beslut 83)');
+  kontroll(inlast.skalPlan === '02',
+    'modellen visar rummen på de plan som har klara rum, och skal på plan 02 där allt är '
+    + 'förslag (' + inlast.skalPlan + ', berättelse 55)');
+  kontroll(inlast.modellRum === 5,
+    'rummen ritas i modellen med rektanglar regeln räknat fram (' + inlast.modellRum + ')');
+  kontroll(inlast.flakthojd === 10,
+    'ett rum med stor NTV blir högt: 400 ÷ 40 = 10 m (' + inlast.flakthojd + ' m, berättelse 41)');
+  await bild(page, 'byggnad-steg3-rum');
+
+  // ---- Rummen ligger i nummerordning medurs i modellen (beslut 78) ----
+  const ordning = await page.evaluate(() => {
+    const pa = DP.viewer.b.rum.filter(r => r.plan === '01' && !r.skal)
+      .map(r => ({ nr: r.nr, x0: Math.round(r.rect[0] * 10) / 10, z0: r.rect[1], z1: r.rect[3] }));
+    function overlappar(a, b) {
+      return a.rect[0] < b.rect[2] - 0.001 && b.rect[0] < a.rect[2] - 0.001
+        && a.rect[1] < b.rect[3] - 0.001 && b.rect[1] < a.rect[3] - 0.001;
+    }
+    const alla = DP.viewer.b.rum.filter(r => r.plan === '01' && !r.skal);
+    const krockar = [];
+    alla.forEach((a, i) => alla.slice(i + 1).forEach(b => {
+      if (overlappar(a, b)) { krockar.push(a.nr + '/' + b.nr); }
+    }));
+    return { pa, krockar };
+  });
+  kontroll(ordning.krockar.length === 0,
+    'rummen på plan 01 överlappar inte i modellen (' + (ordning.krockar.join(' ') || 'inga krockar') + ')');
+  kontroll(ordning.pa.length === 4,
+    'alla fyra rummen på plan 01 ligger i modellen (' + ordning.pa.map(r => r.nr).join(' ') + ')');
+
+  // ---- Godta alla: ett steg, och plan 02 slutar vara skal ----
+  const foreAlla = await historiklangd(page);
+  await bf.locator('button', { hasText: 'Godta alla' }).click();
+  await stegKlart(page, foreAlla, 'Godta alla i Rum');
+  const godtagna = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('rum').raknat,
+    rum: DP.Plan.byggnad().rum.map(r => DP.rumNyckel(r.plan, r.nr)),
+    // Numret 1 fylldes ut till 001 och rummet hamnade på plan 02
+    plan02: DP.Plan.byggnad().rum.filter(r => r.plan === '02').map(r => r.nr + ':' + r.namn),
+    // Rumstypen Övrigt rum fördes in
+    ovrigt: (DP.Plan.byggnad().rum.filter(r => r.namn === 'Gillestuga')[0] || {}).rumstyp,
+    // NTA-förslaget fördes in
+    wcNta: (DP.Plan.byggnad().rum.filter(r => r.namn === 'WC/D')[0] || {}).nta,
+    historik: DP.Plan.historik().lista.slice(-1)[0],
+    skalPlan: DP.viewer.b.rum.filter(r => r.skal).map(r => r.plan).join(' '),
+    steg3: DP.Plan.byggnadsSteg()[3]
+  }));
+  kontroll(godtagna.raknat.forslag === 0 && godtagna.rum.length === 8,
+    'Godta alla för in de tre förslagen på en gång (' + godtagna.rum.length + ' rum)');
+  kontroll(godtagna.plan02.some(r => /^001:Korridor/.test(r)),
+    'rumsnumret 1 fylldes ut till 001 och rummet hamnade på plan 02 (' + godtagna.plan02.join(' | ') + ')');
+  kontroll(godtagna.ovrigt === 'ovrigt',
+    'det okända rummet fick rumstypen Övrigt rum (' + godtagna.ovrigt + ')');
+  kontroll(godtagna.wcNta > 0,
+    'rummet utan NTA fick rumstypens standardvärde (' + godtagna.wcNta + ' m²)');
+  kontroll(/godta alla 3 förslag i Rum/.test(godtagna.historik),
+    'Godta alla är **ett** steg i historiken ("' + godtagna.historik + '")');
+  kontroll(godtagna.skalPlan === '',
+    'plan 02 är inget skal längre när dess rum kom in (' + (godtagna.skalPlan || 'inga skal') + ')');
+  kontroll(godtagna.steg3 === false,
+    'bocken dröjer så länge den oplacerade raden ligger kvar (berättelse 30)');
+
+  await angra(page);
+  const angrat = await page.evaluate(() => ({
+    raknat: DP.Plan.inlasningStatus('rum').raknat,
+    antal: DP.Plan.byggnad().rum.length
+  }));
+  kontroll(angrat.raknat.forslag === 3 && angrat.antal === 5,
+    'ett ångra tar tillbaka hela godtagandet (' + angrat.antal + ' rum, '
+    + angrat.raknat.forslag + ' förslag igen)');
+  await gorOm(page);
+  kontroll(await page.evaluate(() => DP.Plan.byggnad().rum.length) === 8,
+    'gör om lägger tillbaka dem');
+
+  // ---- Det oplacerade rummet dras till rätt plan, och numret krockar (beslut 110) ----
+  // Vindsförrådet var 07-001 i filen. Planet 07 finns inte, så planeraren väljer plan 02 –
+  // där 001 redan är taget av korridoren, och då ska systemet föreslå nästa lediga nummer.
+  const forePlacera = await historiklangd(page);
+  const oplacerad = bf.locator('.bf-inlrad.oplacerad').first();
+  await oplacerad.locator('button', { hasText: '02 Plan 2' }).click();
+  await stegKlart(page, forePlacera, 'välja plan för det oplacerade rummet');
+  const placerat = await page.evaluate(() => {
+    const st = DP.Plan.inlasningStatus('rum');
+    return {
+      raknat: st.raknat,
+      // Numret krockade: raden står kvar som förslag med nästa lediga nummer
+      forslagSkal: st.grupper.forslag.map(r => r.fragor.map(f => f.text).join(' ')).join(' | '),
+      nyttNr: (st.grupper.forslag[0] || { fragor: [] }).fragor
+        .filter(f => f.slag === 'nr').map(f => f.forslag).join(''),
+      historik: DP.Plan.historik().lista.slice(-1)[0]
+    };
+  });
+  kontroll(placerat.raknat.oplacerad === 0,
+    'rummet är inte längre oplacerat när planeraren valt plan');
+  kontroll(/redan ett rum 02-001/.test(placerat.forslagSkal) && placerat.nyttNr === '004',
+    'numret krockade, och nästa lediga nummer på planet föreslås ("' + placerat.forslagSkal
+    + '", beslut 110)');
+  kontroll(/plan 02/.test(placerat.historik),
+    'svaret är ett steg i historiken med text i klartext ("' + placerat.historik + '")');
+
+  // Godta det nya numret: steget blir grönt (berättelse 30)
+  const foreSista = await historiklangd(page);
+  await bf.locator('.bf-inlrad.forslag').first().locator('button', { hasText: 'Godta' }).click();
+  await stegKlart(page, foreSista, 'godta det nya rumsnumret');
+  const gront = await page.evaluate(() => ({
+    st: DP.Plan.inlasningStatus('rum'),
+    rum: DP.Plan.byggnad().rum.map(r => DP.rumNyckel(r.plan, r.nr)),
+    steg3: DP.Plan.byggnadsSteg()[3],
+    status: DP.Plan.byggnadStatus(),
+    // Areasummorna per plan och byggnad (beslut 79)
+    rumSt: DP.Plan.rumStatus()
+  }));
+  kontroll(gront.st.klar === true && gront.steg3 === true,
+    'steg 3 får grön bock när bara klart återstår (beslut 83 och berättelse 30)');
+  kontroll(gront.rum.indexOf('02-004') >= 0,
+    'rummet hamnade på 02-004, numret systemet föreslog (' + gront.rum.join(' ') + ')');
+  kontroll(gront.rumSt.nta > 0 && gront.rumSt.plan.length === 3,
+    'NTA summeras per plan och byggnad (' + gront.rumSt.nta + ' m² på '
+    + gront.rumSt.plan.length + ' plan, beslut 79)');
+  // BRA och BTA summeras bara när alla rum har dem: ett tal som är hälften av den verkliga
+  // arean är värre än inget tal.
+  kontroll(gront.rumSt.bra === null,
+    'BRA summeras inte när bara ett rum har den (' + gront.rumSt.bra + ', beslut 79)');
+  kontroll(/Inläsning pågår/.test(gront.status),
+    'byggnaden står som "Inläsning pågår" tills installationerna finns (' + gront.status + ')');
+  await bild(page, 'byggnad-steg3-gront');
+
+  // ---- Rumstypen går att byta med ett klick (beslut 80) ----
+  const foreTyp = await historiklangd(page);
+  const rad = bf.locator('.bf-rumrad', { hasText: 'Gillestuga' }).first();
+  await rad.locator('button', { hasText: 'Byt typ' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-typval'), 'typvalet');
+  await bf.locator('.bf-typval button', { hasText: 'Dagrum' }).first().click();
+  await stegKlart(page, foreTyp, 'byta rumstyp');
+  const bytt = await page.evaluate(() => {
+    const r = DP.Plan.byggnad().rum.filter(x => x.namn === 'Gillestuga')[0];
+    return { rumstyp: r.rumstyp, typ: r.typ, historik: DP.Plan.historik().lista.slice(-1)[0] };
+  });
+  kontroll(bytt.rumstyp === 'dagrum' && bytt.typ === 'personal',
+    'rumstypen byts med ett klick, och modellens sort följer med (' + bytt.rumstyp + '/'
+    + bytt.typ + ', beslut 80)');
+  kontroll(/byt rumstyp/.test(bytt.historik),
+    'bytet är ett steg i historiken ("' + bytt.historik + '")');
+
+  // ---- Ta ut filen igen: rummen är ifyllda, inklusive Rumstyp (berättelse 17 och 21) ----
+  const igen = await taUtFil(page, 'rum-ifylld-ut.xlsx');
+  const utArk = lasArkFil(igen.fil);
+  const rumFore = await page.evaluate(() => DP.Plan.byggnad().rum
+    .map(r => DP.rumNyckel(r.plan, r.nr) + '|' + r.namn + '|' + r.rumstyp + '|' + r.nta));
+  kontroll(utArk.Rum.length === 10,
+    'filen tas ut med alla nio rummen ifyllda (' + (utArk.Rum.length - 1) + ' rader)');
+  kontroll((utArk.Rum[0] || []).indexOf('Rumstyp') >= 0
+    && utArk.Rum.some(r => r[3] === 'Korridor'),
+    'Rumstyp är ifylld när filen tas ut (' + (utArk.Rum[0] || []).join(',') + ', beslut 109)');
+  kontroll(utArk.Rum.some(r => r[9] === 'Ny dörr'),
+    'det egna fältet i fliken Rum följer med ut igen (beslut 89)');
+
+  const foreRetur = await historiklangd(page);
+  await lasInFil(page, igen.fil);
+  const retur = await page.evaluate(() => ({
+    rum: DP.Plan.byggnad().rum
+      .map(r => DP.rumNyckel(r.plan, r.nr) + '|' + r.namn + '|' + r.rumstyp + '|' + r.nta),
+    st: DP.Plan.inlasningStatus('rum'),
+    steg3: DP.Plan.byggnadsSteg()[3]
+  }));
+  kontroll(retur.rum.join(' ') === rumFore.join(' '),
+    'rummen går tur och retur utan skillnad (' + retur.rum.length + ' rum oförändrade)');
+  kontroll(retur.st.raknat.forslag === 0 && retur.st.raknat.oplacerad === 0 && retur.steg3 === true,
+    'ingenting nytt att ta ställning till: alla rum fanns redan (beslut 86)');
+  kontroll(retur.st.raknat.klar === 9,
+    'alla nio rummen räknas som klara också andra gången filen läses in ('
+    + retur.st.raknat.klar + ')');
+
+  // ---- Huvudvyn ryms på skärmen med steg 3 öppet ----
+  const ryms = await page.evaluate(() => ({
+    sida: document.documentElement.scrollHeight <= window.innerHeight + 1,
+    hojd: document.documentElement.scrollHeight, fonster: window.innerHeight
+  }));
+  kontroll(ryms.sida,
+    'huvudvyn ryms utan att sidan scrollar med steg 3 öppet (' + ryms.hojd + ' av '
+    + ryms.fonster + ' px)');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -4779,6 +5363,7 @@ async function testInlasningsfilenPlan(browser) {
     await testStegPlan(browser);
     await testInlasningsmodulen(browser);
     await testInlasningsfilenPlan(browser);
+    await testStegRum(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

@@ -118,6 +118,156 @@
     return standard;
   }
 
+  // ------------------------------------------------------------------
+  // Rummens placering ur byggnadstypens regel (beslut 78 och 99)
+  // ------------------------------------------------------------------
+  // Ett inläst rum bär **ingen rektangel** – filen har NTA och ingenting om var rummet
+  // ligger, eftersom ingen har en ritning (det är hela skälet till att inläsningsfilen
+  // finns). Rektangeln räknas därför här, ur byggnadstypens regel och rummens ordning:
+  // bredden ur NTA, djupet ur typen, och rummen i den ordning de står i byggnadsdatan.
+  //
+  // **Ordningen är placeringen** (beslut 78). Listan kommer in i nummerordning från
+  // inläsningen, och planeraren kan dra om den – då byter rummen plats i modellen. Det är
+  // varför ordningen går att dra om men fri ritning inte finns: ordningen är det enda
+  // planeraren behöver kunna säga för att grannarna ska bli rätt.
+  //
+  // Att modellen blir schematisk och inte verklighetstrogen är avsiktligt: följer
+  // verklighetens numrering inte regeln blir modellen schematisk, inte fel.
+  var MIN_BREDD = 2, STD_NTA = 36;
+
+  // Rummet pekas ut med plan + rumsnummer (beslut 76), så den nyckeln är också den som
+  // parar ihop ett rum med den rektangel regeln räknade fram för det.
+  function nyckel(r) { return DP.rumNyckel(r.plan, r.nr); }
+  // Rumstypens sort i modellen: det viewern färgar golvet efter. Översättningen bor i
+  // tabellen (`data/rumstyper.js`), så att en ny rumstyp inte kräver en ändring här.
+  function kategoriFor(rumstyp) {
+    var t = (DP.rumstyper || {})[rumstyp];
+    return (t && t.kategori) || 'forrad';
+  }
+
+  function regelFor(b) {
+    var t = (DP.byggnadstyper || {})[(b || {}).typ] || {};
+    var r = t.planlosning || {};
+    return {
+      regel: r.regel || 'korridor',
+      djup: r.djup || SKAL.djup,
+      korrBredd: r.korrBredd || 2,
+      langd: r.langd || SKAL.langd
+    };
+  }
+
+  // Rummets bredd längs byggnaden: NTA delat på det djup regeln ger det. Ett rum utan NTA
+  // får standardvärdet – inläsningen kräver NTA (beslut 79), men en byggnad som fylls i för
+  // hand kan ha ett rum utan, och ett rum med bredden noll hade varit osynligt.
+  function bredd(r, djup) {
+    var nta = Number(r.nta) || STD_NTA;
+    return Math.max(MIN_BREDD, nta / djup);
+  }
+
+  // Korridorsregeln: en korridor längs byggnaden och rummen på båda sidor, i nummerordning
+  // **medurs** runt korridoren – ut längs ena sidan och tillbaka längs den andra, som i en
+  // kasern (beslut 78).
+  //
+  // Rummen delas mellan sidorna **mitt i nummerordningen**: första halvan ut längs ena sidan,
+  // andra halvan tillbaka längs den andra. Att dela på halva NTA:n i stället hade sett jämnare
+  // ut i en byggnad med lika rum, men brutit rundan så fort ett rum dominerar – en hall på
+  // 500 m² hade legat ensam på sin sida, och nästa rum i ordningen hamnat längst bort på den
+  // andra. Rundan är det planeraren läser i modellen; symmetrin är bara en följd av rummen.
+  //
+  // Ett rum vars **rumstyp är korridor** blir korridoren själv och ligger inte i raden: det
+  // är det rum som löper genom planet, och att lägga det i ledet hade gett en byggnad med
+  // två korridorer – en riktig och en på tvären.
+  function laggUtKorridor(rum, reg) {
+    var korrDjup = Math.min(reg.korrBredd, reg.djup - 2 * MIN_BREDD);
+    var sidDjup = (reg.djup - korrDjup) / 2;
+    var z0Syd = 0, z1Syd = sidDjup;
+    var z0Korr = sidDjup, z1Korr = sidDjup + korrDjup;
+    var z0Norr = z1Korr, z1Norr = reg.djup;
+
+    var korridorer = rum.filter(function (r) { return r.rumstyp === 'korridor'; });
+    var ovriga = rum.filter(function (r) { return r.rumstyp !== 'korridor'; });
+    // Udda antal lägger det extra rummet på första sidan, så att rundan börjar där.
+    var vand = Math.ceil(ovriga.length / 2);
+
+    var ut = [], x = 0, sydSlut = 0, norrBredder = [];
+    ovriga.forEach(function (r, i) {
+      var w = bredd(r, sidDjup);
+      if (i < vand) {
+        ut.push({ r: r, rect: [x, z0Syd, x + w, z1Syd] });
+        x += w;
+        sydSlut = x;
+      } else {
+        // Norra sidan räknas ut i samma ordning men läggs ut **baklänges** längs x, så att
+        // rundan går medurs: sista rummet hamnar vid samma ände som det första.
+        norrBredder.push({ r: r, w: w });
+      }
+    });
+    var norrLangd = norrBredder.reduce(function (s, o) { return s + o.w; }, 0);
+    var langd = Math.max(sydSlut, norrLangd, reg.korrBredd * 2);
+    var xn = langd;
+    norrBredder.forEach(function (o) {
+      ut.push({ r: o.r, rect: [xn - o.w, z0Norr, xn, z1Norr] });
+      xn -= o.w;
+    });
+    // Korridoren löper genom hela planet. Finns flera delas längden mellan dem – ett plan
+    // med två korridorer är ovanligt, men filen bestämmer och systemet ska inte tappa en rad.
+    korridorer.forEach(function (r, i) {
+      var del = langd / korridorer.length;
+      ut.push({ r: r, rect: [i * del, z0Korr, (i + 1) * del, z1Korr] });
+    });
+    return { rum: ut, langd: langd, djup: reg.djup };
+  }
+
+  // Hallregeln: ett garage eller en hangar är ett stort utrymme med några rum längs ena
+  // långsidan. Rummen läggs i nummerordning längs x på den sidan; det stora utrymmet –
+  // det rum som är störst – får resten av planet.
+  //
+  // Att det största rummet blir hallen och inte ett rum i ledet är inget val om rumstypen:
+  // en hangar har en flyghall, ett garage en vagnhall, och de heter vad de heter i
+  // fastighetssystemet. Storleken är det som alltid skiljer dem från ett kontor.
+  function laggUtHall(rum, reg) {
+    if (!rum.length) { return { rum: [], langd: reg.langd, djup: reg.djup }; }
+    // Hallen är det rum vars NTA är störst, och bara när den är stor nog att dominera:
+    // ett plan med fem lika rum har ingen hall, och då är det en rad av rum.
+    var sorterade = rum.slice().sort(function (a, b2) {
+      return (Number(b2.nta) || 0) - (Number(a.nta) || 0);
+    });
+    var totalNta = rum.reduce(function (s, r) { return s + (Number(r.nta) || STD_NTA); }, 0);
+    var hall = (Number(sorterade[0].nta) || 0) > totalNta / 2 ? sorterade[0] : null;
+    var ovriga = rum.filter(function (r) { return r !== hall; });
+
+    // Sidodjupet: en remsa längs ena långsidan, tillräckligt djup för att rymma ett rum men
+    // inte så djup att hallen försvinner.
+    var sidDjup = Math.max(MIN_BREDD, Math.min(reg.djup / 3, 6));
+    var sidLangd = ovriga.reduce(function (s, r) { return s + bredd(r, sidDjup); }, 0);
+    var hallNta = hall ? Number(hall.nta) || STD_NTA : 0;
+    var hallDjup = hall ? reg.djup - (ovriga.length ? sidDjup : 0) : 0;
+    // Hallens längd kommer ur **dess egen NTA**, precis som varje annat rums bredd gör.
+    // Att i stället sträcka den över hela planet hade gett en hall som är större än sin
+    // area: planeraren jämför summan i steget mot modellen, och de två ska stämma.
+    var hallLangd = hall ? hallNta / Math.max(hallDjup, MIN_BREDD) : 0;
+    var langd = Math.max(sidLangd, hallLangd, reg.korrBredd * 2);
+
+    var ut = [], x = 0;
+    ovriga.forEach(function (r) {
+      var w = bredd(r, sidDjup);
+      ut.push({ r: r, rect: [x, reg.djup - sidDjup, x + w, reg.djup] });
+      x += w;
+    });
+    if (hall) { ut.push({ r: hall, rect: [0, 0, hallLangd, hallDjup] }); }
+    return { rum: ut, langd: langd, djup: reg.djup };
+  }
+
+  // Rummen på ett plan lagda ut enligt byggnadstypens regel. Svaret är en lista med
+  // `{ r, rect }` och planets mått, så att den som ritar kan hålla planen lika stora.
+  //
+  // Fristående och utan DOM, som allt annat här: att rummen inte överlappar och ligger i
+  // nummerordning är en räkning, och den ska gå att pröva i ett test utan en 3D-vy.
+  function laggUtRum(byggnad, rum) {
+    var reg = regelFor(byggnad);
+    return reg.regel === 'hall' ? laggUtHall(rum || [], reg) : laggUtKorridor(rum || [], reg);
+  }
+
   // Byggnaden som modellen ska ritas ur: samma form som datafilerna i `data/`, med `elev` per
   // plan och `rect` per rum. Byggnadsdatan själv rörs inte – svaret är en ny byggnad, så att
   // tillståndet inte bär något som är räknat (beslut 71).
@@ -133,14 +283,26 @@
     if (!plan.length) { return kopia(b, [], []); }
 
     var entre = entreIndex(plan);
+    // Rummen utan rektangel – de inlästa – läggs ut enligt byggnadstypens regel innan måtten
+    // räknas, så att ramen omfattar också dem. Utläggningen sker per plan: varje plan har sin
+    // egen runda runt korridoren, och ett rums grannar är rummen på samma plan.
+    var lagda = {};
+    plan.forEach(function (p) {
+      var utan = (b.rum || []).filter(function (r) { return r.plan === p.id && !r.rect && !r.iRum; });
+      if (!utan.length) { return; }
+      laggUtRum(b, utan).rum.forEach(function (o) { lagda[nyckel(o.r)] = o.rect; });
+    });
+    function rektFor(r) { return r.rect || lagda[nyckel(r)] || null; }
+
     // Byggnadens längd och djup: det som rummen upptar, eller skalets mått när inga rum finns.
     // Måtten är gemensamma för alla plan, eftersom ett plan som är bredare än ett annat hade
     // sett ut som ett fel i en schematisk modell.
     var ram = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
     (b.rum || []).forEach(function (r) {
-      if (!r.rect) { return; }
-      ram.x0 = Math.min(ram.x0, r.rect[0]); ram.z0 = Math.min(ram.z0, r.rect[1]);
-      ram.x1 = Math.max(ram.x1, r.rect[2]); ram.z1 = Math.max(ram.z1, r.rect[3]);
+      var rect = rektFor(r);
+      if (!rect) { return; }
+      ram.x0 = Math.min(ram.x0, rect[0]); ram.z0 = Math.min(ram.z0, rect[1]);
+      ram.x1 = Math.max(ram.x1, rect[2]); ram.z1 = Math.max(ram.z1, rect[3]);
     });
     if (!isFinite(ram.x0)) { ram = { x0: 0, z0: 0, x1: SKAL.langd, z1: SKAL.djup }; }
 
@@ -149,7 +311,7 @@
     plan.forEach(function (p, idx) {
       var under = idx < entre;
       var standard = under ? Math.min(stdHojd, KALLAR_HOJD) : stdHojd;
-      var egna = (b.rum || []).filter(function (r) { return r.plan === p.id && r.rect; });
+      var egna = (b.rum || []).filter(function (r) { return r.plan === p.id && rektFor(r); });
       var maxH = standard;
       if (!egna.length) {
         // Skalet (beslut 85): planet finns, men rummen är inte inlästa än. Det syns som ett
@@ -166,6 +328,13 @@
           if (!r.iRum) { maxH = Math.max(maxH, h); }
           var ny = grundkopia(r);
           ny.hojd = h;
+          // Rektangeln kan vara räknad ur regeln i stället för ritad. Den sätts på kopian och
+          // inte på byggnadsdatan: formen är räknad och ska inte ligga i tillståndet (beslut 71),
+          // så ett rum som dras om får en ny rektangel utan att något behöver rensas.
+          ny.rect = rektFor(r);
+          // Rummets sort i modellen kommer ur rumstypen när den finns – ett inläst rum bär
+          // `rumstyp` och inte viewerns `typ`, och färgen på golvet ska ändå bli rätt.
+          if (!ny.typ && r.rumstyp) { ny.typ = kategoriFor(r.rumstyp); }
           rum.push(ny);
         });
       }
@@ -196,13 +365,19 @@
           .every(function (r) { return r.skal; })
       };
     });
-    // Sadeltakets bas står i byggnadstypens stil och är måttsatt för en färdig byggnad – i
-    // kasernens fall fem plan. En byggnad som växer plan för plan är lägre än så, och ett tak
-    // som svävade ovanför översta bjälklaget hade sett ut som ett fel i modellen. Basen följer
-    // därför byggnadens faktiska topp så länge något plan är skal; när alla plan har rum står
-    // byggnaden på sina egna mått och stilen får gälla som den är ritad (beslut 101).
+    // Sadeltakets bas står i byggnadstypens stil och är måttsatt för en **färdig** byggnad –
+    // i kasernens fall fem plan. En byggnad som planeraren bygger upp ur en fil har sällan
+    // fem plan, och ett tak som svävade ovanför översta bjälklaget hade sett ut som ett fel
+    // i modellen. Basen följer därför byggnadens faktiska topp.
+    //
+    // Undantaget är de handritade byggnaderna (beslut 101): deras plan bär egna elevationer
+    // i datafilen, och då är stilen ritad för just den byggnaden och ska gälla som den står.
+    // Skiljelinjen går alltså vid **om byggnaden är ritad eller räknad**, inte vid om något
+    // plan råkar vara skal just nu – ett hus som nyss blev färdigt ska inte plötsligt få
+    // ett tak som svävar tre meter upp.
+    var ritad = plan.some(function (p) { return p.elev != null; });
     var ut = kopia(b, utPlan, rum);
-    if (rum.some(function (r) { return r.skal; }) && ut.stil && ut.stil.tak === 'sadel') {
+    if (!ritad && ut.stil && ut.stil.tak === 'sadel') {
       var topp = plan.reduce(function (h, p) {
         return Math.max(h, elev[p.id] + hojdFor[p.id]);
       }, 0);
@@ -225,6 +400,7 @@
 
   DP.Planlosning = {
     planTal: planTal, planRang: planRang, foreslagenOrdning: foreslagenOrdning,
-    benamningsforslag: benamningsforslag, form: form, SKAL: SKAL
+    benamningsforslag: benamningsforslag, form: form, SKAL: SKAL,
+    laggUtRum: laggUtRum, regelFor: regelFor, kategoriFor: kategoriFor
   };
 })();

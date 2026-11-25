@@ -471,10 +471,10 @@
       rum: [],
       installationer: [],
       // Det inlästa som ännu inte är avgjort (beslut 83). Tomt betyder att ingenting återstår
-      // – en byggnad som fyllts i för hand har ingen inläsning att avgöra. Facken för Rum och
-      // Installationer kommer med sina egna biljetter: ett tomt fack ingen läser är en
-      // gissning om hur nästa biljett ska se ut.
-      inlasning: { plan: [], infordaPlan: [], fil: null }
+      // – en byggnad som fyllts i för hand har ingen inläsning att avgöra. Facket för
+      // Installationer kommer med sin egen biljett: ett tomt fack ingen läser är en gissning
+      // om hur nästa biljett ska se ut.
+      inlasning: { plan: [], infordaPlan: [], rum: [], infordaRum: [], fil: null }
     };
   }
 
@@ -497,7 +497,7 @@
     return {
       1: !!(b.namn && b.typ && b.omrade),
       2: b.plan.length > 0 && inlasningStatus('plan', bid).klar,
-      3: b.rum.length > 0,
+      3: b.rum.length > 0 && inlasningStatus('rum', bid).klar,
       4: b.installationer.some(function (i) { return i.signifikant; })
     };
   }
@@ -613,11 +613,28 @@
       data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
       data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
       // Planet var inläst: ta det ur gruppen *klart* också, annars hade steget fortsatt räkna
-      // ett plan som inte finns. Listan är nycklad på beteckningen, som är borta nu.
+      // ett plan som inte finns. Listan är nycklad på beteckningen, som är borta nu. Rummens
+      // grupp *klart* är nycklad på plan + rumsnummer och faller av sig själv när rummet
+      // slås upp i byggnaden – men listan städas ändå, så att den inte växer med nycklar
+      // ingen längre kan slå upp.
       if (data.inlasning && data.inlasning.infordaPlan) {
         data.inlasning.infordaPlan = data.inlasning.infordaPlan
           .filter(function (id) { return id !== planId; });
       }
+      if (data.inlasning && data.inlasning.infordaRum) {
+        data.inlasning.infordaRum = data.inlasning.infordaRum
+          .filter(function (k) { return nycklar.indexOf(k) < 0; });
+      }
+      // En inläst rumsrad som pekade på planet pekar nu på ingenting. Den blir **oplacerad**
+      // i stället för att försvinna: planeraren har en rad i sin fil, och ett rum som tigande
+      // försvinner för att planet togs bort är ett rum hon aldrig får veta om.
+      ((data.inlasning || {}).rum || []).forEach(function (r) {
+        if (r.falt.plan !== planId) { return; }
+        r.falt.plan = '';
+        r.fragor = (r.fragor || []).filter(function (f) { return f.slag !== 'plan'; });
+        r.fragor.push({ slag: 'plan', forslag: null,
+          text: 'Planet ' + planId + ' är borttaget. Välj vilket plan rummet ligger på.' });
+      });
     });
   }
 
@@ -690,8 +707,16 @@
     return ((b && b.inlasning) || {})[flik] || [];
   }
 
-  // Läs in ett ark som ett steg. Bara fliken Plan tolkas i den här biljetten; de två andra
-  // flikarna läses ur filen och räknas, men deras rader väntar på sina biljetter i spåret.
+  // Läs in ett ark som **ett** steg. Flikarna Plan och Rum tolkas; Installationer läses ur
+  // filen och räknas, men dess rader väntar på sin biljett i spåret.
+  //
+  // Att hela filen är ett enda historiksteg är med flit: planeraren väljer en fil, och ett ◀
+  // ska ta tillbaka den valet – inte planen och lämna rummen kvar.
+  //
+  // **Rummen tolkas mot planen som de blir av den här inläsningen**, inte mot dem som fanns
+  // före. Filen bär ofta plan och rum på en gång (berättelse 16), och ett rum på plan 01 ska
+  // inte bli oplacerat bara för att plan 01 kom in i samma fil. Därför förs planen in först,
+  // och rumstolkningen får byggnaden som den ser ut efteråt.
   //
   // Svaret är en sammanfattning av vad inläsningen gav – antal per grupp och vilka blad som
   // inte kändes igen – så att vyn kan säga det utan att räkna om det själv.
@@ -699,40 +724,96 @@
     var b = B(bid);
     if (!b) { return null; }
     var fil = DP.Inlasning.lasArk(ark);
-    var rader = DP.Inlasning.tolkaPlan(fil.plan, b.plan);
+    var planRader = DP.Inlasning.tolkaPlan(fil.plan, b.plan);
     // Gruppen *klart* är alla rader filen bar som nu ligger i byggnaden – de som förs in av
     // den här inläsningen **och** de som redan fanns där. Räknades bara de nya hade en
     // planerare som läser in sin ifyllda fil en andra gång fått beskedet "0 plan klara" om
     // en byggnad full av plan, och trott att filen inte gick fram (berättelse 17).
-    var klara = rader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
+    var planKlara = planRader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
     // Bara de som inte redan finns ska läggas till; resten är samma plan en gång till.
-    var nya = klara.filter(function (r) { return !r.fanns; });
-    var kvar = rader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+    var planNya = planKlara.filter(function (r) { return !r.fanns; });
+    var planKvar = planRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+
+    // Planen som byggnaden har **efter** inläsningen, i föreslagen ordning: det rummen
+    // matchas mot. Uträkningen delas med `forInPlan`, så att ordningen är densamma.
+    var planEfter = ordnaPlan(b.plan.concat(
+      planNya.map(function (r) { return DP.Inlasning.planFranRad(r); })));
+    var rumRader = DP.Inlasning.tolkaRum(fil.rum, { plan: planEfter, rum: b.rum });
+    var rumKlara = rumRader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
+    var rumNya = rumKlara.filter(function (r) { return !r.fanns; });
+    var rumKvar = rumRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+
     var namn = String(filnamn || 'inläsningsfilen');
     andraByggnad('läs in ' + namn, bid, function (data) {
       data.inlasning = data.inlasning || {};
       // En ny inläsning ersätter den förra: planeraren läser in en rättad fil, och de gamla
       // frågorna gällde den gamla filen.
-      data.inlasning.plan = kvar;
-      data.inlasning.infordaPlan = klara.map(function (r) { return r.falt.id; });
+      data.inlasning.plan = planKvar;
+      data.inlasning.infordaPlan = planKlara.map(function (r) { return r.falt.id; });
+      data.inlasning.rum = rumKvar;
+      data.inlasning.infordaRum = rumKlara.map(function (r) {
+        return DP.rumNyckel(r.falt.plan, r.falt.nr);
+      });
       data.inlasning.fil = { namn: namn, ignorerade: fil.ignorerade,
         egnaKolumner: fil.egnaKolumner, rum: fil.rum.length, inst: fil.inst.length };
-      forInPlan(data, nya);
+      forInPlan(data, planNya);
+      forInRum(data, rumNya);
     });
     return {
-      raknat: DP.Inlasning.raknat(rader), ignorerade: fil.ignorerade,
-      rum: fil.rum.length, inst: fil.inst.length, inforda: nya.length
+      raknat: DP.Inlasning.raknat(planRader), ignorerade: fil.ignorerade,
+      rumRaknat: DP.Inlasning.raknat(rumRader),
+      rum: fil.rum.length, inst: fil.inst.length, inforda: planNya.length
     };
+  }
+
+  // Planen i den ordning systemet föreslår (beslut 84). Delad av inläsningen och
+  // `forInPlan`, så att de två aldrig kan hamna i olika ordning.
+  function ordnaPlan(plan) {
+    return DP.Planlosning.foreslagenOrdning(plan).map(function (pid) {
+      return plan.filter(function (p) { return p.id === pid; })[0];
+    });
   }
 
   // Planen förs in och hamnar i den föreslagna ordningen (beslut 84): läses källaren in efter
   // plan 03 ska den ändå ligga underst, precis som när planeraren lägger till den för hand.
   function forInPlan(data, rader) {
     if (!rader.length) { return; }
-    var plan = data.plan.concat(rader.map(function (r) { return DP.Inlasning.planFranRad(r); }));
-    var ordning = DP.Planlosning.foreslagenOrdning(plan);
-    data.plan = ordning.map(function (pid) {
-      return plan.filter(function (p) { return p.id === pid; })[0];
+    data.plan = ordnaPlan(data.plan.concat(
+      rader.map(function (r) { return DP.Inlasning.planFranRad(r); })));
+  }
+
+  // Rummen förs in **i nummerordning per plan**, eftersom ordningen *är* placeringen i
+  // modellen (beslut 78): rum 001 ligger först i rundan runt korridoren, 002 efter det.
+  // Läses rummen in i en annan ordning än numren, eller kommer de i två omgångar, ska
+  // modellen ändå se ut som byggnaden – och planeraren kan dra om ordningen efteråt.
+  //
+  // Sorteringen gäller bara de plan inläsningen rörde: ett plan vars rum planeraren själv
+  // dragit om ska inte ordnas tillbaka av att ett rum läggs till på ett annat plan.
+  function forInRum(data, rader) {
+    if (!rader.length) { return; }
+    var rorda = {};
+    rader.forEach(function (r) { rorda[r.falt.plan] = true; });
+    var alla = data.rum.concat(rader.map(function (r) { return DP.Inlasning.rumFranRad(r); }));
+    // Ordnas plan för plan och inte i en enda sortering: en jämförelse som ska vara stabil
+    // för vissa plan och sortera andra är inte en ordning – två rum på olika plan hade
+    // kunnat jämföras på två sätt beroende på vilket av dem som kom först.
+    var platser = {};
+    alla.forEach(function (r, i) {
+      if (platser[r.plan] == null) { platser[r.plan] = i; }
+    });
+    var planIOrdning = Object.keys(platser).sort(function (a, b2) { return platser[a] - platser[b2]; });
+    data.rum = [];
+    planIOrdning.forEach(function (pid) {
+      var pa = alla.filter(function (r) { return r.plan === pid; });
+      if (rorda[pid]) {
+        pa = pa.map(function (r, i) { return { r: r, i: i }; })
+          .sort(function (a, b2) {
+            var an = String(a.r.nr), bn = String(b2.r.nr);
+            return an < bn ? -1 : an > bn ? 1 : a.i - b2.i;
+          })
+          .map(function (x) { return x.r; });
+      }
+      data.rum = data.rum.concat(pa);
     });
   }
 
@@ -813,6 +894,205 @@
     });
   }
 
+  // ------------------------------------------------------------------
+  // Steg 3: rummen (beslut 76, 78, 79, 80 och 110)
+  // ------------------------------------------------------------------
+  // Samma form som steg 2, av samma skäl: ett godtagande är ett steg, *Godta alla* är **ett**
+  // steg, och en rad som blir klar förs in i byggnaden i samma steg som den blir klar. Det
+  // som skiljer är vad som kan fattas – ett rum pekas ut med två saker (plan + nummer) och
+  // har dessutom NTA och rumstyp att ta ställning till.
+  //
+  // Rummets placering i modellen räknas av `DP.Planlosning` ur ordningen i listan (beslut
+  // 78), så ett godtagande behöver inte veta något om geometri: det lägger rummet i
+  // byggnaden, och modellen ritar om sig.
+  function godtaRum(key, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'rum').filter(function (r) { return r.key === key; })[0];
+    if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
+    andraByggnad('godta förslag: rum ' + rumRadNamn(rad), bid, function (data) {
+      godtaRumRader(data, [key]);
+    });
+  }
+  function godtaAllaRum(bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var nycklar = inlasningsdel(b, 'rum')
+      .filter(function (r) { return DP.Inlasning.status(r) === 'forslag'; })
+      .map(function (r) { return r.key; });
+    if (!nycklar.length) { return; }
+    andraByggnad('godta alla ' + nycklar.length + ' förslag i Rum', bid, function (data) {
+      godtaRumRader(data, nycklar);
+    });
+  }
+  // Rummet i klartext för historikens rad: beteckningen när den finns, annars benämningen.
+  // Mediaspelarens lista ska gå att läsa utan att gissa, och en rad som ännu inte har sitt
+  // plan har ingen beteckning att visa.
+  function rumRadNamn(rad) {
+    var f = rad.falt;
+    var namn = f.namn || (DP.Inlasning.fraga(rad, 'benamning') || {}).forslag || '';
+    var plan = f.plan || (DP.Inlasning.fraga(rad, 'plan') || {}).forslag;
+    var nr = f.nr || (DP.Inlasning.fraga(rad, 'nr') || {}).forslag;
+    if (plan && nr) { return DP.rumNyckel(plan, nr) + (namn ? ' ' + namn : ''); }
+    return namn || '(rad utan uppgifter)';
+  }
+
+  // Godtagandet inuti ett steg, som `godtaRader` för plan. Det som är rummens eget: numret
+  // kan krocka med ett rum som redan finns på planet, och då **får raden ett nytt förslag**
+  // i stället för att två rum delar plan + nummer (beslut 110). Det kan hända här och inte
+  // bara vid inläsningen, eftersom planet kan vara ett förslag som godtas nu.
+  function godtaRumRader(data, nycklar) {
+    var rader = inlasningsdel(data, 'rum');
+    var blevKlara = [];
+    nycklar.forEach(function (key) {
+      var rad = rader.filter(function (r) { return r.key === key; })[0];
+      if (!rad) { return; }
+      DP.Inlasning.godta(rad);
+      if (DP.Inlasning.status(rad) !== 'klar') { return; }
+      // Numret kan vara upptaget nu, av byggnaden eller av en rad som godtogs i samma steg.
+      // Frågan är radens och bor därför i `DP.Inlasning` vid sidan av `nastaLedigaNr`.
+      var ledigt = DP.Inlasning.nummerkrock(rad, data, blevKlara);
+      if (ledigt) {
+        rad.fragor.push(ledigt);
+        return;
+      }
+      blevKlara.push(rad);
+    });
+    if (!blevKlara.length) { return; }
+    var klaraNycklar = blevKlara.map(function (r) { return r.key; });
+    data.inlasning.rum = rader.filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
+    data.inlasning.infordaRum = (data.inlasning.infordaRum || [])
+      .concat(blevKlara.map(function (r) { return DP.rumNyckel(r.falt.plan, r.falt.nr); }));
+    forInRum(data, blevKlara);
+  }
+
+  // Besvara en fråga på en rumsrad: planeraren väljer plan, skriver ett nummer, byter
+  // rumstyp eller sätter NTA. Samma väg som ett godtagande, så en rad som blir klar förs in
+  // i byggnaden i samma steg.
+  //
+  // Att välja plan på en oplacerad rad kan göra numret upptaget (beslut 110). Då står raden
+  // kvar med ett nytt förslag om nummer i stället för att försvinna – planeraren ska se vad
+  // systemet gjorde med hennes rum, inte hitta det på en plats hon inte valde.
+  function svaraRum(key, slag, varde, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, 'rum').filter(function (r) { return r.key === key; })[0];
+    if (!rad) { return; }
+    var v = varde == null ? '' : varde;
+    if (slag !== 'nta' && !String(v).trim()) { return; }
+    andraByggnad('svara för inläst rum: ' + rumSvarText(slag, v), bid, function (data) {
+      var r2 = inlasningsdel(data, 'rum').filter(function (x) { return x.key === key; })[0];
+      if (!r2) { return false; }
+      DP.Inlasning.besvara(r2, slag, v);
+      // Rumstypen bär standard-NTA, så ett byte av typ ändrar vad en saknad NTA föreslås
+      // bli. Lämnas det gamla förslaget kvar hade ett WC fått en korridors 96 m².
+      if (slag === 'rumstyp') {
+        var nta = DP.Inlasning.fraga(r2, 'nta');
+        if (nta) {
+          var std = (DP.rumstyper[v] || {}).nta || 36;
+          nta.forslag = std;
+          nta.text = 'Rummet saknar NTA – föreslås bli ' + std + ' m², standard för ' +
+            (DP.rumstyper[v] || {}).namn + '. NTA ger rummets storlek i modellen.';
+        }
+      }
+      if (DP.Inlasning.status(r2) === 'klar') { godtaRumRader(data, [key]); }
+    });
+  }
+  // Svaret i klartext för historiken. Slaget är systemets ord; planeraren ska läsa vad hon
+  // gjorde, inte vilket fält koden kallar det.
+  function rumSvarText(slag, varde) {
+    if (slag === 'plan') { return 'plan ' + varde; }
+    if (slag === 'nr') { return 'rumsnummer ' + varde; }
+    if (slag === 'rumstyp') { return 'rumstyp ' + ((DP.rumstyper[varde] || {}).namn || varde); }
+    if (slag === 'nta') { return 'NTA ' + varde + ' m²'; }
+    if (slag === 'benamning') { return 'benämning ' + varde; }
+    return slag + ' ' + varde;
+  }
+
+  // Vad steget Rum har att säga: rummen per plan i den ordning de ligger i – alltså i den
+  // ordning modellen ritar dem (beslut 78) – med areorna och rumstypen. Som `planStatus` bor
+  // den här och inte i vyn (beslut 61).
+  //
+  // Summorna per plan och byggnad är NTA:n ur rummen (beslut 79). BRA och BTA summeras bara
+  // när **alla** rum har dem: en summa av hälften av rummen är inte en area, den är ett tal
+  // som ser ut som en.
+  function rumStatus(bid) {
+    var b = B(bid);
+    if (!b) { return { plan: [], klar: false, nta: 0, bra: null, bta: null, antal: 0 }; }
+    var plan = b.plan.map(function (p) {
+      var pa = b.rum.filter(function (r) { return r.plan === p.id && !r.iRum; });
+      return {
+        id: p.id, namn: p.namn,
+        rum: pa.map(function (r) {
+          return {
+            nyckel: DP.rumNyckel(r.plan, r.nr), nr: r.nr, namn: r.namn, plan: r.plan,
+            rumstyp: r.rumstyp || null,
+            rumstypNamn: (DP.rumstyper[r.rumstyp] || {}).namn || null,
+            nta: r.nta == null ? null : r.nta, ntv: r.ntv == null ? null : r.ntv,
+            bra: r.bra == null ? null : r.bra, bta: r.bta == null ? null : r.bta,
+            temp: r.temp == null ? null : !!r.temp,
+            // Höjden är NTV ÷ NTA när båda finns (beslut 79): det planeraren ser i modellen,
+            // och det som gör ett fläktrum högt utan att någon mätt det.
+            hojd: r.ntv && r.nta ? Math.round(r.ntv / r.nta * 10) / 10 : null
+          };
+        }),
+        nta: summa(pa, 'nta'), bra: summa(pa, 'bra'), bta: summa(pa, 'bta')
+      };
+    });
+    var alla = b.rum.filter(function (r) { return !r.iRum; });
+    return {
+      plan: plan, antal: alla.length,
+      nta: summa(alla, 'nta'), bra: summa(alla, 'bra'), bta: summa(alla, 'bta'),
+      klar: alla.length > 0
+    };
+  }
+  // Summan av ett areafält, eller null när något rum saknar det. Att skilja "saknas" från
+  // "noll" är hela poängen: en BRA-summa som är mindre än den verkliga är värre än ingen.
+  function summa(rum, falt) {
+    if (!rum.length) { return 0; }
+    var s = 0;
+    for (var i = 0; i < rum.length; i++) {
+      if (rum[i][falt] == null) { return null; }
+      s += Number(rum[i][falt]) || 0;
+    }
+    return Math.round(s * 10) / 10;
+  }
+
+  // Byt rumstyp på ett rum som redan ligger i byggnaden (beslut 80). Typen styr rummets
+  // plats och färg i modellen, så ett byte är ett steg i historiken som allt annat.
+  function sattRumstyp(nyckel, rumstyp, bid) {
+    var b = B(bid);
+    if (!b || !DP.rumstyper[rumstyp]) { return; }
+    var r = b.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
+    if (!r || r.rumstyp === rumstyp) { return; }
+    andraByggnad('byt rumstyp på ' + nyckel + ' till ' + DP.rumstyper[rumstyp].namn, bid,
+      function (data) {
+        var m = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
+        if (!m) { return false; }
+        m.rumstyp = rumstyp;
+        // Sorten i modellen följer typen: den är det viewern färgar golvet efter, och ett
+        // rum som bytt typ ska se ut som sin nya typ.
+        m.typ = DP.Planlosning.kategoriFor(rumstyp);
+      });
+  }
+
+  // Ta bort ett rum. Installationerna i rummet försvinner med det: en installation utan rum
+  // sitter inte någonstans. Samma regel som när ett plan tas bort.
+  function taBortRum(nyckel, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var r = b.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
+    if (!r) { return; }
+    andraByggnad('ta bort rum ' + nyckel + ' ' + r.namn, bid, function (data) {
+      data.rum = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) !== nyckel; });
+      data.installationer = data.installationer.filter(function (i) { return i.rum !== nyckel; });
+      if (data.inlasning && data.inlasning.infordaRum) {
+        data.inlasning.infordaRum = data.inlasning.infordaRum
+          .filter(function (k) { return k !== nyckel; });
+      }
+    });
+  }
+
   // Vad steget Plan har att säga om inläsningen: de tre grupperna, antalen och om något
   // återstår. Som `planStatus` bor den här och inte i vyn (beslut 61), så att steglistan och
   // panelen aldrig kan säga olika saker om samma inläsning.
@@ -833,12 +1113,18 @@
     var raknat = DP.Inlasning.raknat(rader);
     var fil = ((b.inlasning || {}).fil) || null;
     // De införda slås upp i byggnaden själv: det är där de bor nu, och en kopia i
-    // inläsningslistan hade kunnat bli gammal. Ett plan planeraren tagit bort faller därför
-    // ur gruppen av sig självt.
-    var inforda = flik === 'plan' ? (b.inlasning || {}).infordaPlan || [] : [];
-    var klara = inforda.map(function (id) {
-      return (b.plan || []).filter(function (p) { return p.id === id; })[0];
-    }).filter(Boolean);
+    // inläsningslistan hade kunnat bli gammal. Ett plan eller rum planeraren tagit bort
+    // faller därför ur gruppen av sig självt.
+    var klara;
+    if (flik === 'rum') {
+      klara = ((b.inlasning || {}).infordaRum || []).map(function (nyckel) {
+        return (b.rum || []).filter(function (r) { return DP.rumNyckel(r.plan, r.nr) === nyckel; })[0];
+      }).filter(Boolean);
+    } else {
+      klara = ((b.inlasning || {}).infordaPlan || []).map(function (id) {
+        return (b.plan || []).filter(function (p) { return p.id === id; })[0];
+      }).filter(Boolean);
+    }
     var g = DP.Inlasning.grupper(rader);
     return {
       grupper: { forslag: g.forslag, oplacerad: g.oplacerad },
@@ -2194,6 +2480,8 @@
     ordnaPlanEfterForslag: ordnaPlanEfterForslag,
     lasInArk: lasInArk, godtaPlan: godtaPlan, godtaAllaPlan: godtaAllaPlan,
     svaraPlan: svaraPlan, inlasningStatus: inlasningStatus, filArk: filArk,
+    godtaRum: godtaRum, godtaAllaRum: godtaAllaRum, svaraRum: svaraRum,
+    rumStatus: rumStatus, sattRumstyp: sattRumstyp, taBortRum: taBortRum,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },

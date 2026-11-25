@@ -52,13 +52,28 @@
   //   freq: 'bas' = samma som besöken, annars { typ, startManad }
   //
   // Byggnadstypen är mallen (beslut 72): den ger standardplaneringen och – för en byggnad
-  // planeraren skapar själv – utseendet och måtten modellen ritas med. `stil` och `konstanter`
-  // har samma form som i datafilerna under `data/`, så en skapad byggnad och en handritad är
-  // samma sorts data. Planlösningens regel (hur rummen placeras ut) hör också till typen, men
-  // byggs i en senare biljett i spåret.
+  // planeraren skapar själv – utseendet, måtten modellen ritas med och **planlösningens
+  // regel** (beslut 78 och 99): hur rummen placeras ut när de läses in ur en fil.
+  // `stil` och `konstanter` har samma form som i datafilerna under `data/`, så en skapad
+  // byggnad och en handritad är samma sorts data.
+  //
+  // `planlosning` är regelns parametrar, inte regeln själv – uträkningen bor i
+  // `DP.Planlosning.laggUtRum`. Två regler finns:
+  //
+  //   `korridor`  En korridor längs byggnaden med rum på båda sidor, i nummerordning
+  //               medurs runt korridoren (kasernens form). `korrBredd` är korridorens
+  //               djup i meter och `djup` byggnadens, så rumsdjupet blir
+  //               (djup − korrBredd) ÷ 2.
+  //   `hall`      Ett enda stort utrymme med rummen i en rad längs ena långsidan
+  //               (garagets och hangarens form). Inget rum ligger inne i ett annat.
+  //
+  // Måtten är **riktmärken**: rummens bredd kommer ur NTA, så en byggnad med stora rum blir
+  // längre än `langd` säger. Det är schematiskt med flit (beslut 78) – följer verklighetens
+  // numrering inte regeln blir modellen schematisk, inte fel.
   DP.byggnadstyper = {
     garage: {
       namn: 'Garage',
+      planlosning: { regel: 'hall', djup: 12, langd: 24 },
       stil: { tak: 'sadel', sadel: { bas: 2.8, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N',
         fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
       konstanter: { PLANHOJD: 2.8, BJALKLAG: 0.2, FRIHOJD: 2.8 },
@@ -73,6 +88,7 @@
     },
     kasern: {
       namn: 'Kasern',
+      planlosning: { regel: 'korridor', djup: 14, korrBredd: 2, langd: 48 },
       stil: { tak: 'sadel', sadel: { bas: 10.3, hojd: 3.0 }, ytterFarg: 0xd9d2c4, takFarg: 0x6b4b3a },
       konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
       standard: {
@@ -89,6 +105,7 @@
     },
     hangar: {
       namn: 'Hangar',
+      planlosning: { regel: 'hall', djup: 30, langd: 60 },
       stil: { tak: 'platt', ytterFarg: 0xb9c0c7, takFarg: 0x8d969e },
       konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
       standard: {

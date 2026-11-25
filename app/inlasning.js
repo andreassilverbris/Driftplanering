@@ -23,10 +23,9 @@
  * fortfarande har en obesvarad fråga. Då hade modellen visat en gissning (berättelse 55), och
  * felet syns först när någon tittar på byggnaden.
  *
- * Den här biljetten bygger **fliken Plan**. Rum och Installationer har sina kolumner med i
- * tabellen nedan, eftersom filen tas ut med alla tre flikarna från första dagen (berättelse 14)
- * och flikigenkänningen måste kunna skilja dem åt redan nu – men deras rader tolkas i de
- * följande biljetterna i spåret.
+ * Flikarna **Plan** och **Rum** tolkas. Installationer har sina kolumner med i tabellen nedan,
+ * eftersom filen tas ut med alla tre flikarna från första dagen (berättelse 14) och
+ * flikigenkänningen måste kunna skilja dem åt – men dess rader tolkas i sin egen biljett.
  */
 (function () {
   'use strict';
@@ -157,6 +156,10 @@
   function tillampa(rad, slag, varde) {
     if (slag === 'benamning') { rad.falt.namn = varde; }
     if (slag === 'id') { rad.falt.id = varde; }
+    if (slag === 'plan') { rad.falt.plan = varde; }
+    if (slag === 'nr') { rad.falt.nr = varde; }
+    if (slag === 'rumstyp') { rad.falt.rumstyp = varde; }
+    if (slag === 'nta') { rad.falt.nta = Number(varde); }
   }
 
   // Godta raden: alla frågor som har ett förslag förs in och försvinner. Frågor **utan**
@@ -243,6 +246,265 @@
     return ut;
   }
 
+  // ------------------------------------------------------------------
+  // Fliken Rum (beslut 76, 77, 79, 80, 84, 108 och 109)
+  // ------------------------------------------------------------------
+  // Ett rum pekas ut med **plan + rumsnummer** (beslut 76), och båda matchas förlåtande
+  // (beslut 77): den som fyller i filen skriver planet som fastighetssystemet råkar visa det,
+  // och rumsnumret med eller utan inledande nollor.
+  //
+  // Fem frågor kan uppstå på en rumsrad, och var och en har sin egen anledning:
+  //
+  //   plan     Planet går inte att hitta exakt. Hittas det efter att bokstäver och inledande
+  //            nollor tagits bort ("P1" → "01") är det ett **förslag**; hittas det inte alls
+  //            är raden **oplacerad** och dras till rätt plan (berättelse 37).
+  //   nr       Rumsnummer med tre siffror är klart; kortare föreslås utfyllt (1 → 001), så
+  //            att numret ser ut som i verkligheten. Saknas numret helt vet systemet inte
+  //            vilket rum raden är, och den blir oplacerad.
+  //   rumstyp  Typen läses ur benämningen (beslut 80). Känns ingen igen föreslås *Övrigt
+  //            rum*, som byts med ett klick. Kolumnen Rumstyp går före när den är ifylld
+  //            (beslut 109): en typ planeraren själv valt ska inte gissas om.
+  //   nta      NTA krävs (beslut 79) – modellen måste kunna ritas. Saknas den föreslås
+  //            rumstypens standardvärde, så att en fil utan areor ändå går att läsa in.
+  //   benamning Ett rum utan benämning får rumstypens namn, av samma skäl som ett plan utan
+  //            benämning får ett förslag: allt ska gå att läsa i listor och modell.
+  //
+  // Varför plan och nummer inte slås ihop till en nyckel i filen: i fastighetssystemet är de
+  // två kolumner, numret löper per plan och är inte unikt i byggnaden (beslut 76). En
+  // sammanslagen kolumn hade betytt att den som fyller i filen måste skriva en nyckel hon
+  // aldrig sett.
+
+  // Planet "som det står" jämfört förlåtande: bokstäver och inledande nollor bort, källare
+  // negativa. `DP.Planlosning.planTal` gör samma tolkning för ordningens skull, och att ha
+  // den på ett ställe är vad som håller matchningen och ordningen eniga.
+  function planMatchning(varde, plan) {
+    var t = txt(varde);
+    if (!t) { return { slag: 'saknas' }; }
+    var exakt = (plan || []).filter(function (p) { return txt(p.id) === t; })[0];
+    if (exakt) { return { slag: 'exakt', plan: exakt }; }
+    var lika = (plan || []).filter(function (p) { return txt(p.id).toLowerCase() === t.toLowerCase(); })[0];
+    if (lika) { return { slag: 'exakt', plan: lika }; }
+    // Förlåtande: "P1", "1" och "Plan 1" är alla planet vars beteckning tolkas som 1.
+    var tal = DP.Planlosning.planTal(t);
+    if (tal == null) { return { slag: 'ingen' }; }
+    var traffar = (plan || []).filter(function (p) { return DP.Planlosning.planTal(p.id) === tal; });
+    if (traffar.length === 1) { return { slag: 'forslag', plan: traffar[0] }; }
+    // Två plan som tolkas till samma tal (01 och P1 i samma byggnad) är inget att gissa om:
+    // vilket raden menar vet bara den som skrev filen.
+    if (traffar.length > 1) { return { slag: 'flera', traffar: traffar }; }
+    return { slag: 'ingen' };
+  }
+
+  // Rumsnumret som det ska stå: tre siffror. "1" och "01" är samma rum som "001" för den som
+  // fyller i filen, men numret ska se ut som i verkligheten – därför ett förslag och inte en
+  // tyst utfyllnad (beslut 77).
+  function nrMatchning(varde) {
+    var t = txt(varde);
+    if (!t) { return { slag: 'saknas' }; }
+    if (/^\d{3}$/.test(t)) { return { slag: 'exakt', nr: t }; }
+    if (/^\d{1,2}$/.test(t)) { return { slag: 'forslag', nr: pad3(t) }; }
+    // Ett nummer som inte är siffror alls ("A12") behålls som det står: beteckningen är
+    // fastighetssystemets och systemet döper inte om (beslut 77).
+    return { slag: 'exakt', nr: t };
+  }
+
+  function tal(v) {
+    var t = txt(v).replace(/\s/g, '').replace(',', '.');
+    if (!t || !/^-?\d+(\.\d+)?$/.test(t)) { return null; }
+    return parseFloat(t);
+  }
+  // "Ja", "x", "1", "sant" är alla ja i en kolumn man kryssar i. Fältet lagras utan funktion
+  // (beslut 79), men ska gå tur och retur utan att planeraren måste skriva exakt rätt ord.
+  function jaNej(v) {
+    var t = txt(v).toLowerCase();
+    if (!t) { return null; }
+    return /^(ja|j|x|1|sant|true|yes)$/.test(t);
+  }
+
+  function tolkaRum(rader, byggnad) {
+    var b = byggnad || {};
+    var plan = b.plan || [];
+    // Upptagna rumsnycklar: de rum byggnaden redan har, plus de rader den här inläsningen
+    // redan placerat. Två rum kan inte dela plan + nummer (beslut 76 och 110).
+    var tagna = {};
+    (b.rum || []).forEach(function (r) { tagna[DP.rumNyckel(r.plan, r.nr)] = r; });
+
+    var ut = [];
+    (rader || []).forEach(function (r, i) {
+      var rad = {
+        key: 'r' + (i + 1), rad: r, egna: r.egna || {},
+        falt: {
+          plan: '', nr: '', namn: txt(r.namn), rumstyp: '',
+          nta: null, ntv: tal(r.ntv), bra: tal(r.bra), bta: tal(r.bta), temp: jaNej(r.temp)
+        },
+        fragor: []
+      };
+
+      // ---- Planet ----
+      var pm = planMatchning(r.plan, plan);
+      if (pm.slag === 'exakt') {
+        rad.falt.plan = pm.plan.id;
+      } else if (pm.slag === 'forslag') {
+        rad.falt.plan = '';
+        rad.fragor.push({ slag: 'plan', forslag: pm.plan.id,
+          text: 'Planet ' + txt(r.plan) + ' tolkas som plan ' + pm.plan.id + ' (' +
+            pm.plan.namn + ').' });
+      } else if (pm.slag === 'saknas') {
+        rad.fragor.push({ slag: 'plan', forslag: null,
+          text: 'Raden saknar plan. Välj vilket plan rummet ligger på.' });
+      } else if (pm.slag === 'flera') {
+        rad.fragor.push({ slag: 'plan', forslag: null,
+          text: 'Planet ' + txt(r.plan) + ' kan vara ' +
+            pm.traffar.map(function (p) { return p.id; }).join(' eller ') +
+            '. Välj vilket rummet ligger på.' });
+      } else {
+        rad.fragor.push({ slag: 'plan', forslag: null,
+          text: 'Det finns inget plan ' + txt(r.plan) + ' i byggnaden. Välj vilket plan ' +
+            'rummet ligger på, eller lägg till planet i steg 2.' });
+      }
+
+      // ---- Rumsnumret ----
+      var nm = nrMatchning(r.nr);
+      if (nm.slag === 'exakt') {
+        rad.falt.nr = nm.nr;
+      } else if (nm.slag === 'forslag') {
+        rad.fragor.push({ slag: 'nr', forslag: nm.nr,
+          text: 'Rumsnumret ' + txt(r.nr) + ' fylls ut till ' + nm.nr +
+            ': numret har tre siffror och löper per plan.' });
+      } else {
+        rad.fragor.push({ slag: 'nr', forslag: null,
+          text: 'Raden saknar rumsnummer. Skriv numret, eller ta bort raden ur filen: ' +
+            'installationerna pekar på plan och rumsnummer.' });
+      }
+
+      // ---- Rumstypen (beslut 80 och 109) ----
+      var angiven = DP.rumstypAv(r.rumstyp);
+      if (angiven) {
+        rad.falt.rumstyp = angiven;
+      } else {
+        var gissad = DP.rumstypFor(rad.falt.namn);
+        if (gissad) {
+          rad.falt.rumstyp = gissad;
+        } else {
+          rad.fragor.push({ slag: 'rumstyp', forslag: DP.rumstypOvrig,
+            text: rad.falt.namn
+              ? 'Benämningen ' + rad.falt.namn + ' känns inte igen som en rumstyp – ' +
+                'föreslås bli ' + DP.rumstyper[DP.rumstypOvrig].namn + '. Rumstypen styr ' +
+                'rummets plats i modellen och går att byta med ett klick.'
+              : 'Rummet saknar benämning, så rumstypen går inte att läsa ut – föreslås bli ' +
+                DP.rumstyper[DP.rumstypOvrig].namn + '.' });
+        }
+      }
+
+      // ---- NTA (beslut 79, berättelse 40) ----
+      // Standardvärdet beror på rumstypen, också när den själv är ett förslag: en korridor
+      // är lång och ett WC litet, och ett gemensamt standardvärde hade gett en byggnad där
+      // allt är lika stort.
+      var nta = tal(r.nta);
+      var typForNta = rad.falt.rumstyp || DP.rumstypOvrig;
+      if (nta != null && nta > 0) {
+        rad.falt.nta = nta;
+      } else {
+        var std = (DP.rumstyper[typForNta] || {}).nta || 36;
+        rad.fragor.push({ slag: 'nta', forslag: std,
+          text: 'Rummet saknar NTA – föreslås bli ' + std + ' m², standard för ' +
+            (DP.rumstyper[typForNta] || {}).namn + '. NTA ger rummets storlek i modellen.' });
+      }
+
+      // ---- Benämningen ----
+      // Rumstypens namn är förslaget: ett rum som ska stå i en lista behöver något att heta,
+      // och "Korridor" är vad ett rum systemet känt igen som korridor rimligen kallas.
+      if (!rad.falt.namn) {
+        var typNu = rad.falt.rumstyp || DP.rumstypOvrig;
+        rad.fragor.push({ slag: 'benamning', forslag: DP.rumstyper[typNu].namn,
+          text: 'Rummet saknar benämning – föreslås bli ' + DP.rumstyper[typNu].namn + '.' });
+      }
+
+      // ---- Rummet finns redan, eller numret är upptaget (beslut 86 och 110) ----
+      // Avgörs sist: plan och nummer kan själva vara förslag, och vilket rum raden pekar på
+      // vet man först när de två är avgjorda.
+      var planNu = rad.falt.plan || (fraga(rad, 'plan') || {}).forslag;
+      var nrNu = rad.falt.nr || (fraga(rad, 'nr') || {}).forslag;
+      if (planNu && nrNu) {
+        var nyckel = DP.rumNyckel(planNu, nrNu);
+        if (tagna[nyckel]) {
+          // Rummet finns i byggnaden: raden är inte ny. Att **ändra** ett befintligt rum via
+          // fil hör till beslut 86 och byggs i biljetten om Ändra byggnad – tills dess är
+          // raden ett rum som redan är på plats, precis som ett plan som redan finns.
+          rad.fanns = true;
+          rad.fragor = [];
+        } else {
+          tagna[nyckel] = rad;
+        }
+      }
+      ut.push(rad);
+    });
+    return ut;
+  }
+
+  // Nästa lediga rumsnummer på ett plan (beslut 110). Dras ett rum till ett plan där numret
+  // redan finns föreslås det här numret i stället: annars hade två rum haft samma plan +
+  // nummer, och ingen vet vilket installationerna sitter i.
+  function nastaLedigaNr(planId, byggnad, utom) {
+    var b = byggnad || {};
+    var tagna = {};
+    (b.rum || []).forEach(function (r) {
+      if (r.plan === planId) { tagna[txt(r.nr)] = true; }
+    });
+    (utom || []).forEach(function (nr) { tagna[txt(nr)] = true; });
+    for (var i = 1; i <= 999; i++) {
+      if (!tagna[pad3(i)]) { return pad3(i); }
+    }
+    return pad3(999);
+  }
+
+  // Krockar radens plan + nummer med något som redan finns? Svaret är den fråga raden ska
+  // få – nästa lediga nummer som förslag (beslut 110) – eller null när numret är ledigt.
+  //
+  // Frågan ställs **när raden blir klar** och inte vid inläsningen: planet kan självt vara
+  // ett förslag, och vilket rum raden pekar på vet man först när plan och nummer är avgjorda.
+  // `ocksa` är de rader som blir klara i samma steg – utan dem hade ett *Godta alla* kunnat
+  // ge två rum samma nummer, eftersom ingen av dem ligger i byggnaden än.
+  function nummerkrock(rad, byggnad, ocksa) {
+    var nyckel = DP.rumNyckel(rad.falt.plan, rad.falt.nr);
+    var krock = ((byggnad || {}).rum || [])
+      .some(function (r) { return DP.rumNyckel(r.plan, r.nr) === nyckel; })
+      || (ocksa || []).some(function (r) {
+        return r !== rad && DP.rumNyckel(r.falt.plan, r.falt.nr) === nyckel;
+      });
+    if (!krock) { return null; }
+    var upptagna = (ocksa || []).filter(function (r) { return r.falt.plan === rad.falt.plan; })
+      .map(function (r) { return r.falt.nr; });
+    var nytt = nastaLedigaNr(rad.falt.plan, byggnad, upptagna);
+    return { slag: 'nr', forslag: nytt,
+      text: 'Det finns redan ett rum ' + nyckel + '. Nästa lediga nummer på plan ' +
+        rad.falt.plan + ' är ' + nytt + '.' };
+  }
+
+  // Ett rum som det ska ligga i byggnadsdatan. Bara klara rader förs in (berättelse 55).
+  //
+  // Rektangeln sätts **inte** här: var rummet ligger är planlösningens sak och räknas ur
+  // byggnadstypens regel och rummens ordning (beslut 78). Rummet bär `rumstyp`, och
+  // `DP.Planlosning` översätter den till den sort viewern färgar golvet efter – så att en ny
+  // rumstyp aldrig kräver en ändring i det som läser rummet.
+  function rumFranRad(rad) {
+    var f = rad.falt;
+    var ut = {
+      nr: f.nr, namn: f.namn || DP.rumstyper[f.rumstyp || DP.rumstypOvrig].namn,
+      plan: f.plan, rumstyp: f.rumstyp || DP.rumstypOvrig,
+      typ: DP.Planlosning.kategoriFor(f.rumstyp || DP.rumstypOvrig),
+      nta: f.nta
+    };
+    // De valfria uppgifterna skrivs bara när de finns: ett `bra: null` i byggnadsdatan hade
+    // sett ut som ett svar, och areasummorna behöver kunna skilja "saknas" från "noll".
+    if (f.ntv != null) { ut.ntv = f.ntv; }
+    if (f.bra != null) { ut.bra = f.bra; }
+    if (f.bta != null) { ut.bta = f.bta; }
+    if (f.temp != null) { ut.temp = f.temp; }
+    if (rad.egna && Object.keys(rad.egna).length) { ut.egna = rad.egna; }
+    return ut;
+  }
+
   // Raderna uppdelade i de tre grupperna (beslut 83). Ordningen inom varje grupp är filens:
   // planeraren läser listan vid sidan av sin egen fil, och en omsortering hade gjort det
   // svårare att hitta raden.
@@ -304,8 +566,13 @@
   function varden(flik, r) {
     if (flik === 'plan') { return { id: r.id, namn: r.namn }; }
     if (flik === 'rum') {
-      return { plan: r.plan, nr: r.nr, namn: r.namn, rumstyp: r.rumstyp, nta: r.nta, ntv: r.ntv,
-        bra: r.bra, bta: r.bta, temp: r.temp };
+      // Rumstypen tas ut som det **namn** planeraren ser och inte som id:t: filen läses av
+      // en människa, och "WC/Dusch" är vad hon känner igen. `DP.rumstypAv` tar emot båda vid
+      // inläsningen, så kolumnen går tur och retur (beslut 109).
+      var typ = (DP.rumstyper || {})[r.rumstyp];
+      return { plan: r.plan, nr: r.nr, namn: r.namn, rumstyp: typ ? typ.namn : r.rumstyp,
+        nta: r.nta, ntv: r.ntv, bra: r.bra, bta: r.bta,
+        temp: r.temp == null ? '' : (r.temp ? 'Ja' : 'Nej') };
     }
     return { plan: r.plan, rum: r.rum, benamning: r.namn, instTyp: r.typ,
       beteckning: r.beteckning, fabrikat: r.fabrikat, modell: r.modell, id: r.id,
@@ -317,6 +584,9 @@
     vilkenFlik: vilkenFlik, hittaRubrikrad: hittaRubrikrad, lasArk: lasArk,
     status: status, fraga: fraga, godta: godta, besvara: besvara,
     tolkaPlan: tolkaPlan, benamningsfraga: benamningsfraga,
+    tolkaRum: tolkaRum, rumFranRad: rumFranRad, nastaLedigaNr: nastaLedigaNr,
+    nummerkrock: nummerkrock,
+    planMatchning: planMatchning, nrMatchning: nrMatchning,
     grupper: grupper, raknat: raknat, planFranRad: planFranRad,
     tillArk: tillArk, pad3: pad3
   };

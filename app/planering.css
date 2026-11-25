@@ -596,3 +596,19 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-skal { font-size: 11px; color: var(--dov); line-height: 1.45; }
 .bf-inlrad .bf-fel { flex: 1 1 100%; margin-top: 2px; }
 .bf-falt.bf-smalt { width: 80px; }
+
+/* ---- Byggnadsflödet steg 3: rummen per plan och areasummorna (beslut 78 och 79) ---- */
+/* Summorna överst: det planeraren jämför mot fastighetssystemets siffra. */
+.bf-summa { display: flex; gap: 14px; flex-wrap: wrap; padding: 7px 9px; margin-bottom: 10px; border: 1px solid var(--linje); border-radius: 8px; background: var(--accent-svag); }
+.bf-summafalt { display: flex; flex-direction: column; gap: 1px; }
+.bf-summafalt .etikett { font-size: 10px; color: var(--dov); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.bf-summafalt .varde { font-size: 13px; font-weight: 600; }
+.bf-planrum { margin-bottom: 10px; }
+.bf-planareor { font-weight: 400; color: var(--dov); font-size: 11px; margin-left: 6px; }
+/* Rummen under sitt plan, i den ordning modellen ritar dem (beslut 78). */
+.bf-rumrad { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 3px; flex-wrap: wrap; }
+.bf-rumrad:hover { border-color: #b8cff8; }
+.bf-rumrad .bf-btext { flex: 1 1 140px; }
+/* Typvalet och planvalet ligger på raden och radbryter: en knapp per typ är ett klick, och
+   en lista som försvinner utanför panelen är en lista planeraren inte hittar. */
+.bf-typval, .bf-planval { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 100%; margin-top: 4px; }
