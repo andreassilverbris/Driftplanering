@@ -607,6 +607,20 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-inlrad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 4px; flex-wrap: wrap; }
 .bf-inlrad.forslag { border-left: 3px solid #d79a2b; }
 .bf-inlrad.oplacerad { border-left: 3px solid #b03a3a; }
+/* Skillnaden mot en befintlig byggnad (beslut 86). Egna kantfärger, så att planeraren ser
+   vilken sorts förslag en rad är utan att läsa rubriken ovanför: ändrat är blått som resten av
+   det systemet föreslår, och det som saknas i filen grått – det är inget fel, bara något hon
+   ska ta ställning till. */
+.bf-inlrad.andrad { border-left: 3px solid var(--accent); }
+.bf-inlrad.bortforslag { border-left: 3px solid #8a8f98; }
+/* Före och efter per fält, i en rad som går att läsa av i en kolumn: etikett, det som står nu,
+   pilen och det filen säger. Monospace på talen hade varit en annan sorts tabell – de ska
+   läsas som ord, inte räknas ihop. */
+.bf-fore-efter { display: block; font-size: 11px; line-height: 1.5; }
+.bf-fe-etikett { color: var(--dov); margin-right: 6px; }
+.bf-fe-fore { text-decoration: line-through; color: var(--dov); }
+.bf-fe-pil { color: var(--dov); margin: 0 4px; }
+.bf-fe-efter { font-weight: 600; }
 .bf-inlrad .bf-btext { flex: 1 1 140px; }
 .bf-skal { font-size: 11px; color: var(--dov); line-height: 1.45; }
 .bf-inlrad .bf-fel { flex: 1 1 100%; margin-top: 2px; }

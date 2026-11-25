@@ -597,6 +597,29 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     installationer på Id. Nytt läggs till som förslag, ändrat visas med före och efter, och det som
     **saknas i filen tas aldrig bort av sig självt** – det blir ett förslag att ta bort, eftersom en rad som
     fattas lika gärna kan vara glömd.
+
+    *Byggt i biljett #42* (utbyte via fil hör till sin egen biljett, se beslut 93). Tre saker visade sig
+    behöva avgöras på vägen, och alla tre handlar om samma sak: att inte fråga planeraren om något hon
+    inte gjort.
+
+    **En lucka är ingen ändring.** Ett fält byggnaden *saknar* och filen bär är inget den säger emot – det
+    fylls i tyst. Utan den regeln hade en fil som tas ut ur Kasern 1 och läses in **oförändrad** gett ett
+    förslag om ändring på nästan varje rum: de handritade byggnaderna har varken rumstyp eller NTA i
+    `data/`, eftersom deras form är ritad (beslut 101). Med regeln är filen i stället vägen att *ge* dem
+    talen. Bara en motsägelse – byggnaden har ett svar och filen ett annat – blir en fråga.
+
+    **Ett förslag att ta bort kräver att filen känns igen som byggnaden.** Fliken måste bära minst en av
+    byggnadens egna rader. En fil med bara nya rader är ett *tillägg* – planeraren kan läsa in en flik i
+    taget – och den säger ingenting om de rum som redan finns. Regeln är en gissning, men den gissar
+    **mot** att något tas bort: ett uteblivet förslag kostar henne att ta bort raden för hand, ett förslag
+    i onödan kostar henne tjugo rader hon måste läsa igenom.
+
+    **Att låta något stå är ett svar.** Ett steg blir grönt när bara klart återstår (beslut 83), så ett
+    förslag planeraren inte vill godta hade hållit steget ogrönt för alltid. *Låt stå* och *Låt alla stå*
+    är därför egna historiksteg vid sidan av *Ta bort*. Och *Godta alla* tar **inte** med sig förslagen att
+    ta bort: att skriva om byggnaden efter filen är en sak, att låta en rad som fattas radera ett rum och
+    dess installationers tillsyn är en annan, och den får aldrig gå i ett svep utan ställningstagande per
+    rad.
 87. **Flytta och ta bort en installation.** Flytta till ett annat rum är samma installation: kopplade
     åtgärder och avvikande texter följer med. Ta bort tar bort kopplingarna. Ändrar det rondernas tid
     markeras steg 6 som ändrad förutsättning, och Balansering markeras som ändrad planering – inget annat i

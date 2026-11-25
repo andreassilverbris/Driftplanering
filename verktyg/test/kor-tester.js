@@ -5187,6 +5187,202 @@ async function testInlasningsmodulen(browser) {
     'en handritad byggnad får inga genererade övriga ovanpå sina egna (' + ritad.fore + ' → '
     + ritad.efter + ', beslut 101)');
 
+  // ---- Skillnaden mot en befintlig byggnad (beslut 86, berättelse 72–74, biljett #42) ----
+  // En fil som tas ut och läses in **oförändrad** får inte säga att något ändrats: då hade
+  // planeraren mötts av en lista med förslag varje gång hon läste in sin egen fil igen, och
+  // ingen hade orkat läsa dem. Det är tur-och-retur-löftet igen, nu mot en byggnad som finns.
+  const bygg86 = () => ({
+    typ: 'kasern', namn: 'Provkasern',
+    plan: [{ id: '01', namn: 'Entréplan' }],
+    rum: [
+      { nr: '001', namn: 'Korridor', plan: '01', rumstyp: 'korridor', typ: 'kommunikation', nta: 96 },
+      { nr: '002', namn: 'Logement 1:1', plan: '01', rumstyp: 'logement', typ: 'logement',
+        nta: 36, ntv: 126, bra: 38, bta: 40, temp: true }
+    ],
+    installationer: [
+      { id: '0001', typ: 'handbrandslackare', rum: '01-002', benamning: 'Handbrandsläckare 3',
+        beteckning: 'HB01', fabrikat: 'Presto', datum: '2024-05-02', signifikant: true },
+      { id: '0002', typ: 'nodbelysning', rum: '01-001', benamning: 'Nödbelysningsarmatur 4',
+        beteckning: 'NB01', signifikant: true }
+    ]
+  });
+  const oforandrad = await page.evaluate(b => {
+    const ark = DP.Inlasning.tillArk(b);
+    const fil = DP.Inlasning.lasArk(ark);
+    const plan = DP.Inlasning.tolkaPlan(fil.plan, b.plan);
+    const rum = DP.Inlasning.tolkaRum(fil.rum, b);
+    const inst = DP.Inlasning.tolkaInst(fil.inst, b, []);
+    return {
+      flikar: Object.keys(fil.flikar).sort().join(' '),
+      status: plan.concat(rum, inst).map(r => DP.Inlasning.status(r)).join(' '),
+      andrade: plan.concat(rum, inst).filter(r => r.andring)
+        .map(r => r.andring.delar.map(d => d.etikett + ' ' + d.fore + '→' + d.efter).join(',')),
+      // Och ingenting föreslås bort: allt byggnaden har står i filen
+      bort: ['plan', 'rum', 'inst'].map(f => DP.Inlasning.bortForslag(f, b,
+        (f === 'plan' ? plan : f === 'rum' ? rum : inst).map(r =>
+          f === 'rum' ? DP.rumNyckel(r.falt.plan, r.falt.nr) : r.falt.id), true).length).join(' ')
+    };
+  }, bygg86());
+  kontroll(oforandrad.flikar === 'inst plan rum',
+    'arket säger vilka flikar filen bar (' + oforandrad.flikar + ')');
+  kontroll(oforandrad.status === 'klar klar klar klar klar',
+    'en fil som tas ut och läses in oförändrad ger inga förslag alls ('
+    + oforandrad.status + ', beslut 86)');
+  kontroll(oforandrad.andrade.length === 0,
+    'och inga ändringar att ta ställning till (' + oforandrad.andrade.join(' | ') + ')');
+  kontroll(oforandrad.bort === '0 0 0',
+    'och ingenting föreslås bort (' + oforandrad.bort + ')');
+
+  // Nu samma byggnad med en ändrad fil: ett nytt rum, ett ändrat rum och en installation som
+  // fattas. De tre svaren – nytt, ändrat med före och efter, förslag att ta bort.
+  const skillnaden = await page.evaluate(b => {
+    const plan = DP.Inlasning.tolkaPlan([{ id: '01', namn: 'Markplan', egna: {} }], b.plan);
+    const rum = DP.Inlasning.tolkaRum([
+      // Oförändrat
+      { plan: '01', nr: '001', namn: 'Korridor', rumstyp: 'Korridor', nta: '96', egna: {} },
+      // Ändrat: benämning, NTA och rumstyp
+      { plan: '01', nr: '002', namn: 'Dagrum', rumstyp: 'Dagrum', nta: '40', ntv: '126',
+        bra: '38', bta: '40', temp: 'Ja', egna: {} },
+      // Nytt
+      { plan: '01', nr: '003', namn: 'Städ', nta: '6', egna: {} }
+    ], b);
+    const inst = DP.Inlasning.tolkaInst([
+      // Samma Id, annat rum och annat fabrikat: en ändring, inte en ny installation
+      { plan: '01', rum: '001', benamning: 'Handbrandsläckare 3', beteckning: 'HB01',
+        fabrikat: 'Dafo', id: '0001', datum: '2024-05-02', egna: {} }
+      // 0002 fattas i filen
+    ], b, []);
+    const bort = DP.Inlasning.bortForslag('inst', b, inst.map(r => r.falt.id), true);
+    const bortRum = DP.Inlasning.bortForslag('rum', b,
+      rum.map(r => DP.rumNyckel(r.falt.plan, r.falt.nr)), true);
+    return {
+      planAndring: plan[0].andring ? plan[0].andring.delar
+        .map(d => d.etikett + ': ' + d.fore + ' → ' + d.efter).join(', ') : null,
+      planStatus: DP.Inlasning.status(plan[0]),
+      planSkal: plan[0].fragor.map(f => f.text).join(' '),
+      rumStatus: rum.map(r => DP.Inlasning.status(r)).join(' '),
+      rumAndring: rum[1].andring.delar.map(d => d.etikett + ': ' + d.fore + ' → ' + d.efter),
+      rumNy: !rum[2].andring && !rum[2].fanns,
+      instStatus: DP.Inlasning.status(inst[0]),
+      instAndring: inst[0].andring.delar.map(d => d.etikett + ': ' + d.fore + ' → ' + d.efter),
+      bortAntal: bort.length, bortNyckel: (bort[0] || {}).nyckel,
+      bortStatus: bort.length ? DP.Inlasning.status(bort[0]) : null,
+      bortSkal: bort.length ? bort[0].fragor.map(f => f.text).join(' ') : '',
+      bortRum: bortRum.length
+    };
+  }, bygg86());
+  kontroll(skillnaden.planStatus === 'forslag'
+    && skillnaden.planAndring === 'Benämning: Entréplan → Markplan',
+    'ett ändrat plan visas med före och efter (' + skillnaden.planAndring + ', berättelse 73)');
+  kontroll(/finns redan och filen säger något annat/.test(skillnaden.planSkal),
+    'skälet står i klartext ("' + skillnaden.planSkal + '")');
+  kontroll(skillnaden.rumStatus === 'klar forslag klar',
+    'det oförändrade rummet är klart, det ändrade ett förslag, det nya klart ('
+    + skillnaden.rumStatus + ')');
+  kontroll(skillnaden.rumAndring.join(' | ')
+    === 'Benämning: Logement 1:1 → Dagrum | Rumstyp: Logement → Dagrum | NTA: 36 → 40',
+    'det ändrade rummet visar varje ändrat fält med före och efter ('
+    + skillnaden.rumAndring.join(' | ') + ')');
+  kontroll(skillnaden.rumNy === true,
+    'ett rum filen lagt till är nytt och inte en ändring');
+  kontroll(skillnaden.instStatus === 'forslag'
+    && skillnaden.instAndring.join(' | ') === 'Rum: 01-002 → 01-001 | Fabrikat: Presto → Dafo',
+    'en installation med samma Id i ett annat rum är en ändring av samma installation ('
+    + skillnaden.instAndring.join(' | ') + ', beslut 86 och 87)');
+  kontroll(skillnaden.bortAntal === 1 && skillnaden.bortNyckel === '0002'
+    && skillnaden.bortStatus === 'forslag',
+    'installationen som fattas i filen blir ett förslag att ta bort ('
+    + skillnaden.bortAntal + ': ' + skillnaden.bortNyckel + ', berättelse 74)');
+  kontroll(/finns i byggnaden men inte i filen/.test(skillnaden.bortSkal)
+    && /glömd lika väl som borttagen/.test(skillnaden.bortSkal),
+    'och säger i klartext varför det bara är ett förslag ("' + skillnaden.bortSkal + '")');
+  kontroll(skillnaden.bortRum === 0,
+    'ett rum filen bär föreslås inte bort, inte heller när dess rad är ett förslag ('
+    + skillnaden.bortRum + ')');
+
+  // En flik som filen **inte** bar, och en flik som bara bär nya rader, ger inga förslag att
+  // ta bort: en fil med bara Plan ifylld säger ingenting om rummen (berättelse 16).
+  const barInte = await page.evaluate(b => ({
+    utanFlik: DP.Inlasning.bortForslag('rum', b, [], false).length,
+    tomFlik: DP.Inlasning.bortForslag('rum', b, [], true).length,
+    baraNytt: DP.Inlasning.bortForslag('rum', b, ['09-001'], true).length,
+    nagotMatchar: DP.Inlasning.bortForslag('rum', b, ['01-001'], true)
+      .map(r => r.nyckel).join(' ')
+  }), bygg86());
+  kontroll(barInte.utanFlik === 0,
+    'en flik filen inte bar ger inga förslag att ta bort (' + barInte.utanFlik + ')');
+  kontroll(barInte.tomFlik === 0 && barInte.baraNytt === 0,
+    'en flik som bara bär nya rader är ett tillägg och inte en bild av byggnaden ('
+    + barInte.tomFlik + ', ' + barInte.baraNytt + ')');
+  kontroll(barInte.nagotMatchar === '01-002',
+    'bär fliken byggnadens egna rader blir det som fattas ett förslag ('
+    + barInte.nagotMatchar + ')');
+
+  // Ett fält byggnaden **saknar** är ingen motsägelse utan en lucka: filen fyller i något som
+  // fattades, och det är ingenting att fråga om. Det är så de handritade byggnaderna får sina
+  // areor (beslut 101) – utan regeln hade en fil ur Kasern 1 gett ett förslag per rum.
+  const lucka = await page.evaluate(() => {
+    const b = { plan: [{ id: '01', namn: 'Entréplan' }],
+      // Ett handritat rum: ingen rumstyp, ingen NTA, men en ritad rektangel
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', typ: 'kommunikation', rect: [0, 6, 48, 8] }],
+      installationer: [] };
+    const rader = DP.Inlasning.tolkaRum([
+      { plan: '01', nr: '001', namn: 'Korridor', rumstyp: 'Korridor', nta: '96', egna: {} }
+    ], b);
+    const s = DP.Inlasning.skillnad('rum', b.rum[0],
+      { namn: 'Korridor', rumstyp: 'korridor', nta: 96 });
+    return { status: DP.Inlasning.status(rader[0]), andring: !!rader[0].andring,
+      luckor: rader[0].luckor, delar: s.delar.length, antalLuckor: s.luckor.length };
+  });
+  kontroll(lucka.status === 'klar' && !lucka.andring,
+    'ett fält byggnaden saknar blir ingen fråga (' + lucka.status + ', beslut 86)');
+  kontroll(lucka.luckor && lucka.luckor.nta === 96 && lucka.luckor.rumstyp === 'korridor',
+    'men ligger på raden som en lucka att fylla (' + JSON.stringify(lucka.luckor) + ')');
+  kontroll(lucka.delar === 0 && lucka.antalLuckor === 2,
+    'skillnaden håller de två isär: motsägelser frågas om, luckor fylls ('
+    + lucka.delar + ' delar, ' + lucka.antalLuckor + ' luckor)');
+
+  // En tom cell i filen är inget svar: den som fyller i stryker sällan en area med flit, och
+  // en tom cell är det vanligaste av allt i en fil som gått genom tre händer.
+  const tomCell = await page.evaluate(b => {
+    const rum = DP.Inlasning.tolkaRum([
+      { plan: '01', nr: '002', namn: 'Logement 1:1', rumstyp: 'Logement', nta: '36',
+        ntv: '', bra: '', bta: '', temp: '', egna: {} }
+    ], b);
+    return { status: DP.Inlasning.status(rum[0]), andring: !!rum[0].andring };
+  }, bygg86());
+  kontroll(tomCell.status === 'klar' && !tomCell.andring,
+    'en tom cell räknas inte som en ändring till tomt (' + tomCell.status + ')');
+
+  // Samma Id på två rader i filen är ett fel i filen, som samma planbeteckning två gånger.
+  const dubbelId = await page.evaluate(() => {
+    const rader = DP.Inlasning.tolkaInst([
+      { plan: '01', rum: '001', benamning: 'Handbrandsläckare 3', id: '77', egna: {} },
+      { plan: '01', rum: '001', benamning: 'Handbrandsläckare 3', id: '77', egna: {} }
+    ], { plan: [{ id: '01', namn: 'Entréplan' }],
+      rum: [{ nr: '001', namn: 'Korridor', plan: '01', nta: 96 }], installationer: [] }, []);
+    return rader.map(r => ({ status: DP.Inlasning.status(r),
+      skal: r.fragor.map(f => f.text).join(' ') }));
+  });
+  kontroll(dubbelId[0].status === 'klar' && dubbelId[1].status === 'oplacerad'
+    && /mer än en rad/.test(dubbelId[1].skal),
+    'samma Id två gånger i filen gör den andra raden oplacerad ("' + dubbelId[1].skal + '")');
+
+  // Samma rum två gånger i filen får nästa lediga nummer, inte en andra rad med samma nyckel.
+  const dubbelRum = await page.evaluate(() => {
+    const rader = DP.Inlasning.tolkaRum([
+      { plan: '01', nr: '005', namn: 'Städ', nta: '6', egna: {} },
+      { plan: '01', nr: '005', namn: 'Städ 2', nta: '6', egna: {} }
+    ], { plan: [{ id: '01', namn: 'Entréplan' }], rum: [] });
+    return rader.map(r => ({ status: DP.Inlasning.status(r), nr: r.falt.nr,
+      forslag: (DP.Inlasning.fraga(r, 'nr') || {}).forslag,
+      skal: r.fragor.map(f => f.text).join(' ') }));
+  });
+  kontroll(dubbelRum[0].status === 'klar' && dubbelRum[1].status === 'forslag'
+    && dubbelRum[1].forslag === '001' && /mer än en rad/.test(dubbelRum[1].skal),
+    'samma rum två gånger i filen ger den andra raden nästa lediga nummer ('
+    + JSON.stringify(dubbelRum[1]) + ', beslut 110)');
+
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
@@ -7067,6 +7263,263 @@ async function testAndraByggnad(browser) {
   await rp.close();
 }
 
+// Läsa in filen mot en befintlig byggnad (beslut 86, berättelse 72–74, biljett #42).
+//
+// En ombyggnad förs in på samma sätt som en ny byggnad: filen tas ut, ändras och läses in igen.
+// Det som prövas är planerarens hela väg genom sidan, med en riktig .xlsx skriven utanför appen
+// – och att **ingenting** händer med byggnaden förrän hon godtar det.
+async function testInlasningMotBefintlig(browser) {
+  console.log('Läsa in filen mot en befintlig byggnad (beslut 86, biljett #42)');
+  // Hela planerarens väg: Kasern 1 tas ut som en riktig .xlsx, ändras utanför appen – ett nytt
+  // rum, ett ändrat rum och en installationsrad som stryks – och läses in igen. Det som ska
+  // hålla är att skillnaden **visas** och att ingenting händer förrän hon godtar det.
+  const ip = await nySida(browser, URL_INDEX, 'kasern1');
+  await ip.evaluate(() => DP.Plan.andra('Standardplanering för provet',
+    st => DP.Flode.skrivStandard(st, 'kasern1')));
+  await vanta(ip, () => DP.Plan.byggnadKlar('kasern1'), 'Kasern 1 klar i alla sex stegen');
+  await ip.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(ip, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const ibf = ip.locator('#byggnadsflode');
+  await ibf.locator('.steg-kort[data-bsteg="3"] .steg-huvud').click();
+  await vanta(ip, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="3"] .steg-kropp'),
+    'steg 3 öppet');
+
+  const utTagen = await taUtFil(ip, 'kasern1-utTagen.xlsx');
+  const k1 = lasArkFil(utTagen.fil);
+  kontroll(k1.Rum.length > 2 && k1.Installationer.length > 2,
+    'filen för en befintlig byggnad kommer ifylld (' + (k1.Rum.length - 1) + ' rum, '
+    + (k1.Installationer.length - 1) + ' installationer, berättelse 17)');
+
+  // Kasern 1 är **handritad** (beslut 101): dess rum har varken rumstyp eller NTA i `data/`,
+  // eftersom formen är ritad. Filen är vägen att ge dem talen, och ett fält byggnaden saknar är
+  // ingen motsägelse utan en *lucka* som fylls i tyst. Därför görs inläsningen två gånger: den
+  // första fyller luckorna, den andra ändrar det som nu finns – och det är den andra som har en
+  // skillnad att visa.
+  const rubrikRum = k1.Rum[0];
+  const kolRum = n => rubrikRum.indexOf(n);
+  const andratRumNyckel = k1.Rum[1][kolRum('Plan')] + '-' + k1.Rum[1][kolRum('Rum')];
+  const gammaltRumsnamn = k1.Rum[1][kolRum('Benämning')];
+  const gammaltNta = '42';
+  const medNta = k1.Rum.map((r, n2) => {
+    if (n2 === 0) { return r; }
+    const kopia = r.slice();
+    kopia[kolRum('NTA')] = gammaltNta;
+    return kopia;
+  });
+  const luckfil = skrivArk('kasern1-luckor.xlsx',
+    { Plan: k1.Plan, Rum: medNta, Installationer: k1.Installationer });
+  await lasInFil(ip, luckfil);
+  const luckor = await ip.evaluate(({ nyckel }) => {
+    const st = DP.Plan.inlasningStatus('rum');
+    const r = DP.Plan.byggnad('kasern1').rum
+      .filter(x => DP.rumNyckel(x.plan, x.nr) === nyckel)[0];
+    return { nta: r.nta, rumstyp: r.rumstyp, typ: r.typ, raknat: st.raknat };
+  }, { nyckel: andratRumNyckel });
+  kontroll(luckor.nta === 42 && luckor.raknat.andrade === 0 && luckor.raknat.forslag === 0,
+    'ett fält byggnaden saknade fylls i ur filen utan att bli ett förslag ('
+    + luckor.nta + ' m², ' + JSON.stringify(luckor.raknat) + ', beslut 86)');
+  kontroll(luckor.rumstyp === 'korridor' && luckor.typ === 'kommunikation',
+    'och rumstypen med – men ett handritat rum behåller sin ritade modellsort ('
+    + luckor.rumstyp + '/' + luckor.typ + ', beslut 101)');
+
+  // Nu den riktiga ändringen, mot en byggnad som har talen: ett nytt rum, ett ändrat rum med
+  // två ändrade fält, och en installationsrad struken.
+  const andradRumRad = medNta[1].slice();
+  andradRumRad[kolRum('Benämning')] = 'Nytt namn på rummet';
+  andradRumRad[kolRum('NTA')] = String(Number(gammaltNta) + 7);
+  const nyRumRad = rubrikRum.map(() => '');
+  nyRumRad[kolRum('Plan')] = andradRumRad[kolRum('Plan')];
+  nyRumRad[kolRum('Rum')] = '901';
+  nyRumRad[kolRum('Benämning')] = 'Städ efter ombyggnaden';
+  nyRumRad[kolRum('NTA')] = '8';
+  const nyaRum = [rubrikRum, andradRumRad].concat(medNta.slice(2), [nyRumRad]);
+  // Den strukna installationsraden: en som har tillsyn, så att följderna i steg 5 och 6 går
+  // att pröva. Raden plockas i sidan, så att datafilen kan ändras utan att testet låser sig.
+  const strykt = await ip.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    const i = P.signifikanta('kasern1').filter(x => s.kopplingar.some(k => k.inst === x.id))[0];
+    return { id: i.id, bet: i.beteckning, rum: i.rum,
+      kopplingar: s.kopplingar.filter(k => k.inst === i.id).length };
+  });
+  const kolInst = k1.Installationer[0].indexOf('Id');
+  const nyaInst = k1.Installationer.filter((r, n) => n === 0 || r[kolInst] !== strykt.id);
+  kontroll(nyaInst.length === k1.Installationer.length - 1 && strykt.kopplingar > 0,
+    'en installationsrad med tillsyn stryks ur filen (' + strykt.bet + ', '
+    + strykt.kopplingar + ' kopplingar)');
+  const andradFil = skrivArk('kasern1-andrad.xlsx',
+    { Plan: k1.Plan, Rum: nyaRum, Installationer: nyaInst });
+
+  const foreInlas = await ip.evaluate(() => ({
+    rum: DP.Plan.byggnad('kasern1').rum.length,
+    inst: DP.Plan.signifikanta('kasern1').length,
+    steg5: DP.Plan.kopplingsStatus(DP.Plan.state(), 'kasern1').klar
+  }));
+  await lasInFil(ip, andradFil);
+
+  const skillnad = await ip.evaluate(({ nyckel }) => {
+    const rum = DP.Plan.inlasningStatus('rum'), inst = DP.Plan.inlasningStatus('inst');
+    const andrad = rum.grupper.andrade.filter(r =>
+      DP.rumNyckel(r.falt.plan, r.falt.nr) === nyckel)[0];
+    return {
+      rumRaknat: rum.raknat, instRaknat: inst.raknat,
+      andrad: andrad ? andrad.andring.delar
+        .map(d => d.etikett + ': ' + d.fore + ' → ' + d.efter).join(' | ') : null,
+      nytt: rum.grupper.forslag.map(r => DP.rumNyckel(r.falt.plan, r.falt.nr) + ' '
+        + (r.falt.namn || '')).join(' | '),
+      nyttRum: (DP.Plan.byggnad('kasern1').rum.filter(r => r.nr === '901')[0] || {}).namn,
+      bort: inst.grupper.bort.map(r => r.nyckel).join(' '),
+      // Det ändrade rummet och den strukna installationen är orörda tills förslagen godtas
+      rum0: DP.Plan.byggnad('kasern1').rum.length,
+      inst0: DP.Plan.signifikanta('kasern1').length,
+      andratRumNamn: (DP.Plan.byggnad('kasern1').rum
+        .filter(r => DP.rumNyckel(r.plan, r.nr) === nyckel)[0] || {}).namn,
+      steg3: DP.Plan.byggnadsSteg('kasern1')[3],
+      // Vyn: grupperna står för sig, med före och efter i egna rader
+      rubriker: [...document.querySelectorAll('#byggnadsflode .bf-oppet .liten-rubrik')]
+        .map(e => e.textContent.replace(/\s*\(\d+\)$/, '')),
+      foreEfter: [...document.querySelectorAll('#byggnadsflode .bf-inlrad.andrad .bf-fore-efter')]
+        .map(e => e.textContent).length,
+      bortRader: document.querySelectorAll('#byggnadsflode .bf-inlrad.bortforslag').length
+    };
+  }, { nyckel: andratRumNyckel });
+  kontroll(skillnad.rumRaknat.andrade === 1,
+    'skillnaden i Rum är ett enda ändrat rum – resten av filen är oförändrad ('
+    + JSON.stringify(skillnad.rumRaknat) + ', berättelse 73)');
+  kontroll(skillnad.andrad
+    && skillnad.andrad.indexOf('Benämning: ' + gammaltRumsnamn + ' → Nytt namn på rummet') >= 0
+    && skillnad.andrad.indexOf('NTA: ' + gammaltNta + ' → ' + (Number(gammaltNta) + 7)) >= 0,
+    'det ändrade rummet visas med före och efter per fält (' + skillnad.andrad + ')');
+  // Det nya rummet har plan, nummer, benämning och NTA, så det finns ingenting att fråga om:
+  // det är **klart** och förs in direkt (beslut 83). Skillnaden ligger i de två andra svaren.
+  kontroll(skillnad.nyttRum === 'Städ efter ombyggnaden',
+    'ett nytt rum med allt ifyllt förs in direkt, som i en ny byggnad ('
+    + skillnad.nyttRum + ')');
+  kontroll(skillnad.bort === strykt.id,
+    'installationen som fattas i filen blir ett förslag att ta bort (' + skillnad.bort
+    + ', berättelse 74)');
+  kontroll(skillnad.rum0 === foreInlas.rum + 1 && skillnad.inst0 === foreInlas.inst
+    && skillnad.andratRumNamn === gammaltRumsnamn,
+    'det ändrade rummet och den strukna installationen är orörda: ingenting ändras eller tas '
+    + 'bort förrän förslaget godtas (' + skillnad.andratRumNamn + ', '
+    + skillnad.inst0 + ' installationer, berättelse 74)');
+  kontroll(skillnad.steg3 === false,
+    'steg 3 är ogrönt så länge skillnaden inte är avgjord (beslut 83)');
+  kontroll(skillnad.rubriker.indexOf('Ändrat') >= 0,
+    'vyn visar ändrat som en egen grupp (' + skillnad.rubriker.join(', ') + ')');
+  kontroll(skillnad.foreEfter >= 2,
+    'det ändrade rummet har en rad per ändrat fält i vyn (' + skillnad.foreEfter + ')');
+  // Vyn visar förslaget i steg 4, som ännu är hopfällt: antalet läses i steglistan i stället,
+  // och raden själv prövas när steget öppnas nedan.
+  kontroll(skillnad.instRaknat.bort === 1,
+    'raden som saknas i filen står som ett eget förslag i Installationer ('
+    + JSON.stringify(skillnad.instRaknat) + ')');
+  await bild(ip, 'inlasning-befintlig-skillnad');
+
+  // ---- Godta ändringen: byggnaden skrivs om, och det är ett steg i historiken ----
+  const foreAndring = await historiklangd(ip);
+  await ibf.locator('.bf-inlrad.andrad').first().locator('button', { hasText: 'Godta' }).click();
+  await stegKlart(ip, foreAndring, 'godta ändringen av rummet');
+  const godtagen = await ip.evaluate(({ nyckel }) => {
+    const r = DP.Plan.byggnad('kasern1').rum
+      .filter(x => DP.rumNyckel(x.plan, x.nr) === nyckel)[0];
+    return { namn: r.namn, nta: r.nta, antal: DP.Plan.byggnad('kasern1').rum.length,
+      text: DP.Plan.historik().lista.slice(-1)[0],
+      andrade: DP.Plan.inlasningStatus('rum').raknat.andrade };
+  }, { nyckel: andratRumNyckel });
+  kontroll(godtagen.namn === 'Nytt namn på rummet'
+    && godtagen.nta === Number(gammaltNta) + 7,
+    'det godtagna förslaget skriver om rummet (' + godtagen.namn + ', '
+    + godtagen.nta + ' m²)');
+  kontroll(godtagen.antal === foreInlas.rum + 1,
+    'och lägger inte till ett andra rum med samma nyckel – bara det nya 901 kom till ('
+    + godtagen.antal + ')');
+  kontroll(/godta ändring: rum/.test(godtagen.text),
+    'ändringen är ett steg i historiken med text i klartext ("' + godtagen.text + '")');
+  await angra(ip);
+  const angradRum = await ip.evaluate(({ nyckel }) => {
+    const r = DP.Plan.byggnad('kasern1').rum
+      .filter(x => DP.rumNyckel(x.plan, x.nr) === nyckel)[0];
+    return { namn: r.namn, andrade: DP.Plan.inlasningStatus('rum').raknat.andrade };
+  }, { nyckel: andratRumNyckel });
+  kontroll(angradRum.namn === gammaltRumsnamn && angradRum.andrade === 1,
+    'ett ångra tar tillbaka rummets gamla uppgifter och förslaget (' + angradRum.namn + ')');
+
+  // ---- Godta borttagningen: installationen och dess kopplingar i samma steg (beslut 87) ----
+  await ibf.locator('.steg-kort[data-bsteg="4"] .steg-huvud').click();
+  await vanta(ip, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="4"] .steg-kropp'),
+    'steg 4 öppet');
+  // Positionen och inte längden: steget läggs efter en ångran och skriver över det som låg
+  // framför, så listan kan bli lika lång medan positionen går fram.
+  const foreBort = await historikpos(ip);
+  await ibf.locator('.bf-inlrad.bortforslag').first().locator('button', { hasText: 'Ta bort' }).click();
+  await stegKlartPos(ip, foreBort, 'godta borttagningen');
+  const borttagen = await ip.evaluate(({ id }) => {
+    const P = DP.Plan, s = P.state('kasern1');
+    return {
+      finns: !!P.byggnad('kasern1').installationer.filter(i => i.id === id)[0],
+      kopplingar: s.kopplingar.filter(k => k.inst === id).length,
+      text: P.historik().lista.slice(-1)[0],
+      steg5: P.kopplingsStatus(s, 'kasern1').klar,
+      bort: P.inlasningStatus('inst').raknat.bort
+    };
+  }, strykt);
+  kontroll(!borttagen.finns && borttagen.kopplingar === 0,
+    'installationen och dess kopplingar försvinner i samma steg (beslut 87)');
+  kontroll(/godta borttagning/.test(borttagen.text),
+    'borttagningen är ett steg i historiken ("' + borttagen.text + '")');
+  kontroll(borttagen.bort === 0, 'och förslaget är avgjort (' + borttagen.bort + ' kvar)');
+  await angra(ip);
+  const tillbaka = await ip.evaluate(({ id }) => ({
+    finns: !!DP.Plan.byggnad('kasern1').installationer.filter(i => i.id === id)[0],
+    kopplingar: DP.Plan.state('kasern1').kopplingar.filter(k => k.inst === id).length,
+    bort: DP.Plan.inlasningStatus('inst').raknat.bort
+  }), strykt);
+  kontroll(tillbaka.finns && tillbaka.kopplingar === strykt.kopplingar && tillbaka.bort === 1,
+    'ett ångra tar tillbaka installationen, dess tillsyn och förslaget ('
+    + tillbaka.kopplingar + ' kopplingar, ' + tillbaka.bort + ' förslag)');
+
+  // ---- *Godta alla* tar inte med sig förslagen att ta bort (beslut 86) ----
+  // Att skriva om byggnaden efter filen är en sak; att låta en rad som *fattas* radera ett rum
+  // och dess installationers tillsyn är en annan, och den får aldrig gå i ett svep. Knappen
+  // lovar det i sin titel, och här prövas att den håller löftet.
+  const foreSvep = await ip.evaluate(() => ({
+    inst: DP.Plan.signifikanta('kasern1').length,
+    bort: DP.Plan.inlasningStatus('inst').raknat.bort
+  }));
+  await ip.evaluate(() => DP.Plan.godtaAllaInst('kasern1'));
+  const efterSvep = await ip.evaluate(({ id }) => ({
+    finns: !!DP.Plan.byggnad('kasern1').installationer.filter(i => i.id === id)[0],
+    inst: DP.Plan.signifikanta('kasern1').length,
+    bort: DP.Plan.inlasningStatus('inst').raknat.bort
+  }), strykt);
+  kontroll(foreSvep.bort === 1 && efterSvep.finns && efterSvep.inst === foreSvep.inst
+    && efterSvep.bort === 1,
+    'Godta alla rör inte förslagen att ta bort: installationen står kvar och förslaget med ('
+    + efterSvep.inst + ' installationer, ' + efterSvep.bort + ' förslag, beslut 86)');
+
+  // ---- *Låt stå*: svaret nej är också ett svar, och det måste finnas (beslut 83) ----
+  const foreLat = await historikpos(ip);
+  await ibf.locator('.bf-inlrad.bortforslag').first().locator('button', { hasText: 'Låt stå' }).click();
+  await stegKlartPos(ip, foreLat, 'låt installationen stå kvar');
+  const latStar = await ip.evaluate(({ id }) => ({
+    finns: !!DP.Plan.byggnad('kasern1').installationer.filter(i => i.id === id)[0],
+    bort: DP.Plan.inlasningStatus('inst').raknat.bort,
+    klar: DP.Plan.inlasningStatus('inst').klar,
+    steg4: DP.Plan.byggnadsSteg('kasern1')[4],
+    text: DP.Plan.historik().lista.slice(-1)[0]
+  }), strykt);
+  kontroll(latStar.finns && latStar.bort === 0,
+    'installationen står kvar och förslaget är borta (berättelse 74)');
+  kontroll(latStar.klar && latStar.steg4 === true,
+    'steget blir grönt när skillnaden är avgjord, också när svaret var att låta det stå ('
+    + latStar.steg4 + ', beslut 83)');
+  kontroll(/låt .* stå kvar/.test(latStar.text),
+    'att låta det stå är ett steg i historiken ("' + latStar.text + '")');
+
+  kontroll(ip.fel.length === 0, 'inga JavaScript-fel ' + ip.fel.join(' | '));
+  await ip.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -7096,6 +7549,7 @@ async function testAndraByggnad(browser) {
     await testStegRum(browser);
     await testStegInstallationer(browser);
     await testAndraByggnad(browser);
+    await testInlasningMotBefintlig(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

@@ -196,7 +196,9 @@
   function aterstar(flik) {
     var r = P.inlasningStatus(flik).raknat;
     var delar = [];
-    if (r.forslag) { delar.push(antal(r.forslag, 'förslag', 'förslag')); }
+    if (r.nytt) { delar.push(antal(r.nytt, 'förslag', 'förslag')); }
+    if (r.andrade) { delar.push(antal(r.andrade, 'ändrad rad', 'ändrade rader')); }
+    if (r.bort) { delar.push(antal(r.bort, 'rad', 'rader') + ' som saknas i filen'); }
     if (r.oplacerad) { delar.push(antal(r.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
     return delar.length ? delar.join(', ') + ' kvar' : '';
   }
@@ -598,7 +600,12 @@
       var txt2 = 'Läst in <b>' + inl.fil.namn + '</b>';
       var delar = [];
       if (inl.raknat.klar) { delar.push(antal(inl.raknat.klar, sort[0], sort[1])); }
-      if (inl.raknat.forslag) { delar.push(antal(inl.raknat.forslag, 'förslag', 'förslag')); }
+      // Förslagen räknas i sina tre sorter (beslut 86). "4 förslag" om en inläsning där tre
+      // av dem vill ta bort ett rum hade sagt för lite: planeraren ska se att filen föreslår
+      // en borttagning innan hon öppnar gruppen.
+      if (inl.raknat.nytt) { delar.push(antal(inl.raknat.nytt, 'nytt', 'nya') + ' som förslag'); }
+      if (inl.raknat.andrade) { delar.push(antal(inl.raknat.andrade, 'ändrad', 'ändrade')); }
+      if (inl.raknat.bort) { delar.push(antal(inl.raknat.bort, 'rad', 'rader') + ' som saknas i filen'); }
       if (inl.raknat.oplacerad) { delar.push(antal(inl.raknat.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
       if (delar.length) { txt2 += ': ' + delar.join(', '); }
       txt2 += '.';
@@ -650,22 +657,45 @@
   // steg, och det som skiljer raderna är vilka frågor de bär – inte hur en grupp ser ut.
   function inlasningsgrupper(kropp, b, flik) {
     var inl = P.inlasningStatus(flik);
-    if (!inl.grupper.forslag.length && !inl.grupper.oplacerad.length) { return; }
+    if (!inl.grupper.forslag.length && !inl.grupper.andrade.length
+      && !inl.grupper.bort.length && !inl.grupper.oplacerad.length) { return; }
     var w = el('section', 'bf-oppet');
     if (inl.grupper.forslag.length) {
       var h = el('div', 'bf-grupphuvud');
       h.appendChild(el('div', 'liten-rubrik',
-        'Förslag (' + inl.grupper.forslag.length + ')'));
-      h.appendChild(knapp('Godta alla', 'knapp liten-knapp', function () {
-        if (flik === 'inst') { P.godtaAllaInst(); }
-        else if (flik === 'rum') { P.godtaAllaRum(); }
-        else { P.godtaAllaPlan(); }
-      }, 'För in alla ' + inl.grupper.forslag.length + ' förslagen på en gång. ◀ tar tillbaka ' +
-         'hela godtagandet.'));
+        'Nytt (' + inl.grupper.forslag.length + ')'));
+      h.appendChild(godtaAllaKnapp(flik, inl));
       w.appendChild(h);
       w.appendChild(el('p', 'bf-grupptext',
         'Det här tror systemet. Läs skälet och godta det, eller rätta det själv.'));
       inl.grupper.forslag.forEach(function (r) { w.appendChild(forslagsrad(r, flik)); });
+    }
+    // Ändrat och saknas i filen står för sig (beslut 86): de tre förslagen gör tre olika saker
+    // mot byggnaden, och det som skriver om eller tar bort något som finns är det planeraren
+    // behöver titta närmast på.
+    if (inl.grupper.andrade.length) {
+      var ha = el('div', 'bf-grupphuvud');
+      ha.appendChild(el('div', 'liten-rubrik',
+        'Ändrat (' + inl.grupper.andrade.length + ')'));
+      if (!inl.grupper.forslag.length) { ha.appendChild(godtaAllaKnapp(flik, inl)); }
+      w.appendChild(ha);
+      w.appendChild(el('p', 'bf-grupptext',
+        'Det här finns redan, och filen säger något annat. Godta för att ändra byggnaden.'));
+      inl.grupper.andrade.forEach(function (r) { w.appendChild(andradRad(r, flik)); });
+    }
+    if (inl.grupper.bort.length) {
+      var hb = el('div', 'bf-grupphuvud');
+      hb.appendChild(el('div', 'liten-rubrik',
+        'Saknas i filen (' + inl.grupper.bort.length + ')'));
+      hb.appendChild(knapp('Låt alla stå', 'knapp sekundar liten-knapp', function () {
+        P.avvisaAllaBort(flik);
+      }, 'Behåll alla ' + inl.grupper.bort.length + ' i byggnaden och ta bort förslagen. ' +
+         '◀ tar tillbaka dem.'));
+      w.appendChild(hb);
+      w.appendChild(el('p', 'bf-grupptext',
+        'Det här finns i byggnaden men inte i filen. Ingenting tas bort förrän du godtar ' +
+        'det: en rad som fattas kan vara glömd lika väl som borttagen.'));
+      inl.grupper.bort.forEach(function (r) { w.appendChild(bortRad(r, flik)); });
     }
     if (inl.grupper.oplacerad.length) {
       w.appendChild(el('div', 'liten-rubrik',
@@ -675,6 +705,80 @@
       inl.grupper.oplacerad.forEach(function (r) { w.appendChild(oplaceradRad(r, flik)); });
     }
     kropp.appendChild(w);
+  }
+
+  // *Godta alla* tar **alla** förslag i fliken, också de ändrade: det är ett godtagande av
+  // filen och inte av en grupp, och ett knappset per grupp hade krävt två klick för det
+  // planeraren menar med ett. Knappen sitter i den första gruppen som finns, så att den syns
+  // en gång.
+  //
+  // Förslagen att **ta bort** följer inte med. Att skriva om byggnaden efter filen är en sak;
+  // att låta en tom cell radera ett rum är en annan, och den ska aldrig gå i ett svep
+  // (beslut 86 och berättelse 74).
+  function godtaAllaKnapp(flik, inl) {
+    var antalet = inl.grupper.forslag.length + inl.grupper.andrade.length;
+    return knapp('Godta alla', 'knapp liten-knapp', function () {
+      if (flik === 'inst') { P.godtaAllaInst(); }
+      else if (flik === 'rum') { P.godtaAllaRum(); }
+      else { P.godtaAllaPlan(); }
+    }, 'För in alla ' + antalet + ' förslagen på en gång, utom de som föreslår att något ' +
+       'tas bort. ◀ tar tillbaka hela godtagandet.');
+  }
+
+  // En ändrad rad: före och efter per fält (berättelse 73). Skillnaden visas som en egen rad
+  // per fält och inte som en mening, så att planeraren kan läsa av vad som ändras i en kolumn.
+  function andradRad(r, flik) {
+    var rad = el('div', 'bf-inlrad andrad');
+    rad.dataset.inlrad = r.key;
+    rad.appendChild(el('span', 'bf-planbet', beteckningFor(r, flik)));
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', namnEllerForslag(r)));
+    r.andring.delar.forEach(function (d) {
+      var r2 = el('span', 'bf-fore-efter');
+      r2.appendChild(el('span', 'bf-fe-etikett', d.etikett));
+      r2.appendChild(el('span', 'bf-fe-fore', d.fore));
+      r2.appendChild(el('span', 'bf-fe-pil', '→'));
+      r2.appendChild(el('span', 'bf-fe-efter', d.efter));
+      txt.appendChild(r2);
+    });
+    rad.appendChild(txt);
+    var verktyg = el('div', 'bf-planverktyg');
+    verktyg.appendChild(knapp('Godta', 'knapp sekundar liten-knapp', function () {
+      if (flik === 'inst') { P.godtaInst(r.key); }
+      else if (flik === 'rum') { P.godtaRum(r.key); }
+      else { P.godtaPlan(r.key); }
+    }, 'Ändra byggnaden efter filen. ◀ tar tillbaka ändringen.'));
+    rad.appendChild(verktyg);
+    return rad;
+  }
+
+  // En rad som finns i byggnaden men saknas i filen (berättelse 74). Två svar, och båda är
+  // ställningstaganden: *Ta bort* och *Låt stå*. Det senare är inget avbrott – ett steg blir
+  // grönt när bara klart återstår, så förslaget måste gå att svara nej på.
+  function bortRad(r, flik) {
+    var rad = el('div', 'bf-inlrad bortforslag');
+    rad.dataset.inlrad = r.key;
+    rad.appendChild(el('span', 'bf-planbet', beteckningFor(r, flik)));
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', r.falt.namn || r.nyckel));
+    (r.fragor || []).forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
+    rad.appendChild(txt);
+    var verktyg = el('div', 'bf-planverktyg');
+    verktyg.appendChild(knapp('Ta bort', 'knapp sekundar liten-knapp', function () {
+      if (flik === 'inst') { P.godtaInst(r.key); }
+      else if (flik === 'rum') { P.godtaRum(r.key); }
+      else { P.godtaPlan(r.key); }
+    }, flik === 'plan'
+      ? 'Ta bort planet, dess rum och deras installationer. ◀ tar tillbaka allt.'
+      : flik === 'rum'
+        ? 'Ta bort rummet och dess installationer. ◀ tar tillbaka dem.'
+        : 'Ta bort installationen. Kopplade åtgärder försvinner i samma steg, och ◀ tar ' +
+          'tillbaka båda.'));
+    verktyg.appendChild(knapp('Låt stå', 'knapp sekundar liten-knapp', function () {
+      P.avvisaBort(flik, r.key);
+    }, 'Behåll det i byggnaden och ta bort förslaget. ◀ tar tillbaka förslaget.'));
+    rad.appendChild(verktyg);
+    return rad;
   }
 
   // En förslagsrad: beteckningen, det raden blir, och skälen i klartext (berättelse 24).
@@ -710,6 +814,9 @@
       var rum = r.falt.rum || (DP.Inlasning.fraga(r, 'rum') || {}).forslag;
       return rum || '–';
     }
+    // En rad som föreslår att något tas bort pekar ut det med sin nyckel: beteckningen för ett
+    // plan, plan + rumsnummer för ett rum (beslut 76).
+    if (r.bort && flik === 'rum') { return r.nyckel; }
     if (flik !== 'rum') { return r.falt.id; }
     var plan = r.falt.plan || (DP.Inlasning.fraga(r, 'plan') || {}).forslag;
     var nr = r.falt.nr || (DP.Inlasning.fraga(r, 'nr') || {}).forslag;

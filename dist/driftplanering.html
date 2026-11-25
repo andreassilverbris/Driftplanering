@@ -783,6 +783,20 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bf-inlrad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 4px; flex-wrap: wrap; }
 .bf-inlrad.forslag { border-left: 3px solid #d79a2b; }
 .bf-inlrad.oplacerad { border-left: 3px solid #b03a3a; }
+/* Skillnaden mot en befintlig byggnad (beslut 86). Egna kantfärger, så att planeraren ser
+   vilken sorts förslag en rad är utan att läsa rubriken ovanför: ändrat är blått som resten av
+   det systemet föreslår, och det som saknas i filen grått – det är inget fel, bara något hon
+   ska ta ställning till. */
+.bf-inlrad.andrad { border-left: 3px solid var(--accent); }
+.bf-inlrad.bortforslag { border-left: 3px solid #8a8f98; }
+/* Före och efter per fält, i en rad som går att läsa av i en kolumn: etikett, det som står nu,
+   pilen och det filen säger. Monospace på talen hade varit en annan sorts tabell – de ska
+   läsas som ord, inte räknas ihop. */
+.bf-fore-efter { display: block; font-size: 11px; line-height: 1.5; }
+.bf-fe-etikett { color: var(--dov); margin-right: 6px; }
+.bf-fe-fore { text-decoration: line-through; color: var(--dov); }
+.bf-fe-pil { color: var(--dov); margin: 0 4px; }
+.bf-fe-efter { font-weight: 600; }
 .bf-inlrad .bf-btext { flex: 1 1 140px; }
 .bf-skal { font-size: 11px; color: var(--dov); line-height: 1.45; }
 .bf-inlrad .bf-fel { flex: 1 1 100%; margin-top: 2px; }
@@ -4732,9 +4746,18 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
  * fortfarande har en obesvarad fråga. Då hade modellen visat en gissning (berättelse 55), och
  * felet syns först när någon tittar på byggnaden.
  *
- * Flikarna **Plan** och **Rum** tolkas. Installationer har sina kolumner med i tabellen nedan,
- * eftersom filen tas ut med alla tre flikarna från första dagen (berättelse 14) och
- * flikigenkänningen måste kunna skilja dem åt – men dess rader tolkas i sin egen biljett.
+ * **Mot en befintlig byggnad visar inläsningen skillnaden** (beslut 86, berättelse 72–74). En
+ * rad vars identitet redan finns – planet på sin beteckning, rummet på plan + rumsnummer,
+ * installationen på sitt Id – är inte ny. Bär den andra uppgifter än byggnaden blir den ett
+ * **förslag om ändring** med `andring: { fore, efter }` och en fråga av slaget `andring`, så
+ * att planeraren ser före och efter innan något skrivs över. Bär den samma uppgifter är den
+ * klar: raden är samma rad en gång till, vilket är vad en fil som tas ut och läses in oförändrad
+ * ger.
+ *
+ * Och det som finns i byggnaden men **saknas i filen** tas aldrig bort av sig självt. Det blir
+ * en egen rad – `bort: true`, med en fråga av slaget `bort` – eftersom en rad som fattas lika
+ * gärna kan vara glömd som borttagen. Raderna byggs av `bortForslag`, som till skillnad från
+ * `tolka*` börjar i byggnaden och inte i filen.
  */
 (function () {
   'use strict';
@@ -4818,7 +4841,11 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // Ett blad vars rubriker inte känns igen hamnar i `ignorerade` i stället för att tigas ihjäl
   // – planeraren ska kunna få veta att hennes tredje blad inte lästes.
   function lasArk(ark) {
-    var ut = { plan: [], rum: [], inst: [], ignorerade: [],
+    // `flikar` är vilka flikar filen **bar**, inte vilka som hade rader. Skillnaden är hela
+    // skälet fältet finns: en tom flik Rum i en fil som tas ut ur en byggnad full av rum säger
+    // att rummen ska bort (beslut 86), medan en fil som bara har Plan-fliken inte säger något
+    // om rummen alls.
+    var ut = { plan: [], rum: [], inst: [], ignorerade: [], flikar: {},
       egnaKolumner: { plan: [], rum: [], inst: [] } };
     (ark || []).forEach(function (blad) {
       var rader = blad.rader || [];
@@ -4827,6 +4854,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       var rubriker = rader[rubrikRad].map(txt);
       var flik = vilkenFlik(rubriker);
       if (!flik) { ut.ignorerade.push(blad.namn); return; }
+      ut.flikar[flik] = true;
       // Rubrik → nyckel för den här fliken. Det som inte står i tabellen är ett eget fält.
       var karta = {};
       KOLUMNER[flik].forEach(function (k) { karta[norm(k[0])] = k[1]; });
@@ -4874,6 +4902,12 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // dras till ett annat plan tar sina installationer med sig.
     if (slag === 'rum') { rad.falt.rum = varde; }
     if (slag === 'typ') { rad.falt.typ = varde; }
+    // Skillnaden mot en befintlig byggnad (beslut 86). De två har inget värde att föra in i
+    // `falt` – raden bär redan filens uppgifter – utan säger att planeraren **tagit ställning**
+    // till att byggnaden ska ändras eller raden tas bort. Det är `DP.Plan` som utför det, och
+    // märket är det den läser.
+    if (slag === 'andring') { rad.godtagenAndring = true; }
+    if (slag === 'bort') { rad.godtagetBort = true; }
   }
 
   // Godta raden: alla frågor som har ett förslag förs in och försvinner. Frågor **utan**
@@ -4892,6 +4926,168 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     tillampa(rad, slag, varde);
     rad.fragor = (rad.fragor || []).filter(function (f) { return f.slag !== slag; });
     return rad;
+  }
+
+  // ------------------------------------------------------------------
+  // Skillnaden mot en befintlig byggnad (beslut 86, berättelse 72–74)
+  // ------------------------------------------------------------------
+  // En fil som tas ut, ändras och läses in igen ska visa **vad inläsningen gör**: vad som är
+  // nytt, vad som ändras (med före och efter) och vad som saknas i filen. Tre svar, och bara
+  // det första fanns innan: nytt är ett vanligt förslag, och det byggs av `tolka*` redan.
+  //
+  // Jämförelsen görs fält för fält mot byggnadens rad, och varje fält har en **etikett** som
+  // planeraren känner igen – "Benämning", inte `namn`. Etiketterna står här och inte i vyn av
+  // samma skäl som förslagens skäl (beslut 61): två vyer ska inte kunna säga olika saker om
+  // samma ändring, och texten ska gå att läsa i ett test.
+  //
+  // Vilka fält som jämförs är ett urval och inte alla: det som pekar ut raden (beteckningen,
+  // plan + nummer, Id) kan inte ändras utan att raden blir en annan rad, och det som systemet
+  // räknar fram (rummets rektangel, installationens plats) ligger inte i filen.
+  var JAMFOR = {
+    plan: [['namn', 'Benämning']],
+    rum: [['namn', 'Benämning'], ['rumstyp', 'Rumstyp'], ['nta', 'NTA'], ['ntv', 'NTV'],
+      ['bra', 'BRA'], ['bta', 'BTA'], ['temp', 'Temperaturreglerad']],
+    inst: [['namn', 'Benämning'], ['typ', 'Installationstyp'], ['beteckning', 'Beteckning'],
+      ['rum', 'Rum'], ['fabrikat', 'Fabrikat'], ['modell', 'Modell'],
+      ['externtId', 'Externt id'], ['datum', 'Installationsdatum']]
+  };
+
+  // Värdet som det **visas** för planeraren: en rumstyp som sitt namn, ett ja/nej som ord, ett
+  // tomt fält som ett streck. Jämförelsen görs på visningsvärdet och inte på det råa: en
+  // rumstyp som står som 'korridor' i byggnaden och 'Korridor' i filen är samma rumstyp, och
+  // en ändring som bara planeraren inte kan se är ingen ändring att ta ställning till.
+  function visat(flik, falt, varde) {
+    if (varde == null || varde === '') { return '–'; }
+    if (falt === 'rumstyp') { return ((DP.rumstyper || {})[varde] || {}).namn || String(varde); }
+    if (falt === 'typ' && flik === 'inst') {
+      return ((DP.installationstyper || {})[varde] || {}).namn || String(varde);
+    }
+    if (falt === 'temp') { return varde ? 'Ja' : 'Nej'; }
+    return String(varde);
+  }
+
+  // Skillnaden mellan byggnadens rad och filens: en lista `[{ falt, etikett, fore, efter }]`,
+  // tom när de är lika. `befintlig` är fälten som de ligger i byggnadsdatan och `falt` radens;
+  // namnen är desamma, eftersom radmodellens `falt` är byggd för att gå rakt in i byggnaden.
+  //
+  // Två sorters tomhet lämnas i fred, var och en av sitt skäl.
+  //
+  // Ett fält **filen** lämnar tomt är ingen ändring till tomt. Den som fyller i filen stryker
+  // sällan en area med flit, och en tom cell är det vanligaste av allt – ska ett värde bort går
+  // det genom byggnaden själv.
+  //
+  // Ett fält **byggnaden** saknar är ingen motsägelse utan en *lucka*: filen säger inte emot
+  // något, den fyller i något som fattades. Den fylls i tyst. Utan den regeln hade en fil som
+  // tas ut ur Kasern 1 och läses in oförändrad gett ett förslag om ändring på nästan varje rum –
+  // de handritade byggnaderna har varken rumstyp eller NTA i `data/`, eftersom deras form är
+  // ritad (beslut 101) – och med den är filen vägen att *ge* dem talen.
+  //
+  // Kvar som en fråga blir bara det planeraren faktiskt ändrat: byggnaden har ett svar och filen
+  // ett annat. Svaret är därför två listor – `delar` det som frågas om, `luckor` det som fylls i.
+  function skillnad(flik, befintlig, falt) {
+    var delar = [], luckor = [];
+    (JAMFOR[flik] || []).forEach(function (par) {
+      var namn = par[0];
+      var nytt = falt[namn];
+      if (nytt == null || nytt === '') { return; }
+      var fore = visat(flik, namn, befintlig[namn]);
+      var efter = visat(flik, namn, nytt);
+      if (fore === efter) { return; }
+      var d = { falt: namn, etikett: par[1], fore: fore, efter: efter };
+      if (befintlig[namn] == null || befintlig[namn] === '') { luckor.push(d); }
+      else { delar.push(d); }
+    });
+    return { delar: delar, luckor: luckor };
+  }
+
+  // Frågan en ändrad rad får. Förslaget är `'ja'` och inte värdet: raden bär redan filens
+  // uppgifter, och det planeraren svarar på är *om* byggnaden ska ändras. Att frågan har ett
+  // förslag gör raden ett **förslag** och inte oplacerad, så *Godta alla* tar hela filen.
+  function andringsfraga(vad, delar) {
+    return { slag: 'andring', forslag: 'ja',
+      text: vad + ' finns redan och filen säger något annat: ' +
+        delar.map(function (d) {
+          return d.etikett + ' ' + d.fore + ' → ' + d.efter;
+        }).join(', ') + '. Godta för att ändra byggnaden.' };
+  }
+
+  // Märk raden som ett ändringsförslag, eller som en rad som redan är på plats. Delad av de
+  // tre tolkningarna, så att en ändring betyder samma sak i alla tre stegen.
+  function markBefintlig(rad, flik, befintlig, vad) {
+    rad.fanns = true;
+    // Frågorna gällde en rad som skulle läggas till. Raden finns, så det finns ingenting att
+    // föreslå ett namn eller en NTA för – byggnadens egna uppgifter gäller, och filens är det
+    // enda som kan ändra dem.
+    rad.fragor = [];
+    var s = skillnad(flik, befintlig, rad.falt);
+    // Luckorna fylls i oavsett om raden också har en ändring att fråga om, och ligger på raden
+    // så att den som för in den kan skriva dem i byggnaden.
+    if (s.luckor.length) {
+      rad.luckor = {};
+      s.luckor.forEach(function (d) { rad.luckor[d.falt] = rad.falt[d.falt]; });
+    }
+    if (!s.delar.length) { return rad; }
+    rad.andring = { fore: {}, efter: {}, delar: s.delar };
+    s.delar.forEach(function (d) {
+      rad.andring.fore[d.falt] = befintlig[d.falt];
+      rad.andring.efter[d.falt] = rad.falt[d.falt];
+    });
+    rad.fragor = [andringsfraga(vad, s.delar)];
+    return rad;
+  }
+
+  // Det som finns i byggnaden men **saknas i filen** (berättelse 74). Raderna byggs här och
+  // inte av `tolka*`, eftersom de inte kommer ur filen: de börjar i byggnaden.
+  //
+  // `kom` är nycklarna filen bar, i flikens egen form – beteckningen, rumsnyckeln, id:t. En
+  // flik filen **inte** bar ger inga förslag alls: en fil med bara Plan-fliken ifylld ska inte
+  // föreslå att byggnadens alla rum tas bort, och det är skillnaden mellan en tom flik och en
+  // flik som inte finns. Den skillnaden vet bara den som läste arket, så den kommer in som
+  // `barFliken`.
+  //
+  // Och en flik som bar rader men **inte en enda** av byggnadens egna är ett *tillägg* och inte
+  // en bild av byggnaden: planeraren kan läsa in en flik i taget (berättelse 16), och en fil med
+  // ett enda nytt vindsförråd säger ingenting om de nio rum som redan finns. En fil som tagits
+  // ut och ändrats bär däremot nästan allt byggnaden har, och då är det som fattas ur den
+  // verkligen något som fattas.
+  //
+  // Regeln är en gissning, men den enda som går att förklara i en mening – och den gissar
+  // **mot** att något tas bort, vilket är den säkra sidan: ett förslag som uteblir kostar
+  // planeraren att ta bort raden för hand, ett förslag som uppstår i onödan kostar henne tjugo
+  // rader hon måste läsa igenom.
+  function bortForslag(flik, byggnad, kom, barFliken) {
+    if (!barFliken) { return []; }
+    var b = byggnad || {};
+    var kvar = {};
+    (kom || []).forEach(function (k) { kvar[String(k).toLowerCase()] = true; });
+    var egna = flik === 'plan' ? (b.plan || []).map(function (p) { return p.id; })
+      : flik === 'rum' ? (b.rum || []).map(function (r) { return DP.rumNyckel(r.plan, r.nr); })
+        : signifikanta(b).map(function (i) { return i.id; });
+    if (!egna.some(function (k) { return kvar[String(k).toLowerCase()]; })) { return []; }
+    var rader = flik === 'plan' ? (b.plan || []).map(function (p) {
+      return { nyckel: p.id, vad: 'Planet ' + p.id + ' ' + p.namn, rad: p,
+        falt: { id: p.id, namn: p.namn } };
+    }) : flik === 'rum' ? (b.rum || []).map(function (r) {
+      var nyckel = DP.rumNyckel(r.plan, r.nr);
+      return { nyckel: nyckel, vad: 'Rummet ' + nyckel + ' ' + r.namn, rad: r,
+        falt: { plan: r.plan, nr: r.nr, namn: r.namn } };
+    }) : signifikanta(b).map(function (i) {
+      return { nyckel: i.id, rad: i, falt: { id: i.id, namn: i.benamning, rum: i.rum },
+        vad: 'Installationen ' + (i.beteckning ? i.beteckning + ' ' : '') + i.benamning +
+          ' i ' + i.rum };
+    });
+    var ut = [];
+    rader.forEach(function (x, i) {
+      if (kvar[String(x.nyckel).toLowerCase()]) { return; }
+      ut.push({
+        key: 'b' + flik + (i + 1), bort: true, nyckel: x.nyckel, rad: x.rad, egna: {},
+        falt: x.falt,
+        fragor: [{ slag: 'bort', forslag: 'ja',
+          text: x.vad + ' finns i byggnaden men inte i filen. Godta för att ta bort det, ' +
+            'eller låt det stå: en rad som fattas kan vara glömd lika väl som borttagen.' }]
+      });
+    });
+    return ut;
   }
 
   // ------------------------------------------------------------------
@@ -4933,11 +5129,11 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
         key: 'p' + (i + 1), rad: r, egna: r.egna || {},
         falt: { id: id, namn: txt(r.namn) }, fragor: []
       };
-      // Ett plan som redan finns i byggnaden: raden är inte ny, och den ska inte bli ett
-      // förslag om att lägga till något som är där. (Att **ändra** ett befintligt plan via fil
-      // hör till beslut 86 och byggs i en senare biljett i spåret.)
+      // Ett plan som redan finns i byggnaden: raden är inte ny. Säger filen något annat om
+      // planet blir den ett **förslag om ändring** med före och efter (beslut 86); säger den
+      // detsamma är raden samma plan en gång till, och den är klar.
       if (id && finns[id.toLowerCase()]) {
-        rad.fanns = true;
+        markBefintlig(rad, 'plan', finns[id.toLowerCase()], 'Planet ' + id);
         ut.push(rad);
         return;
       }
@@ -5146,11 +5342,39 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       if (planNu && nrNu) {
         var nyckel = DP.rumNyckel(planNu, nrNu);
         if (tagna[nyckel]) {
-          // Rummet finns i byggnaden: raden är inte ny. Att **ändra** ett befintligt rum via
-          // fil hör till beslut 86 och byggs i biljetten om Ändra byggnad – tills dess är
-          // raden ett rum som redan är på plats, precis som ett plan som redan finns.
-          rad.fanns = true;
-          rad.fragor = [];
+          // Rummet finns i byggnaden: raden är inte ny. Säger filen något annat om rummet blir
+          // den ett **förslag om ändring** med före och efter (beslut 86), precis som ett plan
+          // som redan finns – men bara mot ett rum som ligger i byggnaden. Krockar numret med
+          // en **annan rad i samma fil** är det ingen ändring att godta: raden är ett nytt rum
+          // som vill ha ett nummer som är taget, och den frågan ställs när raden blir klar
+          // (beslut 110).
+          if (tagna[nyckel].falt) {
+            // Numret togs av en rad i samma fil. Raden får ett förslag om nästa lediga nummer,
+            // av samma skäl som när planeraren drar ett rum till ett plan där numret finns
+            // (beslut 110): två rum kan inte dela plan + nummer, och ingen vet vilket
+            // installationerna sitter i. Utan frågan hade raden blivit klar och förts in som
+            // ett andra rum med samma nyckel.
+            var upptagna = Object.keys(tagna).filter(function (k) {
+              return k.slice(0, k.indexOf('-')) === planNu;
+            }).map(function (k) { return k.slice(k.indexOf('-') + 1); });
+            var nytt = nastaLedigaNr(planNu, byggnad, upptagna);
+            rad.falt.plan = planNu;
+            rad.falt.nr = '';
+            rad.fragor = rad.fragor.filter(function (f) {
+              return f.slag !== 'plan' && f.slag !== 'nr';
+            });
+            rad.fragor.push({ slag: 'nr', forslag: nytt,
+              text: 'Rummet ' + nyckel + ' står på mer än en rad i fliken Rum. Nästa lediga ' +
+                'nummer på plan ' + planNu + ' är ' + nytt + '.' });
+            tagna[DP.rumNyckel(planNu, nytt)] = rad;
+          } else {
+            // Planet och numret kan ha varit förslag. Är de det är rummet inte *samma* rum
+            // förrän planeraren godtagit dem, så de förs in här: utan dem hade raden pekat på
+            // ett rum den inte vet att den pekar på.
+            rad.falt.plan = planNu;
+            rad.falt.nr = nrNu;
+            markBefintlig(rad, 'rum', tagna[nyckel], 'Rummet ' + nyckel);
+          }
         } else {
           tagna[nyckel] = rad;
         }
@@ -5385,11 +5609,31 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
 
       // ---- Id:t (beslut 81, berättelse 48) ----
       // Ett tomt Id får ett id från systemet, och ett Id som redan finns i byggnaden betyder
-      // att raden är **samma** installation – den är inte ny. Att *ändra* en befintlig
-      // installation via fil hör till beslut 86 och byggs i biljetten om Ändra byggnad.
-      if (rad.falt.id && tagnaId[rad.falt.id]) {
-        rad.fanns = true;
-        rad.fragor = [];
+      // att raden är **samma** installation – den är inte ny. Säger filen något annat om den
+      // blir raden ett **förslag om ändring** med före och efter (beslut 86). En flytt till ett
+      // annat rum är en sådan ändring: id:t består, så det är samma installation som bytt rum,
+      // och kopplingarna följer med (beslut 87).
+      // Står samma Id på två rader i filen är det ett fel i filen och inget att gissa om, som
+      // samma planbeteckning två gånger: vilken av dem som är installationen vet bara den som
+      // skrev filen.
+      if (rad.falt.id && tagnaId[rad.falt.id] && tagnaId[rad.falt.id].falt) {
+        rad.fragor = [{ slag: 'id', forslag: null,
+          text: 'Id ' + rad.falt.id + ' står på mer än en rad i fliken Installationer. Ta ' +
+            'bort den ena ur filen: id:t pekar ut installationen.' }];
+      } else if (rad.falt.id && tagnaId[rad.falt.id]) {
+        var fanns = tagnaId[rad.falt.id];
+        // Rummet kan ha varit ett förslag. Är det det är det förslaget som ska jämföras mot
+        // byggnadens rum – annars hade en flytt via fil sett ut som ingen ändring alls.
+        var rumFraga = fraga(rad, 'rum');
+        if (rumFraga && rumFraga.forslag) { rad.falt.rum = rumFraga.forslag; }
+        // Filens egna fält jämförs mot byggnadens, inte mot de namn radmodellen använder: en
+        // installation bär `benamning` i byggnaden och `namn` i raden.
+        markBefintlig(rad, 'inst', {
+          namn: fanns.benamning, typ: fanns.typ, beteckning: fanns.beteckning,
+          rum: fanns.rum, fabrikat: fanns.fabrikat, modell: fanns.modell,
+          externtId: fanns.externtId, datum: fanns.datum
+        }, 'Installationen ' + (fanns.beteckning ? fanns.beteckning + ' ' : '') +
+          fanns.benamning);
       } else if (!rad.falt.id) {
         rad.falt.id = nyttInstId(tagnaId);
         rad.idFranSystemet = true;
@@ -5558,6 +5802,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     rumMatchning: rumMatchning, instTypFraga: instTypFraga,
     planMatchning: planMatchning, nrMatchning: nrMatchning,
     grupper: grupper, raknat: raknat, planFranRad: planFranRad,
+    skillnad: skillnad, bortForslag: bortForslag, JAMFOR: JAMFOR,
     tillArk: tillArk, pad3: pad3, tal: tal
   };
 })();
@@ -6006,6 +6251,28 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     meddela(fore, state(), utokaInfo(info, rordaIds, allaFore, byggnaderFore));
   }
 
+  // Ett steg som rör **en** byggnads data *och* dess planering. Formen är `andraFlera`:s –
+  // kopplingarna och byggnaden ska ändras i ett och samma steg – men texten och steget hör till
+  // byggnaden, som i `andraByggnad`: planeraren ser "Kasern 1: godta förslag …" i mediaspelaren
+  // och inte en rad utan avsändare.
+  //
+  // Den finns för inläsningens godtagande (beslut 86): ett godtaget förslag att ta bort en
+  // installation river dess kopplingar, medan ett godtaget nytt rum inte rör planeringen alls –
+  // och vilket av dem det blir vet man först inuti ändringen. Två vägar hade betytt att
+  // *Godta alla* ibland blev två historiksteg.
+  function andraByggnadOchPlanering(text, bid, fn, info) {
+    var id = bid || aktiv;
+    if (!historik[pos].byggnader[id]) { return; }
+    var fore = pos;
+    andraFlera(byggnadsNamn(id) + ': ' + text, function (andring) {
+      return fn(andring.byggnad(id), andring.tillstand(id));
+    }, info);
+    // Steget hör till byggnaden, så att ett ◀ byter dit precis som för varje annan ändring av
+    // den. `andraFlera` lämnar fältet tomt, eftersom Balanseringens steg inte hör till någon
+    // byggnad – men det här gör det.
+    if (pos !== fore) { historik[pos].byggnad = id; }
+  }
+
   // Ändrades den **aktiva** byggnadens data i steget? Frågan som varje vy som ritar ur
   // byggnadsdatan ställer i sin lyssnare. Den bor här och inte i vyerna, därför att formen
   // annars upprepas i varje vy, och den vy som glömmer den ritar tyst gammal data – ett fel
@@ -6397,37 +6664,50 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // pekar på en installation som inte finns är ingen tillsyn, och steg 5 hade räknat den
     // som gjord (beslut 87).
     andraFlera('ta bort plan ' + p.id + ' ' + p.namn, function (andring) {
-      var data = andring.byggnad(id);
-      data.plan = data.plan.filter(function (x) { return x.id !== planId; });
-      data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
-      var borttagna = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) >= 0; });
-      data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
-      rensaKopplingar(andring.tillstand(id), borttagna);
-      rensaInlastaInst(data, nycklar, 'Planet ' + planId + ' är borttaget.');
-      // Planet var inläst: ta det ur gruppen *klart* också, annars hade steget fortsatt räkna
-      // ett plan som inte finns. Listan är nycklad på beteckningen, som är borta nu. Rummens
-      // grupp *klart* är nycklad på plan + rumsnummer och faller av sig själv när rummet
-      // slås upp i byggnaden – men listan städas ändå, så att den inte växer med nycklar
-      // ingen längre kan slå upp.
-      if (data.inlasning && data.inlasning.infordaPlan) {
-        data.inlasning.infordaPlan = data.inlasning.infordaPlan
-          .filter(function (id) { return id !== planId; });
-      }
-      if (data.inlasning && data.inlasning.infordaRum) {
-        data.inlasning.infordaRum = data.inlasning.infordaRum
-          .filter(function (k) { return nycklar.indexOf(k) < 0; });
-      }
-      // En inläst rumsrad som pekade på planet pekar nu på ingenting. Den blir **oplacerad**
-      // i stället för att försvinna: planeraren har en rad i sin fil, och ett rum som tigande
-      // försvinner för att planet togs bort är ett rum hon aldrig får veta om.
-      ((data.inlasning || {}).rum || []).forEach(function (r) {
-        if (r.falt.plan !== planId) { return; }
-        r.falt.plan = '';
-        r.fragor = (r.fragor || []).filter(function (f) { return f.slag !== 'plan'; });
-        r.fragor.push({ slag: 'plan', forslag: null,
-          text: 'Planet ' + planId + ' är borttaget. Välj vilket plan rummet ligger på.' });
-      });
+      planBort(andring.byggnad(id), andring.tillstand(id), planId);
     });
+  }
+
+  // Borttagningen inuti ett steg, skild från steget självt. Den finns för att ett godtaget
+  // **förslag att ta bort** (beslut 86) ska göra exakt detsamma som knappen *Ta bort* – ett
+  // plan som försvinner ur filen och ett plan planeraren tar bort för hand är samma
+  // borttagning, och två kopior av den hade glidit isär så fort någon rättade den ena.
+  function planBort(data, st, planId) {
+    if (!data || !data.plan.some(function (x) { return x.id === planId; })) { return; }
+    var nycklar = data.rum.filter(function (r) { return r.plan === planId; })
+      .map(function (r) { return DP.rumNyckel(r.plan, r.nr); });
+    data.plan = data.plan.filter(function (x) { return x.id !== planId; });
+    data.rum = data.rum.filter(function (r) { return r.plan !== planId; });
+    var borttagna = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) >= 0; });
+    data.installationer = data.installationer.filter(function (i) { return nycklar.indexOf(i.rum) < 0; });
+    rensaKopplingar(st, borttagna);
+    rensaInlastaInst(data, nycklar, 'Planet ' + planId + ' är borttaget.');
+    // Planet var inläst: ta det ur gruppen *klart* också, annars hade steget fortsatt räkna
+    // ett plan som inte finns. Listan är nycklad på beteckningen, som är borta nu. Rummens
+    // grupp *klart* är nycklad på plan + rumsnummer och faller av sig själv när rummet
+    // slås upp i byggnaden – men listan städas ändå, så att den inte växer med nycklar
+    // ingen längre kan slå upp.
+    if (data.inlasning && data.inlasning.infordaPlan) {
+      data.inlasning.infordaPlan = data.inlasning.infordaPlan
+        .filter(function (x) { return x !== planId; });
+    }
+    if (data.inlasning && data.inlasning.infordaRum) {
+      data.inlasning.infordaRum = data.inlasning.infordaRum
+        .filter(function (k) { return nycklar.indexOf(k) < 0; });
+    }
+    // En inläst rumsrad som pekade på planet pekar nu på ingenting. Den blir **oplacerad**
+    // i stället för att försvinna: planeraren har en rad i sin fil, och ett rum som tigande
+    // försvinner för att planet togs bort är ett rum hon aldrig får veta om.
+    ((data.inlasning || {}).rum || []).forEach(function (r) {
+      if (r.bort || r.falt.plan !== planId) { return; }
+      r.falt.plan = '';
+      r.fragor = (r.fragor || []).filter(function (f) { return f.slag !== 'plan'; });
+      r.fragor.push({ slag: 'plan', forslag: null,
+        text: 'Planet ' + planId + ' är borttaget. Välj vilket plan rummet ligger på.' });
+    });
+    // Ett förslag att ta bort ett rum på planet är redan utfört: rummet är borta med planet.
+    // Stod det kvar hade planeraren fått ett förslag om något som inte finns.
+    rensaBortForslag(data);
   }
 
   // Byt benämning på ett plan. Beteckningen rörs inte: den pekar ut planet, och rummen och
@@ -6525,7 +6805,13 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     var planKlara = planRader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
     // Bara de som inte redan finns ska läggas till; resten är samma plan en gång till.
     var planNya = planKlara.filter(function (r) { return !r.fanns; });
-    var planKvar = planRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+    // Det som finns i byggnaden men saknas i filen blir ett förslag att ta bort, och aldrig en
+    // borttagning (beslut 86 och berättelse 74). Förslagen läggs **efter** filens egna rader:
+    // planeraren läser listan vid sidan av sin fil, och det som inte står i filen hör inte
+    // mitt i den.
+    var planKvar = planRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; })
+      .concat(DP.Inlasning.bortForslag('plan', b,
+        planRader.map(function (r) { return r.falt.id; }), fil.flikar.plan));
 
     // Planen som byggnaden har **efter** inläsningen, i föreslagen ordning: det rummen
     // matchas mot. Uträkningen delas med `forInPlan`, så att ordningen är densamma.
@@ -6535,6 +6821,14 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     var rumKlara = rumRader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
     var rumNya = rumKlara.filter(function (r) { return !r.fanns; });
     var rumKvar = rumRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+    // Rummen filen bar, i nyckelform. Ett rum vars rad är ett **förslag** räknas med: raden
+    // nämner rummet, och det som nämns i filen är inte glömt. Annars hade ett rum både kunnat
+    // vara ett förslag om ändring och ett förslag att ta bort på samma gång.
+    var rumBort = DP.Inlasning.bortForslag('rum', b, rumRader.map(function (r) {
+      var p = r.falt.plan || (DP.Inlasning.fraga(r, 'plan') || {}).forslag;
+      var nr = r.falt.nr || (DP.Inlasning.fraga(r, 'nr') || {}).forslag;
+      return p && nr ? DP.rumNyckel(p, nr) : null;
+    }).filter(Boolean), fil.flikar.rum);
 
     // Rummen byggnaden har **efter** inläsningen, plus de nycklar rumsförslagen skulle ge om
     // de godtogs: det installationerna matchas mot. En installation i ett rum som själv är ett
@@ -6549,7 +6843,10 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       { plan: planEfter, rum: rumEfter, installationer: b.installationer }, blivande);
     var instKlara = instRader.filter(function (r) { return DP.Inlasning.status(r) === 'klar'; });
     var instNya = instKlara.filter(function (r) { return !r.fanns; });
-    var instKvar = instRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; });
+    var instKvar = instRader.filter(function (r) { return DP.Inlasning.status(r) !== 'klar'; })
+      .concat(DP.Inlasning.bortForslag('inst', b,
+        instRader.map(function (r) { return r.falt.id; }), fil.flikar.inst));
+    var rumKvarMedBort = rumKvar.concat(rumBort);
 
     var namn = String(filnamn || 'inläsningsfilen');
     andraByggnad('läs in ' + namn, bid, function (data) {
@@ -6558,7 +6855,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       // frågorna gällde den gamla filen.
       data.inlasning.plan = planKvar;
       data.inlasning.infordaPlan = planKlara.map(function (r) { return r.falt.id; });
-      data.inlasning.rum = rumKvar;
+      data.inlasning.rum = rumKvarMedBort;
       data.inlasning.infordaRum = rumKlara.map(function (r) {
         return DP.rumNyckel(r.falt.plan, r.falt.nr);
       });
@@ -6569,13 +6866,56 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       forInPlan(data, planNya);
       forInRum(data, rumNya);
       forInInst(data, instNya);
+      // Efter att de nya förts in: en lucka kan sitta på en rad som redan fanns, och den förs
+      // in i samma steg som inläsningen (beslut 86). Att det sker här och inte i `forIn*` är
+      // för att de tre bara känner de **nya** raderna.
+      fyllLuckor(data, planRader, rumRader, instRader);
     });
+    // Antalen räknas på raderna **plus** borttagningsförslagen: de är lika mycket något
+    // planeraren ska ta ställning till som ett förslag ur filen, och ett antal som utelämnade
+    // dem hade sagt "0 förslag" om en inläsning med tio rader att ta bort.
     return {
-      raknat: DP.Inlasning.raknat(planRader), ignorerade: fil.ignorerade,
-      rumRaknat: DP.Inlasning.raknat(rumRader),
-      instRaknat: DP.Inlasning.raknat(instRader),
+      raknat: DP.Inlasning.raknat(planKlara.concat(planKvar)), ignorerade: fil.ignorerade,
+      rumRaknat: DP.Inlasning.raknat(rumKlara.concat(rumKvarMedBort)),
+      instRaknat: DP.Inlasning.raknat(instKlara.concat(instKvar)),
       rum: fil.rum.length, inst: fil.inst.length, inforda: planNya.length
     };
+  }
+
+  // Luckorna i det som redan finns, fyllda ur filen (se `DP.Inlasning.skillnad`). En lucka är
+  // ett fält byggnaden saknade och filen bär: den säger inte emot något, så det finns ingenting
+  // att fråga om – men den ska föras in, annars hade filen varit vägen att *se* en area och
+  // inte vägen att *ge* byggnaden den.
+  //
+  // Det är också så de handritade byggnaderna (beslut 101) får sina rumstyper och areor: deras
+  // form är ritad och `data/` har aldrig burit talen.
+  function fyllLuckor(data, planRader, rumRader, instRader) {
+    (planRader || []).forEach(function (r) {
+      if (!r.luckor) { return; }
+      var p = data.plan.filter(function (x) { return x.id === r.falt.id; })[0];
+      if (p) { Object.keys(r.luckor).forEach(function (f) { p[f] = r.luckor[f]; }); }
+    });
+    (rumRader || []).forEach(function (r) {
+      if (!r.luckor) { return; }
+      var nyckel = DP.rumNyckel(r.falt.plan, r.falt.nr);
+      var rm = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) === nyckel; })[0];
+      if (!rm) { return; }
+      Object.keys(r.luckor).forEach(function (f) { rm[f] = r.luckor[f]; });
+      // Modellens sort följer rumstypen och är inte något filen bär (beslut 80). Ett
+      // **handritat** rum har sin egen `typ` ur `data/` och rörs inte: dess form är ritad, och
+      // en ny sort hade bytt färg på ett golv planeraren känner igen (beslut 101).
+      if (r.luckor.rumstyp && !rm.rect) {
+        rm.typ = DP.Planlosning.kategoriFor(r.luckor.rumstyp);
+      }
+    });
+    (instRader || []).forEach(function (r) {
+      if (!r.luckor) { return; }
+      var i = data.installationer.filter(function (x) { return x.id === r.falt.id; })[0];
+      if (!i) { return; }
+      Object.keys(r.luckor).forEach(function (f) {
+        i[f === 'namn' ? 'benamning' : f] = r.luckor[f];
+      });
+    });
   }
 
   // Planen i den ordning systemet föreslår (beslut 84). Delad av inläsningen och
@@ -6652,40 +6992,86 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (!b) { return; }
     var rad = inlasningsdel(b, 'plan').filter(function (r) { return r.key === key; })[0];
     if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
-    var text = 'godta förslag: plan ' + rad.falt.id;
-    andraByggnad(text, bid, function (data) {
-      godtaRader(data, [key]);
+    var text = godtaText(rad, 'plan ' + rad.falt.id);
+    andraByggnadOchPlanering(text, bid, function (data, st) {
+      godtaRader(data, st, [key]);
     });
   }
   function godtaAllaPlan(bid) {
     var b = B(bid);
     if (!b) { return; }
     var nycklar = inlasningsdel(b, 'plan')
-      .filter(function (r) { return DP.Inlasning.status(r) === 'forslag'; })
+      .filter(gaarIEttSvep)
       .map(function (r) { return r.key; });
     if (!nycklar.length) { return; }
-    andraByggnad('godta alla ' + nycklar.length + ' förslag i Plan', bid, function (data) {
-      godtaRader(data, nycklar);
-    });
+    andraByggnadOchPlanering('godta alla ' + nycklar.length + ' förslag i Plan', bid,
+      function (data, st) { godtaRader(data, st, nycklar); });
+  }
+  // Går raden med i ett *Godta alla*? Förslag och ändringar gör det; ett förslag att **ta
+  // bort** gör det inte (beslut 86 och berättelse 74).
+  //
+  // Att skriva om byggnaden efter filen är en sak – planeraren har själv fyllt i de värdena.
+  // Att låta en rad som *fattas* radera ett rum och dess installationers tillsyn är en annan,
+  // och den ska aldrig gå i ett svep: en rad som fattas kan vara glömd lika väl som borttagen,
+  // och ett svep gör inget ställningstagande per rad. Den som vill ta bort allt som saknas tar
+  // dem en och en; den som vill behålla dem har *Låt alla stå*.
+  function gaarIEttSvep(r) {
+    return !r.bort && DP.Inlasning.status(r) === 'forslag';
+  }
+
+  // Historikens text för ett godtagande. De tre sorternas förslag säger olika saker, och
+  // mediaspelarens lista ska gå att läsa utan att planeraren öppnar steget: *godta förslag* är
+  // att något läggs till, *godta ändring* att byggnaden skrivs om, *godta borttagning* att
+  // något försvinner (beslut 86).
+  function godtaText(rad, vad) {
+    if (rad.bort) { return 'godta borttagning: ' + vad; }
+    if (rad.andring) { return 'godta ändring: ' + vad; }
+    return 'godta förslag: ' + vad;
   }
   // Godtagandet inuti ett steg: raderna godtas, de som blev klara förs in i byggnaden och
   // försvinner ur arbetslistan. Delad av *godta ett* och *Godta alla*, så att de två aldrig
   // kan börja skilja sig på vad ett godtagande betyder.
-  function godtaRader(data, nycklar) {
+  // En godtagen rad kan göra tre olika saker mot byggnaden (beslut 86): lägga till det som är
+  // nytt, **skriva om** det som finns, eller **ta bort** det som saknas i filen. Uppdelningen
+  // görs här och inte i tre funktioner, eftersom *Godta alla* kan bära alla tre på en gång och
+  // ändå ska vara ett steg.
+  function godtaRader(data, st, nycklar) {
     var rader = inlasningsdel(data, 'plan');
     var blevKlara = [];
+    var klara = [];
     nycklar.forEach(function (key) {
       var rad = rader.filter(function (r) { return r.key === key; })[0];
       if (!rad) { return; }
       DP.Inlasning.godta(rad);
-      if (DP.Inlasning.status(rad) === 'klar') { blevKlara.push(rad); }
+      if (DP.Inlasning.status(rad) !== 'klar') { return; }
+      klara.push(rad);
+      if (rad.godtagetBort) {
+        planBort(data, st, rad.nyckel);
+      } else if (rad.godtagenAndring) {
+        var p = data.plan.filter(function (x) { return x.id === rad.falt.id; })[0];
+        if (p) { andraPlanFranRad(p, rad); }
+      } else {
+        blevKlara.push(rad);
+      }
     });
-    if (!blevKlara.length) { return; }
-    var klaraNycklar = blevKlara.map(function (r) { return r.key; });
-    data.inlasning.plan = rader.filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
+    if (!klara.length) { return; }
+    var klaraNycklar = klara.map(function (r) { return r.key; });
+    // `planBort` kan själv ha städat listan (ett förslag om ett rum på planet), så listan läses
+    // om ur datan i stället för ur den kopia funktionen började med.
+    data.inlasning.plan = inlasningsdel(data, 'plan')
+      .filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
     data.inlasning.infordaPlan = (data.inlasning.infordaPlan || [])
-      .concat(blevKlara.map(function (r) { return r.falt.id; }));
+      .concat(klara.filter(function (r) { return !r.godtagetBort; })
+        .map(function (r) { return r.falt.id; }));
     forInPlan(data, blevKlara);
+  }
+
+  // Ändringen förd in i det plan som finns. Bara de fält skillnaden pekade ut skrivs om: filen
+  // kan ha en tom cell där byggnaden har ett värde, och en tom cell är inte ett svar
+  // (se `DP.Inlasning.skillnad`).
+  function andraPlanFranRad(p, rad) {
+    Object.keys(rad.andring.efter).forEach(function (f) { p[f] = rad.andring.efter[f]; });
+    if (rad.egna && Object.keys(rad.egna).length) { p.egna = rad.egna; }
   }
 
   // Besvara en fråga planeraren själv svarar på: en oplacerad rad som får sin beteckning.
@@ -6700,7 +7086,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // Beteckningen måste gå att använda, precis som när planeraren lägger till ett plan för
     // hand: det är samma regel och samma besked (beslut 77).
     if (slag === 'id' && planHinder(v, bid)) { return; }
-    andraByggnad('svara för inläst rad: ' + slag + ' ' + v, bid, function (data) {
+    andraByggnadOchPlanering('svara för inläst rad: ' + slag + ' ' + v, bid, function (data, st) {
       var r2 = inlasningsdel(data, 'plan').filter(function (x) { return x.key === key; })[0];
       if (!r2) { return false; }
       DP.Inlasning.besvara(r2, slag, v);
@@ -6713,7 +7099,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       }
       // Blev raden klar av svaret förs den in i byggnaden i samma steg, precis som ett
       // godtagande gör: svaret *är* att planet läggs till.
-      if (DP.Inlasning.status(r2) === 'klar') { godtaRader(data, [key]); }
+      if (DP.Inlasning.status(r2) === 'klar') { godtaRader(data, st, [key]); }
     });
   }
 
@@ -6733,20 +7119,18 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (!b) { return; }
     var rad = inlasningsdel(b, 'rum').filter(function (r) { return r.key === key; })[0];
     if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
-    andraByggnad('godta förslag: rum ' + rumRadNamn(rad), bid, function (data) {
-      godtaRumRader(data, [key]);
-    });
+    andraByggnadOchPlanering(godtaText(rad, 'rum ' + rumRadNamn(rad)), bid,
+      function (data, st) { godtaRumRader(data, st, [key]); });
   }
   function godtaAllaRum(bid) {
     var b = B(bid);
     if (!b) { return; }
     var nycklar = inlasningsdel(b, 'rum')
-      .filter(function (r) { return DP.Inlasning.status(r) === 'forslag'; })
+      .filter(gaarIEttSvep)
       .map(function (r) { return r.key; });
     if (!nycklar.length) { return; }
-    andraByggnad('godta alla ' + nycklar.length + ' förslag i Rum', bid, function (data) {
-      godtaRumRader(data, nycklar);
-    });
+    andraByggnadOchPlanering('godta alla ' + nycklar.length + ' förslag i Rum', bid,
+      function (data, st) { godtaRumRader(data, st, nycklar); });
   }
   // Rummet i klartext för historikens rad: beteckningen när den finns, annars benämningen.
   // Mediaspelarens lista ska gå att läsa utan att gissa, och en rad som ännu inte har sitt
@@ -6764,14 +7148,30 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // kan krocka med ett rum som redan finns på planet, och då **får raden ett nytt förslag**
   // i stället för att två rum delar plan + nummer (beslut 110). Det kan hända här och inte
   // bara vid inläsningen, eftersom planet kan vara ett förslag som godtas nu.
-  function godtaRumRader(data, nycklar) {
+  function godtaRumRader(data, st, nycklar) {
     var rader = inlasningsdel(data, 'rum');
     var blevKlara = [];
+    var klara = [];
     nycklar.forEach(function (key) {
       var rad = rader.filter(function (r) { return r.key === key; })[0];
       if (!rad) { return; }
       DP.Inlasning.godta(rad);
       if (DP.Inlasning.status(rad) !== 'klar') { return; }
+      // Ett godtaget förslag att ta bort och en godtagen ändring rör ett rum som **finns**, så
+      // numret kan inte krocka: det är rummets eget nummer (beslut 86).
+      if (rad.godtagetBort) {
+        klara.push(rad);
+        rumBort(data, st, rad.nyckel);
+        return;
+      }
+      if (rad.godtagenAndring) {
+        klara.push(rad);
+        var rm = data.rum.filter(function (x) {
+          return DP.rumNyckel(x.plan, x.nr) === DP.rumNyckel(rad.falt.plan, rad.falt.nr);
+        })[0];
+        if (rm) { andraRumFranRad(rm, rad); }
+        return;
+      }
       // Numret kan vara upptaget nu, av byggnaden eller av en rad som godtogs i samma steg.
       // Frågan är radens och bor därför i `DP.Inlasning` vid sidan av `nastaLedigaNr`.
       var ledigt = DP.Inlasning.nummerkrock(rad, data, blevKlara);
@@ -6779,14 +7179,31 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
         rad.fragor.push(ledigt);
         return;
       }
+      klara.push(rad);
       blevKlara.push(rad);
     });
-    if (!blevKlara.length) { return; }
-    var klaraNycklar = blevKlara.map(function (r) { return r.key; });
-    data.inlasning.rum = rader.filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
+    if (!klara.length) { return; }
+    var klaraNycklar = klara.map(function (r) { return r.key; });
+    data.inlasning.rum = inlasningsdel(data, 'rum')
+      .filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
     data.inlasning.infordaRum = (data.inlasning.infordaRum || [])
-      .concat(blevKlara.map(function (r) { return DP.rumNyckel(r.falt.plan, r.falt.nr); }));
+      .concat(klara.filter(function (r) { return !r.godtagetBort; })
+        .map(function (r) { return DP.rumNyckel(r.falt.plan, r.falt.nr); }));
     forInRum(data, blevKlara);
+  }
+
+  // Ändringen förd in i det rum som finns. Bara de fält skillnaden pekade ut skrivs om, som
+  // för ett plan – och `typ`, modellens sort, följer rumstypen: den räknas ur rumstypen och är
+  // inte något filen bär (beslut 80).
+  function andraRumFranRad(rm, rad) {
+    Object.keys(rad.andring.efter).forEach(function (f) { rm[f] = rad.andring.efter[f]; });
+    if (rad.andring.efter.rumstyp) {
+      rm.typ = DP.Planlosning.kategoriFor(rad.andring.efter.rumstyp);
+    }
+    // Höjden rörs inte. Ett inläst rum har ingen `hojd` i tillståndet – den räknas ur NTV ÷ NTA
+    // av planlösningen – och ett **handritat** rum har en ritad höjd som är dess egen
+    // (beslut 101): ett nytt NTV i filen ska inte göra hangaren lägre.
+    if (rad.egna && Object.keys(rad.egna).length) { rm.egna = rad.egna; }
   }
 
   // Besvara en fråga på en rumsrad: planeraren väljer plan, skriver ett nummer, byter
@@ -6803,23 +7220,24 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (!rad) { return; }
     var v = varde == null ? '' : varde;
     if (slag !== 'nta' && !String(v).trim()) { return; }
-    andraByggnad('svara för inläst rum: ' + rumSvarText(slag, v), bid, function (data) {
-      var r2 = inlasningsdel(data, 'rum').filter(function (x) { return x.key === key; })[0];
-      if (!r2) { return false; }
-      DP.Inlasning.besvara(r2, slag, v);
-      // Rumstypen bär standard-NTA, så ett byte av typ ändrar vad en saknad NTA föreslås
-      // bli. Lämnas det gamla förslaget kvar hade ett WC fått en korridors 96 m².
-      if (slag === 'rumstyp') {
-        var nta = DP.Inlasning.fraga(r2, 'nta');
-        if (nta) {
-          var std = (DP.rumstyper[v] || {}).nta || 36;
-          nta.forslag = std;
-          nta.text = 'Rummet saknar NTA – föreslås bli ' + std + ' m², standard för ' +
-            (DP.rumstyper[v] || {}).namn + '. NTA ger rummets storlek i modellen.';
+    andraByggnadOchPlanering('svara för inläst rum: ' + rumSvarText(slag, v), bid,
+      function (data, st) {
+        var r2 = inlasningsdel(data, 'rum').filter(function (x) { return x.key === key; })[0];
+        if (!r2) { return false; }
+        DP.Inlasning.besvara(r2, slag, v);
+        // Rumstypen bär standard-NTA, så ett byte av typ ändrar vad en saknad NTA föreslås
+        // bli. Lämnas det gamla förslaget kvar hade ett WC fått en korridors 96 m².
+        if (slag === 'rumstyp') {
+          var nta = DP.Inlasning.fraga(r2, 'nta');
+          if (nta) {
+            var std = (DP.rumstyper[v] || {}).nta || 36;
+            nta.forslag = std;
+            nta.text = 'Rummet saknar NTA – föreslås bli ' + std + ' m², standard för ' +
+              (DP.rumstyper[v] || {}).namn + '. NTA ger rummets storlek i modellen.';
+          }
         }
-      }
-      if (DP.Inlasning.status(r2) === 'klar') { godtaRumRader(data, [key]); }
-    });
+        if (DP.Inlasning.status(r2) === 'klar') { godtaRumRader(data, st, [key]); }
+      });
   }
   // Svaret i klartext för historiken. Slaget är systemets ord; planeraren ska läsa vad hon
   // gjorde, inte vilket fält koden kallar det.
@@ -6924,16 +7342,55 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     // `andraFlera` av samma skäl som i `taBortPlan`: kopplingarna till installationerna i
     // rummet försvinner i samma steg som installationerna.
     andraFlera('ta bort rum ' + nyckel + ' ' + r.namn, function (andring) {
-      var data = andring.byggnad(id);
-      data.rum = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) !== nyckel; });
-      var borttagna = data.installationer.filter(function (i) { return i.rum === nyckel; });
-      data.installationer = data.installationer.filter(function (i) { return i.rum !== nyckel; });
-      rensaKopplingar(andring.tillstand(id), borttagna);
-      rensaInlastaInst(data, [nyckel], 'Rummet ' + nyckel + ' är borttaget.');
-      if (data.inlasning && data.inlasning.infordaRum) {
-        data.inlasning.infordaRum = data.inlasning.infordaRum
-          .filter(function (k) { return k !== nyckel; });
-      }
+      rumBort(andring.byggnad(id), andring.tillstand(id), nyckel);
+    });
+  }
+
+  // Borttagningen inuti ett steg, som `planBort`: delad med det godtagna förslaget att ta bort
+  // (beslut 86).
+  function rumBort(data, st, nyckel) {
+    if (!data) { return; }
+    data.rum = data.rum.filter(function (x) { return DP.rumNyckel(x.plan, x.nr) !== nyckel; });
+    var borttagna = data.installationer.filter(function (i) { return i.rum === nyckel; });
+    data.installationer = data.installationer.filter(function (i) { return i.rum !== nyckel; });
+    rensaKopplingar(st, borttagna);
+    rensaInlastaInst(data, [nyckel], 'Rummet ' + nyckel + ' är borttaget.');
+    if (data.inlasning && data.inlasning.infordaRum) {
+      data.inlasning.infordaRum = data.inlasning.infordaRum
+        .filter(function (k) { return k !== nyckel; });
+    }
+    rensaBortForslag(data);
+  }
+
+  // Borttagningen inuti ett steg, som `planBort` och `rumBort`.
+  function instBort(data, st, instId) {
+    if (!data) { return; }
+    var i = data.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i) { return; }
+    data.installationer = data.installationer.filter(function (x) { return x.id !== instId; });
+    if (data.inlasning && data.inlasning.infordaInst) {
+      data.inlasning.infordaInst = data.inlasning.infordaInst
+        .filter(function (k) { return k !== instId; });
+    }
+    rensaKopplingar(st, [i]);
+    rensaBortForslag(data);
+  }
+
+  // Förslag att ta bort något som inte längre finns städas bort (beslut 86). Det händer av sig
+  // självt när planeraren tar bort planet: rummens och installationernas förslag gällde något
+  // som försvann med det, och ett förslag om en rad ingen kan slå upp är ett förslag hon inte
+  // kan svara på.
+  function rensaBortForslag(data) {
+    if (!data.inlasning) { return; }
+    var finnsPlan = {}, finnsRum = {}, finnsInst = {};
+    (data.plan || []).forEach(function (p) { finnsPlan[p.id] = true; });
+    (data.rum || []).forEach(function (r) { finnsRum[DP.rumNyckel(r.plan, r.nr)] = true; });
+    (data.installationer || []).forEach(function (i) { finnsInst[i.id] = true; });
+    var kvar = { plan: finnsPlan, rum: finnsRum, inst: finnsInst };
+    ['plan', 'rum', 'inst'].forEach(function (flik) {
+      data.inlasning[flik] = (data.inlasning[flik] || []).filter(function (r) {
+        return !r.bort || kvar[flik][r.nyckel];
+      });
     });
   }
 
@@ -7022,7 +7479,9 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
         .filter(function (id) { return kvar[id]; });
     }
     (data.inlasning.inst || []).forEach(function (r) {
-      if (rumNycklar.indexOf(r.falt.rum) < 0) { return; }
+      // Ett förslag att **ta bort** en installation i rummet ska inte få en fråga om vilket rum
+      // den sitter i: den är redan borta med rummet, och `rensaBortForslag` tar raden.
+      if (r.bort || rumNycklar.indexOf(r.falt.rum) < 0) { return; }
       r.falt.rum = '';
       r.fragor = (r.fragor || []).filter(function (f) { return f.slag !== 'rum'; });
       r.fragor.push({ slag: 'rum', forslag: null,
@@ -7224,19 +7683,19 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (!b) { return; }
     var rad = inlasningsdel(b, 'inst').filter(function (r) { return r.key === key; })[0];
     if (!rad || DP.Inlasning.status(rad) !== 'forslag') { return; }
-    andraByggnad('godta förslag: ' + instRadNamn(rad), bid, function (data) {
-      godtaInstRader(data, [key]);
+    andraByggnadOchPlanering(godtaText(rad, instRadNamn(rad)), bid, function (data, st) {
+      godtaInstRader(data, st, [key]);
     });
   }
   function godtaAllaInst(bid) {
     var b = B(bid);
     if (!b) { return; }
     var nycklar = inlasningsdel(b, 'inst')
-      .filter(function (r) { return DP.Inlasning.status(r) === 'forslag'; })
+      .filter(gaarIEttSvep)
       .map(function (r) { return r.key; });
     if (!nycklar.length) { return; }
-    andraByggnad('godta alla ' + nycklar.length + ' förslag i Installationer', bid,
-      function (data) { godtaInstRader(data, nycklar); });
+    andraByggnadOchPlanering('godta alla ' + nycklar.length + ' förslag i Installationer', bid,
+      function (data, st) { godtaInstRader(data, st, nycklar); });
   }
   // Installationen i klartext för historikens rad: beteckningen och benämningen, det
   // planeraren känner igen den på. Mediaspelarens lista ska gå att läsa utan att gissa.
@@ -7250,21 +7709,57 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   }
 
   // Godtagandet inuti ett steg, som `godtaRader` för plan och `godtaRumRader` för rum.
-  function godtaInstRader(data, nycklar) {
+  function godtaInstRader(data, st, nycklar) {
     var rader = inlasningsdel(data, 'inst');
     var blevKlara = [];
+    var klara = [];
     nycklar.forEach(function (key) {
       var rad = rader.filter(function (r) { return r.key === key; })[0];
       if (!rad) { return; }
       DP.Inlasning.godta(rad);
-      if (DP.Inlasning.status(rad) === 'klar') { blevKlara.push(rad); }
+      if (DP.Inlasning.status(rad) !== 'klar') { return; }
+      klara.push(rad);
+      if (rad.godtagetBort) {
+        instBort(data, st, rad.nyckel);
+      } else if (rad.godtagenAndring) {
+        var i = data.installationer.filter(function (x) { return x.id === rad.falt.id; })[0];
+        if (i) { andraInstFranRad(i, rad); }
+      } else {
+        blevKlara.push(rad);
+      }
     });
-    if (!blevKlara.length) { return; }
-    var klaraNycklar = blevKlara.map(function (r) { return r.key; });
-    data.inlasning.inst = rader.filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
+    if (!klara.length) { return; }
+    var klaraNycklar = klara.map(function (r) { return r.key; });
+    data.inlasning.inst = inlasningsdel(data, 'inst')
+      .filter(function (r) { return klaraNycklar.indexOf(r.key) < 0; });
     data.inlasning.infordaInst = (data.inlasning.infordaInst || [])
-      .concat(blevKlara.map(function (r) { return r.falt.id; }));
+      .concat(klara.filter(function (r) { return !r.godtagetBort; })
+        .map(function (r) { return r.falt.id; }));
     forInInst(data, blevKlara);
+  }
+
+  // Ändringen förd in i den installation som finns. Det är **samma** installation: id:t består,
+  // och kopplade åtgärder och avvikande texter pekar på id:t och följer därför med (beslut 87).
+  // Därför är också en flytt till ett annat rum via fil bara ett nytt `rum` – tillsynen är
+  // densamma.
+  //
+  // Byter installationen **typ** rörs kopplingarna inte heller, av samma skäl som när
+  // planeraren byter typ för hand (beslut 94): att de kopplingar som inte gäller den nya typen
+  // syns som saknade i steg 5 är hela poängen, och en tyst rensning hade tagit bort tillsyn
+  // ingen bett om.
+  function andraInstFranRad(i, rad) {
+    Object.keys(rad.andring.efter).forEach(function (f) {
+      // Radmodellen kallar benämningen `namn`; i byggnaden heter den `benamning`.
+      i[f === 'namn' ? 'benamning' : f] = rad.andring.efter[f];
+    });
+    // Platsen i rummet räknas av planlösningen ur rummets rektangel (beslut 78), så en ritad
+    // plats som följde med till ett annat rum hade lagt installationen utanför väggarna –
+    // samma skäl som i `flyttaInst`.
+    if (rad.andring.efter.rum != null) {
+      delete i.x;
+      delete i.z;
+    }
+    if (rad.egna && Object.keys(rad.egna).length) { i.egna = rad.egna; }
   }
 
   // Besvara en fråga på en installationsrad: planeraren väljer rum eller installationstyp.
@@ -7282,17 +7777,18 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (!v) { return; }
     if (slag === 'typ' && !DP.installationstyper[v]) { return; }
     if (slag === 'rum' && !b.rum.some(function (r) { return DP.rumNyckel(r.plan, r.nr) === v; })) { return; }
-    andraByggnad('svara för inläst installation: ' + instSvarText(slag, v), bid, function (data) {
-      var r2 = inlasningsdel(data, 'inst').filter(function (x) { return x.key === key; })[0];
-      if (!r2) { return false; }
-      DP.Inlasning.besvara(r2, slag, v);
-      if (slag === 'typ' && !r2.falt.namn && !DP.Inlasning.fraga(r2, 'benamning')) {
-        var tnamn = (DP.installationstyper[v] || {}).namn || v;
-        r2.fragor.push({ slag: 'benamning', forslag: tnamn,
-          text: 'Installationen saknar benämning – föreslås bli ' + tnamn + '.' });
-      }
-      if (DP.Inlasning.status(r2) === 'klar') { godtaInstRader(data, [key]); }
-    });
+    andraByggnadOchPlanering('svara för inläst installation: ' + instSvarText(slag, v), bid,
+      function (data, st) {
+        var r2 = inlasningsdel(data, 'inst').filter(function (x) { return x.key === key; })[0];
+        if (!r2) { return false; }
+        DP.Inlasning.besvara(r2, slag, v);
+        if (slag === 'typ' && !r2.falt.namn && !DP.Inlasning.fraga(r2, 'benamning')) {
+          var tnamn = (DP.installationstyper[v] || {}).namn || v;
+          r2.fragor.push({ slag: 'benamning', forslag: tnamn,
+            text: 'Installationen saknar benämning – föreslås bli ' + tnamn + '.' });
+        }
+        if (DP.Inlasning.status(r2) === 'klar') { godtaInstRader(data, st, [key]); }
+      });
   }
   // Svaret i klartext för historiken. Slaget är systemets ord; planeraren ska läsa vad hon
   // gjorde, inte vilket fält koden kallar det.
@@ -7426,13 +7922,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
     if (!i) { return; }
     andraFlera('ta bort ' + (i.beteckning || i.benamning), function (andring) {
-      var data = andring.byggnad(id);
-      data.installationer = data.installationer.filter(function (x) { return x.id !== instId; });
-      if (data.inlasning && data.inlasning.infordaInst) {
-        data.inlasning.infordaInst = data.inlasning.infordaInst
-          .filter(function (k) { return k !== instId; });
-      }
-      rensaKopplingar(andring.tillstand(id), [i]);
+      instBort(andring.byggnad(id), andring.tillstand(id), instId);
     });
   }
 
@@ -7554,8 +8044,9 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // det. `grupper` är det som **återstår**, `inforda` det som kom in.
   function inlasningStatus(flik, bid) {
     var b = B(bid);
-    var tomt = { grupper: { forslag: [], oplacerad: [] },
-      raknat: { klar: 0, forslag: 0, oplacerad: 0 }, inforda: [], klar: true, fil: null };
+    var tomt = { grupper: { forslag: [], andrade: [], bort: [], oplacerad: [] },
+      raknat: { klar: 0, forslag: 0, oplacerad: 0, nytt: 0, andrade: 0, bort: 0 },
+      inforda: [], klar: true, fil: null };
     if (!b) { return tomt; }
     var rader = inlasningsdel(b, flik);
     var raknat = DP.Inlasning.raknat(rader);
@@ -7578,13 +8069,54 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       }).filter(Boolean);
     }
     var g = DP.Inlasning.grupper(rader);
+    // Förslagen delas i tre, eftersom de säger tre olika saker (beslut 86): *nytt* läggs till,
+    // *ändrat* skriver om det som finns med före och efter, och *saknas i filen* tar bort.
+    // En blandad lista hade krävt att planeraren läste varje skäl för att se vad ett *Godta
+    // alla* skulle göra – och det som tas bort är det hon behöver titta närmast på.
+    var nytt = g.forslag.filter(function (r) { return !r.andring && !r.bort; });
+    var andrade = g.forslag.filter(function (r) { return r.andring; });
+    var bort = g.forslag.filter(function (r) { return r.bort; });
     return {
-      grupper: { forslag: g.forslag, oplacerad: g.oplacerad },
-      raknat: { klar: klara.length, forslag: raknat.forslag, oplacerad: raknat.oplacerad },
+      grupper: { forslag: nytt, andrade: andrade, bort: bort, oplacerad: g.oplacerad },
+      raknat: { klar: klara.length, forslag: raknat.forslag, oplacerad: raknat.oplacerad,
+        nytt: nytt.length, andrade: andrade.length, bort: bort.length },
       inforda: klara,
       klar: raknat.forslag === 0 && raknat.oplacerad === 0,
       fil: fil
     };
+  }
+
+  // Låt det stå: ett förslag att ta bort avvisas (beslut 86, berättelse 74). Förslaget
+  // försvinner och byggnaden står orörd.
+  //
+  // Vägen måste finnas, och inte bara som en bekvämlighet: ett steg är grönt när bara klart
+  // återstår (beslut 83), så ett förslag planeraren inte vill godta hade hållit steget ogrönt
+  // för alltid. "En rad som fattas kan vara glömd lika väl som borttagen" betyder att **båda**
+  // svaren ska gå att ge – att låta det stå är ett ställningstagande och inte ett uteblivet
+  // svar. Det är ett steg i historiken, så ett ◀ tar tillbaka förslaget.
+  function avvisaBort(flik, key, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var rad = inlasningsdel(b, flik).filter(function (r) { return r.key === key; })[0];
+    if (!rad || !rad.bort) { return; }
+    andraByggnad('låt ' + (rad.falt.namn || rad.nyckel) + ' stå kvar', bid, function (data) {
+      data.inlasning[flik] = inlasningsdel(data, flik)
+        .filter(function (r) { return r.key !== key; });
+    });
+  }
+  // Alla förslag att ta bort i en flik avvisas på en gång, som *Godta alla* godtar dem: en fil
+  // som tappat tjugo rader ska inte kräva tjugo klick för det svar planeraren redan bestämt.
+  function avvisaAllaBort(flik, bid) {
+    var b = B(bid);
+    if (!b) { return; }
+    var nycklar = inlasningsdel(b, flik).filter(function (r) { return r.bort; })
+      .map(function (r) { return r.key; });
+    if (!nycklar.length) { return; }
+    andraByggnad('låt alla ' + nycklar.length + ' rader som saknas i filen stå kvar', bid,
+      function (data) {
+        data.inlasning[flik] = inlasningsdel(data, flik)
+          .filter(function (r) { return nycklar.indexOf(r.key) < 0; });
+      });
   }
 
   // Arket som ska skrivas när planeraren tar ut filen (berättelse 14 och 17). Byggnaden läses
@@ -8964,6 +9496,7 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     ordnaPlanEfterForslag: ordnaPlanEfterForslag,
     lasInArk: lasInArk, godtaPlan: godtaPlan, godtaAllaPlan: godtaAllaPlan,
     svaraPlan: svaraPlan, inlasningStatus: inlasningStatus, filArk: filArk,
+    avvisaBort: avvisaBort, avvisaAllaBort: avvisaAllaBort,
     godtaRum: godtaRum, godtaAllaRum: godtaAllaRum, svaraRum: svaraRum,
     rumStatus: rumStatus, sattRumstyp: sattRumstyp, taBortRum: taBortRum,
     ritaOmPlan: ritaOmPlan,
@@ -12657,7 +13190,9 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   function aterstar(flik) {
     var r = P.inlasningStatus(flik).raknat;
     var delar = [];
-    if (r.forslag) { delar.push(antal(r.forslag, 'förslag', 'förslag')); }
+    if (r.nytt) { delar.push(antal(r.nytt, 'förslag', 'förslag')); }
+    if (r.andrade) { delar.push(antal(r.andrade, 'ändrad rad', 'ändrade rader')); }
+    if (r.bort) { delar.push(antal(r.bort, 'rad', 'rader') + ' som saknas i filen'); }
     if (r.oplacerad) { delar.push(antal(r.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
     return delar.length ? delar.join(', ') + ' kvar' : '';
   }
@@ -13059,7 +13594,12 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       var txt2 = 'Läst in <b>' + inl.fil.namn + '</b>';
       var delar = [];
       if (inl.raknat.klar) { delar.push(antal(inl.raknat.klar, sort[0], sort[1])); }
-      if (inl.raknat.forslag) { delar.push(antal(inl.raknat.forslag, 'förslag', 'förslag')); }
+      // Förslagen räknas i sina tre sorter (beslut 86). "4 förslag" om en inläsning där tre
+      // av dem vill ta bort ett rum hade sagt för lite: planeraren ska se att filen föreslår
+      // en borttagning innan hon öppnar gruppen.
+      if (inl.raknat.nytt) { delar.push(antal(inl.raknat.nytt, 'nytt', 'nya') + ' som förslag'); }
+      if (inl.raknat.andrade) { delar.push(antal(inl.raknat.andrade, 'ändrad', 'ändrade')); }
+      if (inl.raknat.bort) { delar.push(antal(inl.raknat.bort, 'rad', 'rader') + ' som saknas i filen'); }
       if (inl.raknat.oplacerad) { delar.push(antal(inl.raknat.oplacerad, 'oplacerad rad', 'oplacerade rader')); }
       if (delar.length) { txt2 += ': ' + delar.join(', '); }
       txt2 += '.';
@@ -13111,22 +13651,45 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
   // steg, och det som skiljer raderna är vilka frågor de bär – inte hur en grupp ser ut.
   function inlasningsgrupper(kropp, b, flik) {
     var inl = P.inlasningStatus(flik);
-    if (!inl.grupper.forslag.length && !inl.grupper.oplacerad.length) { return; }
+    if (!inl.grupper.forslag.length && !inl.grupper.andrade.length
+      && !inl.grupper.bort.length && !inl.grupper.oplacerad.length) { return; }
     var w = el('section', 'bf-oppet');
     if (inl.grupper.forslag.length) {
       var h = el('div', 'bf-grupphuvud');
       h.appendChild(el('div', 'liten-rubrik',
-        'Förslag (' + inl.grupper.forslag.length + ')'));
-      h.appendChild(knapp('Godta alla', 'knapp liten-knapp', function () {
-        if (flik === 'inst') { P.godtaAllaInst(); }
-        else if (flik === 'rum') { P.godtaAllaRum(); }
-        else { P.godtaAllaPlan(); }
-      }, 'För in alla ' + inl.grupper.forslag.length + ' förslagen på en gång. ◀ tar tillbaka ' +
-         'hela godtagandet.'));
+        'Nytt (' + inl.grupper.forslag.length + ')'));
+      h.appendChild(godtaAllaKnapp(flik, inl));
       w.appendChild(h);
       w.appendChild(el('p', 'bf-grupptext',
         'Det här tror systemet. Läs skälet och godta det, eller rätta det själv.'));
       inl.grupper.forslag.forEach(function (r) { w.appendChild(forslagsrad(r, flik)); });
+    }
+    // Ändrat och saknas i filen står för sig (beslut 86): de tre förslagen gör tre olika saker
+    // mot byggnaden, och det som skriver om eller tar bort något som finns är det planeraren
+    // behöver titta närmast på.
+    if (inl.grupper.andrade.length) {
+      var ha = el('div', 'bf-grupphuvud');
+      ha.appendChild(el('div', 'liten-rubrik',
+        'Ändrat (' + inl.grupper.andrade.length + ')'));
+      if (!inl.grupper.forslag.length) { ha.appendChild(godtaAllaKnapp(flik, inl)); }
+      w.appendChild(ha);
+      w.appendChild(el('p', 'bf-grupptext',
+        'Det här finns redan, och filen säger något annat. Godta för att ändra byggnaden.'));
+      inl.grupper.andrade.forEach(function (r) { w.appendChild(andradRad(r, flik)); });
+    }
+    if (inl.grupper.bort.length) {
+      var hb = el('div', 'bf-grupphuvud');
+      hb.appendChild(el('div', 'liten-rubrik',
+        'Saknas i filen (' + inl.grupper.bort.length + ')'));
+      hb.appendChild(knapp('Låt alla stå', 'knapp sekundar liten-knapp', function () {
+        P.avvisaAllaBort(flik);
+      }, 'Behåll alla ' + inl.grupper.bort.length + ' i byggnaden och ta bort förslagen. ' +
+         '◀ tar tillbaka dem.'));
+      w.appendChild(hb);
+      w.appendChild(el('p', 'bf-grupptext',
+        'Det här finns i byggnaden men inte i filen. Ingenting tas bort förrän du godtar ' +
+        'det: en rad som fattas kan vara glömd lika väl som borttagen.'));
+      inl.grupper.bort.forEach(function (r) { w.appendChild(bortRad(r, flik)); });
     }
     if (inl.grupper.oplacerad.length) {
       w.appendChild(el('div', 'liten-rubrik',
@@ -13136,6 +13699,80 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       inl.grupper.oplacerad.forEach(function (r) { w.appendChild(oplaceradRad(r, flik)); });
     }
     kropp.appendChild(w);
+  }
+
+  // *Godta alla* tar **alla** förslag i fliken, också de ändrade: det är ett godtagande av
+  // filen och inte av en grupp, och ett knappset per grupp hade krävt två klick för det
+  // planeraren menar med ett. Knappen sitter i den första gruppen som finns, så att den syns
+  // en gång.
+  //
+  // Förslagen att **ta bort** följer inte med. Att skriva om byggnaden efter filen är en sak;
+  // att låta en tom cell radera ett rum är en annan, och den ska aldrig gå i ett svep
+  // (beslut 86 och berättelse 74).
+  function godtaAllaKnapp(flik, inl) {
+    var antalet = inl.grupper.forslag.length + inl.grupper.andrade.length;
+    return knapp('Godta alla', 'knapp liten-knapp', function () {
+      if (flik === 'inst') { P.godtaAllaInst(); }
+      else if (flik === 'rum') { P.godtaAllaRum(); }
+      else { P.godtaAllaPlan(); }
+    }, 'För in alla ' + antalet + ' förslagen på en gång, utom de som föreslår att något ' +
+       'tas bort. ◀ tar tillbaka hela godtagandet.');
+  }
+
+  // En ändrad rad: före och efter per fält (berättelse 73). Skillnaden visas som en egen rad
+  // per fält och inte som en mening, så att planeraren kan läsa av vad som ändras i en kolumn.
+  function andradRad(r, flik) {
+    var rad = el('div', 'bf-inlrad andrad');
+    rad.dataset.inlrad = r.key;
+    rad.appendChild(el('span', 'bf-planbet', beteckningFor(r, flik)));
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', namnEllerForslag(r)));
+    r.andring.delar.forEach(function (d) {
+      var r2 = el('span', 'bf-fore-efter');
+      r2.appendChild(el('span', 'bf-fe-etikett', d.etikett));
+      r2.appendChild(el('span', 'bf-fe-fore', d.fore));
+      r2.appendChild(el('span', 'bf-fe-pil', '→'));
+      r2.appendChild(el('span', 'bf-fe-efter', d.efter));
+      txt.appendChild(r2);
+    });
+    rad.appendChild(txt);
+    var verktyg = el('div', 'bf-planverktyg');
+    verktyg.appendChild(knapp('Godta', 'knapp sekundar liten-knapp', function () {
+      if (flik === 'inst') { P.godtaInst(r.key); }
+      else if (flik === 'rum') { P.godtaRum(r.key); }
+      else { P.godtaPlan(r.key); }
+    }, 'Ändra byggnaden efter filen. ◀ tar tillbaka ändringen.'));
+    rad.appendChild(verktyg);
+    return rad;
+  }
+
+  // En rad som finns i byggnaden men saknas i filen (berättelse 74). Två svar, och båda är
+  // ställningstaganden: *Ta bort* och *Låt stå*. Det senare är inget avbrott – ett steg blir
+  // grönt när bara klart återstår, så förslaget måste gå att svara nej på.
+  function bortRad(r, flik) {
+    var rad = el('div', 'bf-inlrad bortforslag');
+    rad.dataset.inlrad = r.key;
+    rad.appendChild(el('span', 'bf-planbet', beteckningFor(r, flik)));
+    var txt = el('div', 'bf-btext');
+    txt.appendChild(el('span', 'bf-bnamn', r.falt.namn || r.nyckel));
+    (r.fragor || []).forEach(function (f) { txt.appendChild(el('span', 'bf-skal', f.text)); });
+    rad.appendChild(txt);
+    var verktyg = el('div', 'bf-planverktyg');
+    verktyg.appendChild(knapp('Ta bort', 'knapp sekundar liten-knapp', function () {
+      if (flik === 'inst') { P.godtaInst(r.key); }
+      else if (flik === 'rum') { P.godtaRum(r.key); }
+      else { P.godtaPlan(r.key); }
+    }, flik === 'plan'
+      ? 'Ta bort planet, dess rum och deras installationer. ◀ tar tillbaka allt.'
+      : flik === 'rum'
+        ? 'Ta bort rummet och dess installationer. ◀ tar tillbaka dem.'
+        : 'Ta bort installationen. Kopplade åtgärder försvinner i samma steg, och ◀ tar ' +
+          'tillbaka båda.'));
+    verktyg.appendChild(knapp('Låt stå', 'knapp sekundar liten-knapp', function () {
+      P.avvisaBort(flik, r.key);
+    }, 'Behåll det i byggnaden och ta bort förslaget. ◀ tar tillbaka förslaget.'));
+    rad.appendChild(verktyg);
+    return rad;
   }
 
   // En förslagsrad: beteckningen, det raden blir, och skälen i klartext (berättelse 24).
@@ -13171,6 +13808,9 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
       var rum = r.falt.rum || (DP.Inlasning.fraga(r, 'rum') || {}).forslag;
       return rum || '–';
     }
+    // En rad som föreslår att något tas bort pekar ut det med sin nyckel: beteckningen för ett
+    // plan, plan + rumsnummer för ett rum (beslut 76).
+    if (r.bort && flik === 'rum') { return r.nyckel; }
     if (flik !== 'rum') { return r.falt.id; }
     var plan = r.falt.plan || (DP.Inlasning.fraga(r, 'plan') || {}).forslag;
     var nr = r.falt.nr || (DP.Inlasning.fraga(r, 'nr') || {}).forslag;
