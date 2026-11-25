@@ -1902,7 +1902,14 @@
                 benamning: i.benamning, beteckning: i.beteckning || '',
                 fabrikat: i.fabrikat || '', modell: i.modell || '',
                 externtId: i.externtId || '', datum: i.datum || '',
-                rum: nyckel
+                rum: nyckel,
+                // **Antalet** utbytta versioner, så att raden kan säga "1 tidigare apparat"
+                // utan att vyn gräver i datan. Själva versionerna visas i informationskortet,
+                // där planeraren klickar på installationen (beslut 91) – de hämtas med
+                // `instVersioner`. Namnet säger att det är ett antal: `versioner` i
+                // byggnadsdatan är listan, och samma namn för båda hade bjudit in till
+                // `.length` på ett tal.
+                antalVersioner: (i.versioner || []).length
               };
             })
           };
@@ -2025,6 +2032,169 @@
         delete m.h;
       });
     return mal;
+  }
+
+  // ------------------------------------------------------------------
+  // Utbyte: apparaten ersätts, installationen består (beslut 91–95)
+  // ------------------------------------------------------------------
+
+  // Åtgärder som gäller en installationstyp. Vägen från typ till åtgärd är `a.galler`, samma
+  // lista steg 5 matchar med – så att "gäller den nya typen" betyder samma sak här som där.
+  function atgarderForTyp(typ) {
+    return DP.atgarder.filter(function (a) {
+      return !a.generell && (a.galler || []).indexOf(typ) >= 0;
+    });
+  }
+
+  // Den utbytta apparaten som den sparas: installationens uppgifter som de var, med id:t och
+  // tillägget :n och utbytets datum som slutdatum (beslut 91 och 95).
+  //
+  // Versionen är en **apparat** och inte en installation: den har inget rum, ingen koppling och
+  // inget liv i planeringen. Därför bär den bara det som skiljer en apparat från en annan –
+  // fabrikat, modell, typ, benämning, beteckning och de två datumen – och ligger på
+  // installationen i stället för i `b.installationer`. Det är vad som gör att `tillArk` tar ut
+  // bara nuvarande versioner utan att veta om historiken (beslut 96), att `inst()` aldrig slår
+  // upp en gammal apparat, och att modellen inte ritar den.
+  function versionAv(i, n, slutdatum) {
+    var v = { id: i.id + ':' + n, typ: i.typ, benamning: i.benamning,
+      beteckning: i.beteckning || '', slutdatum: slutdatum };
+    if (i.fabrikat) { v.fabrikat = i.fabrikat; }
+    if (i.modell) { v.modell = i.modell; }
+    if (i.externtId) { v.externtId = i.externtId; }
+    if (i.datum) { v.datum = i.datum; }
+    return v;
+  }
+
+  // Vad ett utbyte skulle göra, som rena data: versionens id, vilka kopplingar som följer med
+  // och vilka som faller bort (beslut 94). Den svarar på samma fråga **före** och efter – vyns
+  // besked innan planeraren trycker och frågan efteråt (beslut 97) ska aldrig kunna säga olika
+  // saker om samma utbyte, och ett andra ställe som räknar hade förr eller senare gjort det.
+  //
+  // Att den bor här och inte i vyn är beslut 61: varför en koppling följde med eller inte vet
+  // bara den som avgjorde det, och svaret ska gå att läsa i ett test utan DOM.
+  function ersattStatus(instId, upp, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    var i = b ? b.installationer.filter(function (x) { return x.id === instId; })[0] : null;
+    if (!i) { return null; }
+    var o = upp || {};
+    var nyTyp = o.typ && DP.installationstyper[o.typ] ? o.typ : i.typ;
+    var kopplingar = kopplingarForInst(instId, stateFor(id));
+    // Samma typ rör ingen koppling alls (beslut 94): tillsynen pekar på id:t, och id:t består.
+    var behalls = {};
+    if (nyTyp !== i.typ) {
+      atgarderForTyp(nyTyp).forEach(function (a) { behalls[a.id] = true; });
+    }
+    var kvar = nyTyp === i.typ ? kopplingar.slice()
+      : kopplingar.filter(function (k) { return behalls[k.atgard]; });
+    var tappade = nyTyp === i.typ ? []
+      : kopplingar.filter(function (k) { return !behalls[k.atgard]; });
+    return { version: i.id + ':' + ((i.versioner || []).length + 1), nyTyp: nyTyp,
+      byterTyp: nyTyp !== i.typ, behalls: behalls,
+      kopplade: kopplingar.length, kvar: kvar, tappade: tappade };
+  }
+
+  // Går apparaten att ersätta? Beskedet är i klartext och kommer medan planeraren skriver, som
+  // `instHinder`. Tom sträng betyder att inget hindrar.
+  //
+  // Installationsdatumet är det enda som **krävs**: det är vad som skiljer versionerna åt
+  // (beslut 95), och ett utbyte utan datum hade gett två apparater ingen kan hålla isär.
+  function ersattHinder(instId, upp, bid) {
+    var b = B(bid);
+    if (!b) { return ''; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i) { return 'Installationen finns inte längre.'; }
+    var o = upp || {};
+    var datum = String(o.datum || '').trim();
+    if (!datum) {
+      return 'Fyll i installationsdatum för den nya apparaten. Datumet är det som skiljer ' +
+        'versionerna åt.';
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
+      return 'Installationsdatumet skrivs som 2026-11-25.';
+    }
+    if (i.datum && datum < i.datum) {
+      return 'Den nya apparaten kan inte vara installerad före den gamla (' + i.datum + ').';
+    }
+    var typ = String(o.typ || '').trim();
+    if (typ && !DP.installationstyper[typ]) { return 'Välj en installationstyp ur listan.'; }
+    return '';
+  }
+
+  // Ersätt apparaten i en installation (beslut 91–95, berättelse 75 och 78–80).
+  //
+  // Installationen är **platsen och uppgiften** och bär planeringen; apparaten är den sak som
+  // sitter där. Därför består id:t, och kopplingar och avvikande texter – som pekar på id:t –
+  // följer med utan att något flyttas. Det är hela skillnaden mot att ta bort och lägga till
+  // på nytt, och det som gör att en kylmaskin och en handbrandsläckare byts likadant.
+  //
+  // Är den nya apparaten av en **annan typ** behålls bara kopplingar till åtgärder som också
+  // gäller den nya typen; de övriga rivs i samma steg, och installationen syns då som saknad i
+  // steg 5 av sig självt (beslut 94). Att de rivs och inte lämnas kvar är poängen: en koppling
+  // till *Kontroll handbrandsläckare* på en brandpost är tillsyn ingen kan utföra, och den hade
+  // dessutom gett steg 5 en grön bock över något som inte stämmer.
+  //
+  // Därför går utbytet genom `andraByggnadOchPlanering` och inte `andraByggnad`: apparaten och
+  // kopplingarna ska bort i **ett** steg, så att ett ◀ tar tillbaka både den gamla apparaten och
+  // dess tillsyn (samma skäl som `taBortInst`, beslut 87).
+  //
+  // Svaret är `{ version, tappade }` – versionens id och de kopplingar som inte följde med – så
+  // att vyn kan ställa frågan efter utbytet (beslut 97) utan att räkna om något själv. Null när
+  // uppgifterna inte räcker.
+  function ersattInst(instId, upp, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    if (!b) { return null; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i || ersattHinder(instId, upp, id)) { return null; }
+    var o = upp || {};
+    var datum = String(o.datum || '').trim();
+    var n = (i.versioner || []).length + 1;
+    // Vad utbytet gör räknas **före** ändringen: efteråt finns de kopplingar som revs inte att
+    // räkna. Det är samma uträkning vyns förhandsbesked läser, så beskedet och frågan efteråt
+    // kan aldrig säga olika saker om samma utbyte.
+    var vad = ersattStatus(instId, upp, id);
+    var nyTyp = vad.nyTyp;
+    var behalls = vad.behalls;
+    var namn = (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
+    andraByggnadOchPlanering('ersätt apparaten i ' + namn +
+      (nyTyp !== i.typ ? ' med ' + DP.installationstyper[nyTyp].namn : ''), id,
+      function (data, st) {
+        var m = data.installationer.filter(function (x) { return x.id === instId; })[0];
+        if (!m) { return false; }
+        m.versioner = (m.versioner || []).concat([versionAv(m, n, datum)]);
+        // Den nya apparatens uppgifter. Bara det planeraren fyllt i skrivs om: lämnar hon
+        // fabrikatet tomt är det samma fabrikat igen – tjugo släckare byts mot tjugo likadana
+        // – och ett tomt fält är inget svar, av samma skäl som en tom cell i filen (beslut 86).
+        if (o.fabrikat != null && String(o.fabrikat).trim()) { m.fabrikat = String(o.fabrikat).trim(); }
+        if (o.modell != null && String(o.modell).trim()) { m.modell = String(o.modell).trim(); }
+        if (o.externtId != null && String(o.externtId).trim()) { m.externtId = String(o.externtId).trim(); }
+        if (o.benamning != null && String(o.benamning).trim()) { m.benamning = String(o.benamning).trim(); }
+        if (o.beteckning != null && String(o.beteckning).trim()) { m.beteckning = String(o.beteckning).trim(); }
+        m.datum = datum;
+        if (nyTyp !== m.typ) {
+          m.typ = nyTyp;
+          // Kopplingarna som inte gäller den nya typen, och deras avvikande texter, bort i
+          // samma steg. `rensaKopplingar` tar allt på installationen och går därför inte att
+          // använda: här ska en del av kopplingarna stå kvar.
+          st.kopplingar = (st.kopplingar || []).filter(function (k) {
+            return k.inst !== instId || behalls[k.atgard];
+          });
+          Object.keys(st.instTexter || {}).forEach(function (nyckel) {
+            var delar = nyckel.split('|');
+            if (delar[1] === instId && !behalls[delar[0]]) { delete st.instTexter[nyckel]; }
+          });
+        }
+      });
+    return { version: vad.version, tappade: vad.tappade };
+  }
+
+  // Versionerna av en installation, nyast först: det planeraren vill se är den som satt där
+  // sist. Listan i datan ligger i utbytesordning (:1 först), eftersom numret är ordningen.
+  function instVersioner(instId, bid) {
+    var i = (B(bid) || { installationer: [] }).installationer
+      .filter(function (x) { return x.id === instId; })[0];
+    return i && i.versioner ? i.versioner.slice().reverse() : [];
   }
 
   // Lägg till en installation för hand (berättelse 50). Förslagen är inläsningens: typen läses
@@ -3577,6 +3747,8 @@
     godtaInst: godtaInst, godtaAllaInst: godtaAllaInst, svaraInst: svaraInst,
     instStatus: instStatus, sattInstTyp: sattInstTyp, taBortInst: taBortInst,
     laggTillInst: laggTillInst, flyttaInst: flyttaInst, instHinder: instHinder,
+    ersattInst: ersattInst, ersattHinder: ersattHinder, ersattStatus: ersattStatus,
+    instVersioner: instVersioner,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },

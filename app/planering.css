@@ -349,6 +349,11 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 .kp-rad { font-size: 12px; color: var(--dov); margin-top: 3px; line-height: 1.4; }
 .koppling .atgardstext { margin: 6px 0 0; background: #fff; }
 .infokort { max-height: calc(100% - 120px); }
+/* En utbytt apparat (beslut 91). Grå och inte grön som en koppling: det är historik och
+   ingenting planeraren behöver göra något åt. */
+.version { border: 1px solid var(--linje); background: #f7f8fa; border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; }
+.v-titel { font-size: 12px; }
+.v-rad { font-size: 11px; color: var(--dov); margin-top: 2px; }
 
 /* ---------- Etapp 3: åtgärdstexter ---------- */
 .avvik-symbol { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #e8a317; color: #fff; font-size: 11px; font-weight: 700; flex: none; vertical-align: -3px; }
@@ -691,6 +696,13 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 /* Ett rum utan installationer står med: det är den plats en installation dras till
    (berättelse 50), och ett rum som inte syns går inte att dra till. */
 .bf-instrumtom { color: var(--dov); font-style: italic; }
+/* Utbytesformuläret ligger på installationens rad och ska se ut som en ruta *inuti* raden och
+   inte som en ny rad: det är den här apparaten som byts. Fälten står två och två och inte fyra
+   i bredd: panelen är smal, och fyra kolumner hade klämt ihop datumet – det enda som krävs. */
+.bf-ersatt { flex: 1 1 100%; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+  background: var(--accent-svag); border: 1px solid #c9dcfb; }
+.bf-ersatt .bf-instfalt { grid-template-columns: 1fr 1fr; }
+.bf-ersatt .liten-rubrik { margin-top: 0; }
 /* Typvalet inne i en oplacerad rad får egen höjdgräns och egen rullning, av samma skäl som
    gruppen själv fick det (beslut 112): tjugofem typknappar hade annars fyllt hela den fasta
    gruppen överst, och då finns ingen lista med rum kvar att dra en installation till –

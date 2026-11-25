@@ -7263,6 +7263,397 @@ async function testAndraByggnad(browser) {
   await rp.close();
 }
 
+// Utbyte av en installation (beslut 91–95 och 97, berättelse 75 och 78–82, biljett #43).
+//
+// Det som prövas är att **installationen består och apparaten byts**: id:t, rummet och tillsynen
+// står kvar medan den gamla apparaten blir en version med :1. Och att ett typbyte är det enda
+// som rör tillsynen – där följer bara de kopplingar med som också gäller den nya typen.
+async function testUtbyte(browser) {
+  console.log('Utbyte av en installation (beslut 91–95 och 97, biljett #43)');
+
+  // Kasern 1 med standardplanering, så att installationerna har tillsyn som kan följa med
+  // eller falla bort. Samma uppställning som flytten och borttagningen i biljett #41.
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  await page.evaluate(() => DP.Plan.andra('Standardplanering för provet',
+    st => DP.Flode.skrivStandard(st, 'kasern1')));
+  await vanta(page, () => DP.Plan.byggnadKlar('kasern1'), 'Kasern 1 klar i alla sex stegen');
+
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+  await bf.locator('.steg-kort[data-bsteg="4"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="4"].oppen'),
+    'steg 4 öppet');
+
+  // ------------------------------------------------------------------
+  // Ett utbyte: apparaten byts, installationen och tillsynen består
+  // ------------------------------------------------------------------
+  // Installationen väljs i sidan och inte hårdkodat: datafilen ska kunna ändras utan att
+  // testet låser sig vid en beteckning. Villkoret är att den har tillsyn att bevara.
+  const valt = await page.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    const i = P.signifikanta().filter(x => s.kopplingar.some(k => k.inst === x.id))[0];
+    const k = s.kopplingar.filter(x => x.inst === i.id)[0];
+    // En avvikande text också, så att utbytet prövas med allt som hänger på installationen.
+    P.andra('avvikande text för provet', st => {
+      st.instTexter[k.atgard + '|' + i.id] = ['Kontrollera extra noga'];
+    });
+    return { id: i.id, bet: i.beteckning, benamning: i.benamning, rum: i.rum, typ: i.typ,
+      fabrikat: i.fabrikat || '', datum: i.datum || '', textNyckel: k.atgard + '|' + i.id,
+      kopplingar: P.state().kopplingar.filter(x => x.inst === i.id)
+        .map(x => x.atgard + '|' + x.rond).sort() };
+  });
+  kontroll(!!valt.id && valt.kopplingar.length > 0,
+    'en installation med tillsyn att bevara finns i Kasern 1 (' + valt.bet + ', '
+    + valt.kopplingar.length + ' kopplingar)');
+
+  // Planeraren öppnar utbytet på installationens rad, som hon byter typ där (beslut 91).
+  const rad = bf.locator('.bf-instrad[data-inst="' + valt.id + '"]');
+  await rad.locator('button', { hasText: 'Ersätt' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-ersatt'),
+    'utbytesformuläret på raden');
+
+  // Datumet krävs: det är vad som skiljer versionerna åt (beslut 95). Utan det går knappen
+  // inte att trycka, och beskedet säger varför.
+  const utanDatum = await page.evaluate(() => ({
+    fel: (document.querySelector('#byggnadsflode .bf-ersatt .bf-fel') || {}).textContent || '',
+    avstangd: (document.querySelector('#byggnadsflode .bf-ersatt .knapprad.hoger button') || {}).disabled
+  }));
+  kontroll(/installationsdatum/i.test(utanDatum.fel) && utanDatum.avstangd === true,
+    'utan installationsdatum går utbytet inte att göra, och beskedet säger varför ("'
+    + utanDatum.fel.slice(0, 70) + '", beslut 95)');
+
+  // Fabrikatet står kvar som förval: en apparat byts oftast mot en likadan.
+  const forval = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode input[data-falt="ers-fabrikat"]') || {}).value);
+  kontroll(forval === valt.fabrikat,
+    'fabrikatet står kvar som förval, så bara datumet behöver skrivas ("' + forval + '")');
+
+  await bf.locator('input[data-falt="ers-datum"]').fill('2026-11-25');
+  await bf.locator('input[data-falt="ers-fabrikat"]').fill('Presto');
+  await bf.locator('input[data-falt="ers-modell"]').fill('P6G');
+  // Beskedet innan hon trycker säger att tillsynen består: det är hela poängen med ett utbyte.
+  const besked = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode .bf-ersatt .bf-notis') || {}).textContent || '');
+  kontroll(/behåller/.test(besked) && /följer med/.test(besked),
+    'beskedet säger att id:t behålls och att tillsynen följer med ("'
+    + besked.slice(0, 90) + '", beslut 91)');
+
+  // Vad utbytet skulle göra är rena data ur planeringen, läsbart utan DOM (beslut 61): vyns
+  // förhandsbesked och frågan efteråt läser **samma** uträkning och kan därför inte säga olika
+  // saker om samma utbyte.
+  const forhand = await page.evaluate(({ id }) => ({
+    samma: DP.Plan.ersattStatus(id, {}),
+    annan: DP.Plan.ersattStatus(id, { typ: 'brandpost' })
+  }), valt);
+  kontroll(forhand.samma.byterTyp === false && forhand.samma.tappade.length === 0
+    && forhand.samma.kvar.length === valt.kopplingar.length
+    && forhand.samma.version === valt.id + ':1',
+    'ersattStatus säger att samma typ behåller all tillsyn (' + forhand.samma.kvar.length
+    + ' kvar, version ' + forhand.samma.version + ', beslut 94)');
+  kontroll(forhand.annan.byterTyp === true
+    && forhand.annan.tappade.length === valt.kopplingar.length
+    && forhand.annan.kvar.length === 0,
+    'och att en annan typ utan delad åtgärd tappar dem (' + forhand.annan.tappade.length
+    + ' tappade, beslut 94)');
+
+  await bild(page, 'utbyte-formular');
+  // Formuläret ligger på raden och ska rymmas i panelen utan att sidan scrollar.
+  const ryms = await page.evaluate(() => {
+    const f = document.querySelector('#byggnadsflode .bf-ersatt');
+    const panel = f.closest('.steg-kropp') || f.parentElement;
+    return { sida: document.documentElement.scrollHeight <= window.innerHeight + 1,
+      inom: f.getBoundingClientRect().right <= panel.getBoundingClientRect().right + 1,
+      hojd: document.documentElement.scrollHeight, fonster: window.innerHeight };
+  });
+  kontroll(ryms.sida, 'huvudvyn ryms utan att sidan scrollar med utbytesformuläret öppet ('
+    + ryms.hojd + ' av ' + ryms.fonster + ' px)');
+  kontroll(ryms.inom, 'utbytesformuläret ryms innanför panelens kant');
+
+  const foreUtbyte = await historiklangd(page);
+  await bf.locator('.bf-ersatt .knapprad.hoger button', { hasText: 'Ersätt apparaten' }).click();
+  await stegKlart(page, foreUtbyte, 'ersätt apparaten');
+
+  const bytt = await page.evaluate(({ id, textNyckel }) => {
+    const P = DP.Plan, s = P.state(), i = P.inst(id);
+    return {
+      id: i.id, rum: i.rum, typ: i.typ, fabrikat: i.fabrikat, modell: i.modell, datum: i.datum,
+      versioner: P.instVersioner(id),
+      kopplingar: s.kopplingar.filter(x => x.inst === id).map(x => x.atgard + '|' + x.rond).sort(),
+      text: s.instTexter[textNyckel],
+      steg5: P.kopplingsStatus(s).klar,
+      klar: P.byggnadKlar('kasern1'),
+      historik: P.historik().lista.slice(-1)[0],
+      // Installationen ska ligga kvar i modellen med samma id: det är samma installation.
+      iModellen: DP.viewer.b.installationer.filter(x => x.id === id).length
+    };
+  }, valt);
+
+  kontroll(bytt.id === valt.id && bytt.rum === valt.rum && bytt.iModellen === 1,
+    'installationen behåller id och rum, och ligger kvar i modellen (' + bytt.id
+    + ' i ' + bytt.rum + ', beslut 91)');
+  kontroll(bytt.fabrikat === 'Presto' && bytt.modell === 'P6G' && bytt.datum === '2026-11-25',
+    'den nya apparatens uppgifter står på installationen (' + bytt.fabrikat + ' '
+    + bytt.modell + ', ' + bytt.datum + ')');
+  kontroll(bytt.versioner.length === 1 && bytt.versioner[0].id === valt.id + ':1',
+    'den gamla apparaten sparades som en version med :1 ('
+    + (bytt.versioner[0] || {}).id + ', beslut 91)');
+  kontroll(bytt.versioner[0].slutdatum === '2026-11-25'
+    && bytt.versioner[0].fabrikat === (valt.fabrikat || undefined),
+    'versionen bär utbytets datum som slutdatum och den gamla apparatens uppgifter (slutdatum '
+    + bytt.versioner[0].slutdatum + ', beslut 95)');
+  kontroll(bytt.kopplingar.join(',') === valt.kopplingar.join(','),
+    'tillsynen följde med: kopplingarna pekar på id:t och rördes inte ('
+    + bytt.kopplingar.length + ' st, beslut 91)');
+  kontroll(JSON.stringify(bytt.text) === JSON.stringify(['Kontrollera extra noga']),
+    'den avvikande texten står kvar, eftersom den är nycklad på id:t');
+  kontroll(bytt.steg5 === true && bytt.klar === true,
+    'steg 5 är fortfarande grönt och byggnaden klar: inget följdarbete av ett utbyte med samma typ'
+    + ' (beslut 94)');
+  kontroll(/ersätt apparaten i /.test(bytt.historik),
+    'utbytet är ett steg i historiken i klartext ("' + bytt.historik + '")');
+  kontroll(await page.evaluate(() => !document.querySelector('#byggnadsflode .bf-ersatt')),
+    'formuläret är stängt efter utbytet och ritas inte om med den nya apparatens uppgifter');
+
+  // Frågan efter utbytet (beslut 97). Den är vägledning och inget lås, så den kommer efteråt.
+  const fraga = await page.evaluate(() => {
+    const d = document.querySelector('.dlg');
+    return d ? { titel: (d.querySelector('.dlg-titel') || {}).textContent,
+      text: (d.querySelector('.dlg-kropp') || {}).textContent,
+      knappar: [...d.querySelectorAll('.dlg-knappar button')].map(b => b.textContent),
+      forvalt: (document.activeElement || {}).textContent } : null;
+  });
+  kontroll(!!fraga && /samma tillsyn som förut/.test(fraga.titel),
+    'frågan efter utbytet kommer: "' + ((fraga || {}).titel || 'ingen fråga') + '" (beslut 97)');
+  kontroll(!!fraga && fraga.knappar.length === 2
+    && /Ja, samma tillsyn/.test(fraga.knappar[0]) && /Nej/.test(fraga.knappar[1]),
+    'den har två svar och inget Avbryt – planeringen är redan ändrad ('
+    + ((fraga || {}).knappar || []).join(' | ') + ')');
+  kontroll(!!fraga && /Ja, samma tillsyn/.test(fraga.forvalt || ''),
+    '*Ja, samma tillsyn* är förvalt (' + ((fraga || {}).forvalt || '–') + ', beslut 97)');
+  kontroll(!!fraga && fraga.text.indexOf(valt.id + ':1') >= 0,
+    'frågan säger vad den gamla apparaten blev (' + valt.id + ':1)');
+  await bild(page, 'utbyte-fraga');
+  await page.locator('.dlg button', { hasText: 'Ja, samma tillsyn' }).click();
+
+  // ------------------------------------------------------------------
+  // Versionen syns i informationskortet (beslut 91 och 95)
+  // ------------------------------------------------------------------
+  const kort = await page.evaluate(({ id }) => {
+    DP.ui.visaInstKort(DP.Plan.inst(id));
+    const k = document.querySelector('#infokort');
+    return { text: k.textContent, dold: k.hidden };
+  }, valt);
+  kontroll(!kort.dold && kort.text.indexOf('Tidigare apparater (1)') >= 0,
+    'informationskortet visar de utbytta versionerna när planeraren klickar på installationen'
+    + ' (beslut 91)');
+  kontroll(kort.text.indexOf(valt.id + ':1') >= 0 && /ersatt 2026-11-25/.test(kort.text),
+    'versionen står med sitt id och utbytets datum som slutdatum (beslut 95)');
+  kontroll(/Installationsdatum/.test(kort.text) && kort.text.indexOf('2026-11-25') >= 0,
+    'installationsdatumet står på kortet, så versionerna går att skilja åt (beslut 95)');
+
+  // Raden i steg 4 säger att apparaten bytts, men inte vilka: det hör i kortet.
+  const radText = await page.evaluate(({ id }) =>
+    (document.querySelector('#byggnadsflode .bf-instrad[data-inst="' + id + '"]') || {}).textContent,
+    valt);
+  kontroll(/1 tidigare apparat/.test(radText || ''),
+    'installationsraden i steg 4 säger att apparaten bytts ("' + (radText || '').slice(0, 80) + '")');
+
+  // ------------------------------------------------------------------
+  // Ett ångra tar tillbaka utbytet
+  // ------------------------------------------------------------------
+  await angra(page);
+  const angrat = await page.evaluate(({ id, textNyckel }) => {
+    const P = DP.Plan, s = P.state(), i = P.inst(id);
+    return { versioner: P.instVersioner(id).length, fabrikat: i.fabrikat || '', datum: i.datum || '',
+      kopplingar: s.kopplingar.filter(x => x.inst === id).length,
+      text: s.instTexter[textNyckel] };
+  }, valt);
+  kontroll(angrat.versioner === 0 && angrat.fabrikat === valt.fabrikat
+    && angrat.datum === valt.datum,
+    'ett ångra tar tillbaka den gamla apparaten och tar bort versionen ('
+    + angrat.versioner + ' versioner)');
+  kontroll(angrat.kopplingar === valt.kopplingar.length
+    && JSON.stringify(angrat.text) === JSON.stringify(['Kontrollera extra noga']),
+    'tillsynen är orörd efter ångran, som den var genom utbytet');
+  await gorOm(page);
+  kontroll(await page.evaluate(({ id }) => DP.Plan.instVersioner(id).length, valt) === 1,
+    'ett gör om lägger utbytet tillbaka');
+
+  // ------------------------------------------------------------------
+  // Ett andra utbyte ger :2, och båda versionerna syns
+  // ------------------------------------------------------------------
+  const foreAndra = await historiklangd(page);
+  await page.evaluate(({ id }) => DP.Plan.ersattInst(id,
+    { datum: '2027-03-01', fabrikat: 'Housegard' }, 'kasern1'), valt);
+  await stegKlart(page, foreAndra, 'andra utbytet');
+  const tva = await page.evaluate(({ id }) => ({
+    versioner: DP.Plan.instVersioner(id).map(v => v.id + '|' + v.fabrikat + '|' + v.slutdatum),
+    fabrikat: DP.Plan.inst(id).fabrikat,
+    antal: DP.Plan.instStatus('kasern1').plan
+      .reduce((s, p) => s.concat(p.rum.reduce((t, r) => t.concat(r.inst), [])), [])
+      .filter(i => i.id === id).map(i => i.antalVersioner)[0]
+  }), valt);
+  kontroll(tva.versioner.length === 2 && /:2\|/.test(tva.versioner[0])
+    && /:1\|/.test(tva.versioner[1]),
+    'ett andra utbyte ger :2, och versionerna visas nyast först ('
+    + tva.versioner.join(' , ') + ', beslut 91)');
+  kontroll(tva.versioner[0].indexOf('Presto') >= 0 && tva.versioner[0].indexOf('2027-03-01') >= 0,
+    'version :2 är den apparat som satt där mellan de två utbytena (' + tva.versioner[0] + ')');
+  kontroll(tva.fabrikat === 'Housegard' && tva.antal === 2,
+    'installationen bär den nyaste apparaten, och steg 4 räknar två tidigare ('
+    + tva.fabrikat + ', ' + tva.antal + ')');
+
+  // ------------------------------------------------------------------
+  // Typbyte: bara kopplingar som också gäller den nya typen följer med (beslut 94)
+  // ------------------------------------------------------------------
+  // Två fall prövas, eftersom de säger olika saker till planeraren: en typ som **delar**
+  // åtgärd med den gamla (kopplingen följer med) och en som inte gör det (den rivs).
+  const delad = await page.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    // En installation där den nya typen delar åtgärd med den gamla: huvudcentral och
+    // gruppcentral går båda på *Kontroll elcentral*.
+    const i = P.signifikanta().filter(x => x.typ === 'huvudcentral'
+      && s.kopplingar.some(k => k.inst === x.id))[0]
+      || P.signifikanta().filter(x => x.typ === 'gruppcentral'
+        && s.kopplingar.some(k => k.inst === x.id))[0];
+    if (!i) { return null; }
+    const ny = i.typ === 'huvudcentral' ? 'gruppcentral' : 'huvudcentral';
+    return { id: i.id, typ: i.typ, ny: ny,
+      kopplingar: s.kopplingar.filter(k => k.inst === i.id).map(k => k.atgard).sort() };
+  });
+  kontroll(!!delad, 'en elcentral med tillsyn finns att pröva den delade åtgärden på');
+  if (delad) {
+    const foreDelad = await historiklangd(page);
+    const svar = await page.evaluate(({ id, ny }) => DP.Plan.ersattInst(id,
+      { datum: '2027-04-01', typ: ny }, 'kasern1'), delad);
+    await stegKlart(page, foreDelad, 'utbyte med delad åtgärd');
+    const efter = await page.evaluate(({ id }) => {
+      const P = DP.Plan, s = P.state();
+      return { typ: P.inst(id).typ,
+        kopplingar: s.kopplingar.filter(k => k.inst === id).map(k => k.atgard).sort(),
+        steg5: P.kopplingsStatus(s).klar };
+    }, delad);
+    kontroll(efter.typ === delad.ny
+      && efter.kopplingar.join(',') === delad.kopplingar.join(','),
+      'kopplingen till en åtgärd som också gäller den nya typen följde med ('
+      + delad.typ + ' → ' + delad.ny + ', ' + efter.kopplingar.join(',') + ', beslut 94)');
+    kontroll(svar.tappade.length === 0 && efter.steg5 === true,
+      'ingen koppling föll bort, så steg 5 är fortfarande grönt (beslut 94)');
+  }
+
+  // Och den typ som *inte* delar åtgärd: handbrandsläckare → brandpost.
+  const olik = await page.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    const i = P.signifikanta().filter(x => x.typ === 'handbrandslackare'
+      && s.kopplingar.some(k => k.inst === x.id))[0];
+    return i ? { id: i.id, bet: i.beteckning,
+      kopplingar: s.kopplingar.filter(k => k.inst === i.id).map(k => k.atgard).sort(),
+      textNyckel: s.kopplingar.filter(k => k.inst === i.id)[0].atgard + '|' + i.id } : null;
+  });
+  kontroll(!!olik, 'en kopplad handbrandsläckare finns att pröva typbytet på');
+  const foreTyp = await historiklangd(page);
+  const svarTyp = await page.evaluate(({ id, textNyckel }) => {
+    // En avvikande text på kopplingen som ska falla bort: den hör till en åtgärd som inte
+    // gäller den nya typen, och ska försvinna med kopplingen i samma steg.
+    DP.Plan.andra('avvikande text för provet', st => {
+      st.instTexter[textNyckel] = ['Gäller den gamla typen'];
+    });
+    return DP.Plan.ersattInst(id, { datum: '2027-05-02', typ: 'brandpost' }, 'kasern1');
+  }, olik);
+  await stegKlart(page, foreTyp + 1, 'utbyte med typbyte');
+  const typbytt = await page.evaluate(({ id, textNyckel }) => {
+    const P = DP.Plan, s = P.state(), st = P.kopplingsStatus(s);
+    return { typ: P.inst(id).typ, versioner: P.instVersioner(id).map(v => v.id + '|' + v.typ),
+      kopplingar: s.kopplingar.filter(k => k.inst === id).length,
+      text: s.instTexter[textNyckel],
+      saknas: st.saknas.some(i => i.id === id), steg5: st.klar,
+      klar: P.byggnadKlar('kasern1'), historik: P.historik().lista.slice(-1)[0] };
+  }, olik);
+  kontroll(typbytt.typ === 'brandpost' && typbytt.kopplingar === 0,
+    'kopplingar som inte gäller den nya typen rivs i samma steg ('
+    + typbytt.kopplingar + ' kvar av ' + olik.kopplingar.length + ', beslut 94)');
+  kontroll(typbytt.text === undefined,
+    'den avvikande texten för den rivna kopplingen försvann med den (beslut 87)');
+  kontroll(typbytt.versioner[0].indexOf('|handbrandslackare') >= 0,
+    'versionen bär den gamla typen, så historiken säger vad som satt där ('
+    + typbytt.versioner[0] + ')');
+  kontroll(typbytt.saknas === true && typbytt.steg5 === false && typbytt.klar === false,
+    'installationen syns som saknad i steg 5 av sig självt, och byggnaden är inte längre klar'
+    + ' (beslut 94)');
+  kontroll(/ersätt apparaten i .* med Brandpost/.test(typbytt.historik),
+    'typbytet står i historiken med den nya typen ("' + typbytt.historik + '")');
+  kontroll(svarTyp.tappade.length === olik.kopplingar.length,
+    'svaret räknar upp de kopplingar som inte följde med, så frågan kan säga vilka ('
+    + svarTyp.tappade.length + ' st, beslut 97)');
+
+  // ------------------------------------------------------------------
+  // *Nej, visa den i Planering* öppnar steg 5 (beslut 97, berättelse 82)
+  // ------------------------------------------------------------------
+  // Utbytet görs genom sidan, så att frågan kommer av sig själv som den gör för planeraren.
+  const nejInst = await page.evaluate(() => {
+    const P = DP.Plan, s = P.state();
+    const i = P.signifikanta().filter(x => x.typ === 'handbrandslackare'
+      && s.kopplingar.some(k => k.inst === x.id))[0];
+    return i ? { id: i.id } : null;
+  });
+  kontroll(!!nejInst, 'ännu en kopplad handbrandsläckare finns att pröva *Nej* på');
+  const nejRad = bf.locator('.bf-instrad[data-inst="' + nejInst.id + '"]');
+  await nejRad.scrollIntoViewIfNeeded();
+  await nejRad.locator('button', { hasText: 'Ersätt' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-ersatt'),
+    'utbytesformuläret för *Nej*-provet');
+  await bf.locator('input[data-falt="ers-datum"]').fill('2027-06-01');
+  // Typvalet är hopfällt: en apparat byts nästan alltid mot en av samma sort.
+  await bf.locator('.bf-ersatt .lank', { hasText: 'annan typ' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-ersatt .bf-typval'),
+    'typlistan i utbytesformuläret');
+  await bf.locator('.bf-ersatt .bf-typval button', { hasText: 'Brandpost' }).first().click();
+  const typbesked = await page.evaluate(() =>
+    (document.querySelector('#byggnadsflode .bf-ersatt .bf-notis') || {}).textContent || '');
+  kontroll(/följer med/.test(typbesked) && /saknade i Planering steg 5/.test(typbesked),
+    'beskedet säger i förväg att kopplingarna inte följer med ("'
+    + typbesked.slice(-90) + '", beslut 94)');
+  const foreNej = await historiklangd(page);
+  await bf.locator('.bf-ersatt .knapprad.hoger button', { hasText: 'Ersätt apparaten' }).click();
+  await stegKlart(page, foreNej, 'utbytet i *Nej*-provet');
+  const nejFraga = await page.evaluate(() => {
+    const d = document.querySelector('.dlg');
+    return d ? (d.querySelector('.dlg-kropp') || {}).textContent : '';
+  });
+  kontroll(/åtgärd följde inte med|åtgärder följde inte med/.test(nejFraga)
+    && /Kontroll handbrandsläckare/.test(nejFraga),
+    'frågan säger att kopplingar fallit bort och vilka de var (beslut 97)');
+  await page.locator('.dlg button', { hasText: 'Nej, visa den i Planering' }).click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet efter *Nej*');
+  const iSteg5 = await page.evaluate(({ id }) => ({
+    oppet: (document.querySelector('#flode .steg-kort.oppen .steg-titel') || {}).textContent || '',
+    saknas: DP.Plan.kopplingsStatus(DP.Plan.state()).saknas.some(i => i.id === id),
+    blinkar: (DP.viewer.blinkar || []).length
+  }), nejInst);
+  kontroll(/Vilka åtgärder|åtgärder/.test(iSteg5.oppet) && iSteg5.saknas === true,
+    'steg 5 är öppet med installationen som saknad ("' + iSteg5.oppet + '", berättelse 82)');
+  kontroll(iSteg5.blinkar > 0,
+    'den ersatta installationen är markerad i modellen (' + iSteg5.blinkar + ' blinkande)');
+  await bild(page, 'utbyte-steg5');
+
+  // ------------------------------------------------------------------
+  // Filen tar bara ut nuvarande versioner (beslut 96)
+  // ------------------------------------------------------------------
+  const ark = await page.evaluate(() => {
+    const flik = DP.Plan.filArk('kasern1').filter(f => f.namn === 'Installationer')[0];
+    return { rubriker: flik.rader[0], rader: flik.rader.slice(1) };
+  });
+  kontroll(!ark.rader.some(r => r.some(c => /:\d+$/.test(String(c)))),
+    'inga utbytta versioner står i filen: historiken stannar i systemet (beslut 96)');
+  kontroll(ark.rubriker.indexOf('Installationsdatum') >= 0
+    && ark.rader.some(r => r[9] === '2027-06-01'),
+    'den nuvarande apparatens installationsdatum följer med ut (beslut 95)');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 // Läsa in filen mot en befintlig byggnad (beslut 86, berättelse 72–74, biljett #42).
 //
 // En ombyggnad förs in på samma sätt som en ny byggnad: filen tas ut, ändras och läses in igen.
@@ -7550,6 +7941,7 @@ async function testInlasningMotBefintlig(browser) {
     await testStegInstallationer(browser);
     await testAndraByggnad(browser);
     await testInlasningMotBefintlig(browser);
+    await testUtbyte(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

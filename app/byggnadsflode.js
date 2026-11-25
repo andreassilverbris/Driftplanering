@@ -73,6 +73,12 @@
     nyInst: { rum: '', benamning: '', beteckning: '', typ: '', fabrikat: '', modell: '',
       datum: '', externtId: '' },
     laggerTillInst: false,
+    // *Ersätt apparaten* (beslut 91–95): installationen vars apparat byts, och uppgifterna om
+    // den nya. Formuläret ligger **på installationens rad**, som typvalet gör, av samma skäl:
+    // utbytet sker där den gamla apparatens uppgifter står. `ersatter` är `null` när inget
+    // utbyte pågår.
+    ersatter: null,
+    nyApparat: null,
     // *Ändra byggnad* i steg 1 (beslut 100 och 103): det nya namnet medan planeraren skriver
     // det. `null` betyder att hon inte döper om – samma mönster som `doper` för ett plan, och
     // av samma skäl: ändringen sker där uppgiften står och inte i en ruta ovanpå sidan.
@@ -1788,13 +1794,153 @@
     return w;
   }
 
+  // Formuläret för den nya apparaten, på installationens rad (beslut 91–95, berättelse 75).
+  //
+  // Bara apparatens uppgifter frågas om – fabrikat, modell, installationsdatum, externt id och
+  // typen när den nya apparaten är en annan sort. Rummet och id:t står inte med: de hör till
+  // *installationen*, och det som gör utbytet till ett utbyte och inte till en ny installation
+  // är just att de består.
+  function ersattFormular(i) {
+    var n = ui.nyApparat || {};
+    var w = el('div', 'bf-ersatt');
+    w.appendChild(el('div', 'liten-rubrik', 'Den nya apparaten'));
+    var rutnat = el('div', 'bf-instfalt');
+    faltIn(rutnat, 'Installationsdatum', 'ers-datum', n.datum, 't.ex. 2026-11-25',
+      function (v) { n.datum = v; rita(); });
+    faltIn(rutnat, 'Fabrikat', 'ers-fabrikat', n.fabrikat, 'valfritt',
+      function (v) { n.fabrikat = v; rita(); });
+    faltIn(rutnat, 'Modell', 'ers-modell', n.modell, 'valfri',
+      function (v) { n.modell = v; rita(); });
+    faltIn(rutnat, 'Externt id', 'ers-externt', n.externtId, 'valfritt',
+      function (v) { n.externtId = v; rita(); });
+    w.appendChild(rutnat);
+
+    // Typvalet är **hopfällt** bakom en knapp, till skillnad från i *Lägg till installation*:
+    // en apparat byts nästan alltid mot en av samma sort, och en rad typknappar framför
+    // planeraren hade frågat om något hon sällan vill ändra. Öppnar hon det får hon beskedet
+    // om vad ett typbyte gör med tillsynen (beslut 94) innan hon väljer.
+    var nyTyp = n.typ || i.typ;
+    if (n.visaTyp) {
+      w.appendChild(el('div', 'liten-rubrik', 'Installationstyp'));
+      var typval = el('div', 'bf-typval');
+      DP.signifikantaTyper().forEach(function (id) {
+        typval.appendChild(knapp(DP.installationstyper[id].namn,
+          'knapp liten-knapp' + (id === nyTyp ? '' : ' sekundar'), function () {
+            n.typ = id;
+            rita();
+          }, 'Typen avgör vilka åtgärder du kan koppla i Planering steg 5.'));
+      });
+      w.appendChild(typval);
+    } else {
+      var rad0 = el('div', 'knapprad');
+      rad0.appendChild(knapp('Den nya är av en annan typ', 'lank', function () {
+        n.visaTyp = true;
+        rita();
+      }, 'Visa listan med installationstyper. Kopplingar som inte gäller den nya typen ' +
+         'följer inte med.'));
+      w.appendChild(rad0);
+    }
+
+    var hinder = P.ersattHinder(i.id, { datum: n.datum, typ: n.typ });
+    if (hinder) { w.appendChild(el('div', 'bf-fel', hinder)); }
+    else { w.appendChild(ersattBesked(i, P.ersattStatus(i.id, { typ: n.typ }))); }
+
+    var rad = el('div', 'knapprad hoger');
+    var gor = knapp('Ersätt apparaten', 'knapp', function () {
+      // Formuläret stängs **före** utbytet och inte efter: ändringen ritar om steget genom
+      // prenumeranten, och ett `ersatter` som stod kvar hade ritat formuläret en gång till –
+      // nu med den nya apparatens uppgifter, som om ännu ett utbyte väntade.
+      ui.ersatter = null;
+      ui.nyApparat = null;
+      var svar = P.ersattInst(i.id, { datum: n.datum, fabrikat: n.fabrikat, modell: n.modell,
+        externtId: n.externtId, typ: n.typ });
+      if (!svar) { rita(); return; }
+      fragaEfterUtbyte(i, svar);
+    });
+    gor.disabled = !!hinder;
+    if (gor.disabled) { gor.title = hinder; }
+    rad.appendChild(gor);
+    w.appendChild(rad);
+    return w;
+  }
+
+  // Beskedet om vad utbytet gör, innan planeraren trycker. Tillsynen är det hon behöver veta
+  // om: att den består är hela poängen med ett utbyte (beslut 91), och att den delvis inte gör
+  // det vid ett typbyte är det enda som kan överraska henne (beslut 94).
+  //
+  // Vad som följer med räknas **inte** här utan i `P.ersattStatus`, samma uträkning utbytet
+  // självt gör (beslut 61). Hade vyn räknat hade beskedet före och frågan efteråt kunnat säga
+  // olika saker om samma utbyte.
+  function ersattBesked(i, vad) {
+    var html = 'Installationen behåller <b>id ' + DP.Dialog.esc(i.id) + '</b>, sitt rum och ' +
+      'sin beteckning. ' +
+      (i.fabrikat || i.modell
+        ? 'Den gamla apparaten – ' + DP.Dialog.esc([i.fabrikat, i.modell].filter(Boolean).join(' ')) +
+          ' – sparas '
+        : 'Den gamla apparaten sparas ') +
+      'som <b>' + DP.Dialog.esc(vad.version) + '</b> och syns när du klickar på installationen.';
+    if (vad.byterTyp) {
+      html += ' Den nya är <b>' +
+        DP.Dialog.esc(DP.installationstyper[vad.nyTyp].namn) + '</b>, så ' +
+        (vad.kvar.length
+          ? vad.kvar.length + ' av ' + vad.kopplade + ' kopplade åtgärder följer med'
+          : 'ingen av de ' + vad.kopplade + ' kopplade åtgärderna följer med') +
+        ' – resten syns som saknade i Planering steg 5.';
+    } else if (vad.kopplade) {
+      html += ' Tillsynen är densamma: ' +
+        antal(vad.kopplade, 'kopplad åtgärd', 'kopplade åtgärder') +
+        ' pekar på id:t och följer med.';
+    }
+    return el('div', 'bf-notis', html);
+  }
+
+  // Frågan efter utbytet (beslut 97, berättelse 81 och 82). Den är **vägledning och inget lås**:
+  // planeringen är redan ändrad när frågan kommer, och *Nej* öppnar bara steg 5 så att
+  // planeraren kan koppla om där. Därför har den inget Avbryt – det finns inget att avbryta,
+  // och ett ◀ är vägen tillbaka.
+  function fragaEfterUtbyte(i, svar) {
+    var namn = (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
+    var html = '<p>Du har ersatt apparaten i <b>' + DP.Dialog.esc(namn) + '</b>. ' +
+      'Installationen och id:t består, och den gamla apparaten ligger kvar som <b>' +
+      DP.Dialog.esc(svar.version) + '</b>.</p>';
+    if (svar.tappade.length) {
+      // Vilka åtgärder som föll bort sägs i klartext och inte bara som ett antal: planeraren
+      // ska kunna koppla om just dem, och "3 åtgärder" säger inte vilka.
+      var namnen = svar.tappade.map(function (k) {
+        var a = P.atgard(k.atgard);
+        return a ? a.namn : k.atgard;
+      });
+      html += '<p><b>' + antal(svar.tappade.length, 'åtgärd följde', 'åtgärder följde') +
+        ' inte med</b>, eftersom den nya apparaten är av en annan typ: ' +
+        DP.Dialog.esc(namnen.join(', ')) + '. Installationen syns nu som saknad i steg 5.</p>';
+    }
+    html += '<p>Ska den nya ha samma tillsyn som förut?</p>';
+    DP.Dialog.visa({
+      titel: 'Ska den nya ha samma tillsyn som förut?',
+      html: html,
+      bredd: 560,
+      knappar: [
+        { text: 'Ja, samma tillsyn', prim: true },
+        { text: 'Nej, visa den i Planering', gor: function () {
+          // Ordningen är den befintliga: öppna steget först, visa huvudsteget sedan
+          // (se Balanseringens länk till steg 4 i `vyer.js`). Markeringen blinkar i
+          // modellen, så att planeraren ser *vilken* installation steg 5 gäller.
+          DP.Flode.oppnaSteg(5);
+          DP.Vyer.visa('planering');
+          var inst = P.inst(i.id);
+          if (inst && DP.viewer) { DP.viewer.blinka([inst], 2200, 0xe07b26); }
+        } }
+      ]
+    });
+  }
+
   // En installationsrad: beteckningen, benämningen, typen och uppgifterna ur filen.
   function instrad(i, r) {
     var rad = el('div', 'bf-instrad');
     rad.dataset.inst = i.id;
-    // Raden går inte att dra medan typvalet står öppet: ett klick på en typknapp hade
-    // startat ett drag i stället för att välja typen.
-    rad.draggable = ui.insttyp !== i.id;
+    // Raden går inte att dra medan typvalet eller utbytet står öppet: ett klick på en typknapp
+    // eller i ett fält hade startat ett drag i stället för att välja typen eller skriva.
+    rad.draggable = ui.insttyp !== i.id && ui.ersatter !== i.id;
     if (ui.instdrag && ui.instdrag.id === i.id) { rad.classList.add('dras'); }
     rad.appendChild(el('span', 'bf-planbet', i.beteckning || '–'));
     var txt = el('div', 'bf-btext');
@@ -1804,10 +1950,20 @@
     if (i.datum) { delar.push('installerad ' + i.datum); }
     delar.push('id ' + i.id);
     if (i.externtId) { delar.push('externt id ' + i.externtId); }
+    // Att apparaten bytts står på raden, eftersom det är en uppgift om installationen –
+    // *vilka* apparater som suttit där syns i informationskortet (beslut 91).
+    if (i.antalVersioner) {
+      delar.push(antal(i.antalVersioner, 'tidigare apparat', 'tidigare apparater'));
+    }
     txt.appendChild(el('span', 'bf-bstatus', delar.join(' · ')));
     rad.appendChild(txt);
     var verktyg = el('div', 'bf-planverktyg');
-    if (ui.insttyp === i.id) {
+    if (ui.ersatter === i.id) {
+      rad.appendChild(ersattFormular(i));
+      verktyg.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+        ui.ersatter = null; ui.nyApparat = null; rita();
+      }));
+    } else if (ui.insttyp === i.id) {
       // Typvalet ligger **på installationens rad**, som rumstypvalet gör i steg 3: planeraren
       // ska se typen ändras där uppgiften står och inte i en ruta ovanpå sidan.
       var val = el('div', 'bf-typval');
@@ -1828,6 +1984,18 @@
         rita();
       }, 'Byt installationstyp. Den avgör vilka åtgärder du kan koppla i Planering steg 5; ' +
          'kopplingar som inte gäller den nya typen syns som saknade där.'));
+      verktyg.appendChild(knapp('Ersätt', 'knapp sekundar liten-knapp', function () {
+        ui.ersatter = i.id;
+        ui.insttyp = null;
+        // Fabrikat och modell står kvar som förval: en apparat byts oftast mot en likadan, och
+        // det planeraren behöver skriva är då bara datumet. Lämnar hon dem orörda är det samma
+        // uppgifter igen – ett tomt fält är inget svar (se `ersattInst`).
+        ui.nyApparat = { fabrikat: i.fabrikat || '', modell: i.modell || '', datum: '',
+          externtId: i.externtId || '', typ: '' };
+        ui.fokus = 'ers-datum';
+        rita();
+      }, 'Ersätt apparaten. Installationen, id:t och tillsynen består; den gamla apparaten ' +
+         'sparas som en tidigare version.'));
       verktyg.appendChild(knapp('Ta bort', 'knapp sekundar liten-knapp', function () {
         P.taBortInst(i.id);
       }, 'Tar bort installationen och dess kopplade åtgärder. ◀ tar den tillbaka.'));
@@ -2037,6 +2205,11 @@
     ui.insttyp = null;
     ui.instdrag = null;
     ui.laggerTillInst = false;
+    // Det halvskrivna utbytet gällde en apparat i den byggnad hon stod i. Installationen finns
+    // inte i den nya, så `ersattHinder` hade svarat "finns inte längre" på ett formulär hon
+    // aldrig öppnat.
+    ui.ersatter = null;
+    ui.nyApparat = null;
     rita();
   });
   rita();

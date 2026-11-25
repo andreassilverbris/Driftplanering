@@ -342,10 +342,37 @@
     falt(rutnat, 'Fabrikat', inst.fabrikat);
     falt(rutnat, 'Modell', inst.modell);
     falt(rutnat, 'Externt id', inst.externtId, !inst.externtId);
+    // Installationsdatumet är vad som skiljer versionerna av en installation åt (beslut 95),
+    // så det hör på kortet jämte de utbytta versionerna och inte bara i inläsningsfilen.
+    falt(rutnat, 'Installationsdatum', inst.datum, !inst.datum);
     falt(rutnat, 'Plan', planNamn(r.plan));
     falt(rutnat, 'Rum', rumNamn(inst.rum));
     if (inst.placering) { falt(rutnat, 'Placering', inst.placering); }
     k.appendChild(rutnat);
+
+    // De utbytta versionerna, nyast först (beslut 91): det här är stället planeraren klickar
+    // för att se vad som suttit där. Varje version är en **apparat** som varit och inte en
+    // installation – den har inget rum och ingen tillsyn, eftersom tillsynen pekar på id:t och
+    // består genom utbytet. Därför står den under installationens uppgifter och inte bland dem.
+    var versioner = DP.Plan.instVersioner(inst.id);
+    if (versioner.length) {
+      var vsek = el('div', 'sektion');
+      vsek.appendChild(el('h4', null, 'Tidigare apparater (' + versioner.length + ')'));
+      versioner.forEach(function (v) {
+        var vt = typer[v.typ];
+        var rad = el('div', 'version');
+        var uppgifter = [v.fabrikat, v.modell].filter(Boolean).join(' ');
+        rad.innerHTML = '<div class="v-titel"><b>' + v.id + '</b> · ' +
+          (vt ? vt.namn : v.typ) + (uppgifter ? ' · ' + uppgifter : '') + '</div>' +
+          '<div class="v-rad">' + (v.datum ? 'Installerad ' + v.datum : 'Installationsdatum saknas') +
+          ' · ersatt ' + v.slutdatum + '</div>';
+        vsek.appendChild(rad);
+      });
+      vsek.appendChild(el('div', 'tomt',
+        'Tillsynen följde installationen och inte apparaten: kopplade åtgärder och avvikande ' +
+        'texter pekar på id ' + inst.id + ' och berördes inte av utbytet.'));
+      k.appendChild(vsek);
+    }
 
     (inst.innehaller || []).forEach(function (c) {
       var n = el('div', 'notis');

@@ -525,6 +525,11 @@ body.i-balansering .balansering-yta { display: flex; flex-direction: column; }
 .kp-rad { font-size: 12px; color: var(--dov); margin-top: 3px; line-height: 1.4; }
 .koppling .atgardstext { margin: 6px 0 0; background: #fff; }
 .infokort { max-height: calc(100% - 120px); }
+/* En utbytt apparat (beslut 91). Grå och inte grön som en koppling: det är historik och
+   ingenting planeraren behöver göra något åt. */
+.version { border: 1px solid var(--linje); background: #f7f8fa; border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; }
+.v-titel { font-size: 12px; }
+.v-rad { font-size: 11px; color: var(--dov); margin-top: 2px; }
 
 /* ---------- Etapp 3: åtgärdstexter ---------- */
 .avvik-symbol { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #e8a317; color: #fff; font-size: 11px; font-weight: 700; flex: none; vertical-align: -3px; }
@@ -867,6 +872,13 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 /* Ett rum utan installationer står med: det är den plats en installation dras till
    (berättelse 50), och ett rum som inte syns går inte att dra till. */
 .bf-instrumtom { color: var(--dov); font-style: italic; }
+/* Utbytesformuläret ligger på installationens rad och ska se ut som en ruta *inuti* raden och
+   inte som en ny rad: det är den här apparaten som byts. Fälten står två och två och inte fyra
+   i bredd: panelen är smal, och fyra kolumner hade klämt ihop datumet – det enda som krävs. */
+.bf-ersatt { flex: 1 1 100%; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+  background: var(--accent-svag); border: 1px solid #c9dcfb; }
+.bf-ersatt .bf-instfalt { grid-template-columns: 1fr 1fr; }
+.bf-ersatt .liten-rubrik { margin-top: 0; }
 /* Typvalet inne i en oplacerad rad får egen höjdgräns och egen rullning, av samma skäl som
    gruppen själv fick det (beslut 112): tjugofem typknappar hade annars fyllt hela den fasta
    gruppen överst, och då finns ingen lista med rum kvar att dra en installation till –
@@ -7830,7 +7842,14 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
                 benamning: i.benamning, beteckning: i.beteckning || '',
                 fabrikat: i.fabrikat || '', modell: i.modell || '',
                 externtId: i.externtId || '', datum: i.datum || '',
-                rum: nyckel
+                rum: nyckel,
+                // **Antalet** utbytta versioner, så att raden kan säga "1 tidigare apparat"
+                // utan att vyn gräver i datan. Själva versionerna visas i informationskortet,
+                // där planeraren klickar på installationen (beslut 91) – de hämtas med
+                // `instVersioner`. Namnet säger att det är ett antal: `versioner` i
+                // byggnadsdatan är listan, och samma namn för båda hade bjudit in till
+                // `.length` på ett tal.
+                antalVersioner: (i.versioner || []).length
               };
             })
           };
@@ -7953,6 +7972,169 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
         delete m.h;
       });
     return mal;
+  }
+
+  // ------------------------------------------------------------------
+  // Utbyte: apparaten ersätts, installationen består (beslut 91–95)
+  // ------------------------------------------------------------------
+
+  // Åtgärder som gäller en installationstyp. Vägen från typ till åtgärd är `a.galler`, samma
+  // lista steg 5 matchar med – så att "gäller den nya typen" betyder samma sak här som där.
+  function atgarderForTyp(typ) {
+    return DP.atgarder.filter(function (a) {
+      return !a.generell && (a.galler || []).indexOf(typ) >= 0;
+    });
+  }
+
+  // Den utbytta apparaten som den sparas: installationens uppgifter som de var, med id:t och
+  // tillägget :n och utbytets datum som slutdatum (beslut 91 och 95).
+  //
+  // Versionen är en **apparat** och inte en installation: den har inget rum, ingen koppling och
+  // inget liv i planeringen. Därför bär den bara det som skiljer en apparat från en annan –
+  // fabrikat, modell, typ, benämning, beteckning och de två datumen – och ligger på
+  // installationen i stället för i `b.installationer`. Det är vad som gör att `tillArk` tar ut
+  // bara nuvarande versioner utan att veta om historiken (beslut 96), att `inst()` aldrig slår
+  // upp en gammal apparat, och att modellen inte ritar den.
+  function versionAv(i, n, slutdatum) {
+    var v = { id: i.id + ':' + n, typ: i.typ, benamning: i.benamning,
+      beteckning: i.beteckning || '', slutdatum: slutdatum };
+    if (i.fabrikat) { v.fabrikat = i.fabrikat; }
+    if (i.modell) { v.modell = i.modell; }
+    if (i.externtId) { v.externtId = i.externtId; }
+    if (i.datum) { v.datum = i.datum; }
+    return v;
+  }
+
+  // Vad ett utbyte skulle göra, som rena data: versionens id, vilka kopplingar som följer med
+  // och vilka som faller bort (beslut 94). Den svarar på samma fråga **före** och efter – vyns
+  // besked innan planeraren trycker och frågan efteråt (beslut 97) ska aldrig kunna säga olika
+  // saker om samma utbyte, och ett andra ställe som räknar hade förr eller senare gjort det.
+  //
+  // Att den bor här och inte i vyn är beslut 61: varför en koppling följde med eller inte vet
+  // bara den som avgjorde det, och svaret ska gå att läsa i ett test utan DOM.
+  function ersattStatus(instId, upp, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    var i = b ? b.installationer.filter(function (x) { return x.id === instId; })[0] : null;
+    if (!i) { return null; }
+    var o = upp || {};
+    var nyTyp = o.typ && DP.installationstyper[o.typ] ? o.typ : i.typ;
+    var kopplingar = kopplingarForInst(instId, stateFor(id));
+    // Samma typ rör ingen koppling alls (beslut 94): tillsynen pekar på id:t, och id:t består.
+    var behalls = {};
+    if (nyTyp !== i.typ) {
+      atgarderForTyp(nyTyp).forEach(function (a) { behalls[a.id] = true; });
+    }
+    var kvar = nyTyp === i.typ ? kopplingar.slice()
+      : kopplingar.filter(function (k) { return behalls[k.atgard]; });
+    var tappade = nyTyp === i.typ ? []
+      : kopplingar.filter(function (k) { return !behalls[k.atgard]; });
+    return { version: i.id + ':' + ((i.versioner || []).length + 1), nyTyp: nyTyp,
+      byterTyp: nyTyp !== i.typ, behalls: behalls,
+      kopplade: kopplingar.length, kvar: kvar, tappade: tappade };
+  }
+
+  // Går apparaten att ersätta? Beskedet är i klartext och kommer medan planeraren skriver, som
+  // `instHinder`. Tom sträng betyder att inget hindrar.
+  //
+  // Installationsdatumet är det enda som **krävs**: det är vad som skiljer versionerna åt
+  // (beslut 95), och ett utbyte utan datum hade gett två apparater ingen kan hålla isär.
+  function ersattHinder(instId, upp, bid) {
+    var b = B(bid);
+    if (!b) { return ''; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i) { return 'Installationen finns inte längre.'; }
+    var o = upp || {};
+    var datum = String(o.datum || '').trim();
+    if (!datum) {
+      return 'Fyll i installationsdatum för den nya apparaten. Datumet är det som skiljer ' +
+        'versionerna åt.';
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
+      return 'Installationsdatumet skrivs som 2026-11-25.';
+    }
+    if (i.datum && datum < i.datum) {
+      return 'Den nya apparaten kan inte vara installerad före den gamla (' + i.datum + ').';
+    }
+    var typ = String(o.typ || '').trim();
+    if (typ && !DP.installationstyper[typ]) { return 'Välj en installationstyp ur listan.'; }
+    return '';
+  }
+
+  // Ersätt apparaten i en installation (beslut 91–95, berättelse 75 och 78–80).
+  //
+  // Installationen är **platsen och uppgiften** och bär planeringen; apparaten är den sak som
+  // sitter där. Därför består id:t, och kopplingar och avvikande texter – som pekar på id:t –
+  // följer med utan att något flyttas. Det är hela skillnaden mot att ta bort och lägga till
+  // på nytt, och det som gör att en kylmaskin och en handbrandsläckare byts likadant.
+  //
+  // Är den nya apparaten av en **annan typ** behålls bara kopplingar till åtgärder som också
+  // gäller den nya typen; de övriga rivs i samma steg, och installationen syns då som saknad i
+  // steg 5 av sig självt (beslut 94). Att de rivs och inte lämnas kvar är poängen: en koppling
+  // till *Kontroll handbrandsläckare* på en brandpost är tillsyn ingen kan utföra, och den hade
+  // dessutom gett steg 5 en grön bock över något som inte stämmer.
+  //
+  // Därför går utbytet genom `andraByggnadOchPlanering` och inte `andraByggnad`: apparaten och
+  // kopplingarna ska bort i **ett** steg, så att ett ◀ tar tillbaka både den gamla apparaten och
+  // dess tillsyn (samma skäl som `taBortInst`, beslut 87).
+  //
+  // Svaret är `{ version, tappade }` – versionens id och de kopplingar som inte följde med – så
+  // att vyn kan ställa frågan efter utbytet (beslut 97) utan att räkna om något själv. Null när
+  // uppgifterna inte räcker.
+  function ersattInst(instId, upp, bid) {
+    var id = bid || aktiv;
+    var b = B(id);
+    if (!b) { return null; }
+    var i = b.installationer.filter(function (x) { return x.id === instId; })[0];
+    if (!i || ersattHinder(instId, upp, id)) { return null; }
+    var o = upp || {};
+    var datum = String(o.datum || '').trim();
+    var n = (i.versioner || []).length + 1;
+    // Vad utbytet gör räknas **före** ändringen: efteråt finns de kopplingar som revs inte att
+    // räkna. Det är samma uträkning vyns förhandsbesked läser, så beskedet och frågan efteråt
+    // kan aldrig säga olika saker om samma utbyte.
+    var vad = ersattStatus(instId, upp, id);
+    var nyTyp = vad.nyTyp;
+    var behalls = vad.behalls;
+    var namn = (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
+    andraByggnadOchPlanering('ersätt apparaten i ' + namn +
+      (nyTyp !== i.typ ? ' med ' + DP.installationstyper[nyTyp].namn : ''), id,
+      function (data, st) {
+        var m = data.installationer.filter(function (x) { return x.id === instId; })[0];
+        if (!m) { return false; }
+        m.versioner = (m.versioner || []).concat([versionAv(m, n, datum)]);
+        // Den nya apparatens uppgifter. Bara det planeraren fyllt i skrivs om: lämnar hon
+        // fabrikatet tomt är det samma fabrikat igen – tjugo släckare byts mot tjugo likadana
+        // – och ett tomt fält är inget svar, av samma skäl som en tom cell i filen (beslut 86).
+        if (o.fabrikat != null && String(o.fabrikat).trim()) { m.fabrikat = String(o.fabrikat).trim(); }
+        if (o.modell != null && String(o.modell).trim()) { m.modell = String(o.modell).trim(); }
+        if (o.externtId != null && String(o.externtId).trim()) { m.externtId = String(o.externtId).trim(); }
+        if (o.benamning != null && String(o.benamning).trim()) { m.benamning = String(o.benamning).trim(); }
+        if (o.beteckning != null && String(o.beteckning).trim()) { m.beteckning = String(o.beteckning).trim(); }
+        m.datum = datum;
+        if (nyTyp !== m.typ) {
+          m.typ = nyTyp;
+          // Kopplingarna som inte gäller den nya typen, och deras avvikande texter, bort i
+          // samma steg. `rensaKopplingar` tar allt på installationen och går därför inte att
+          // använda: här ska en del av kopplingarna stå kvar.
+          st.kopplingar = (st.kopplingar || []).filter(function (k) {
+            return k.inst !== instId || behalls[k.atgard];
+          });
+          Object.keys(st.instTexter || {}).forEach(function (nyckel) {
+            var delar = nyckel.split('|');
+            if (delar[1] === instId && !behalls[delar[0]]) { delete st.instTexter[nyckel]; }
+          });
+        }
+      });
+    return { version: vad.version, tappade: vad.tappade };
+  }
+
+  // Versionerna av en installation, nyast först: det planeraren vill se är den som satt där
+  // sist. Listan i datan ligger i utbytesordning (:1 först), eftersom numret är ordningen.
+  function instVersioner(instId, bid) {
+    var i = (B(bid) || { installationer: [] }).installationer
+      .filter(function (x) { return x.id === instId; })[0];
+    return i && i.versioner ? i.versioner.slice().reverse() : [];
   }
 
   // Lägg till en installation för hand (berättelse 50). Förslagen är inläsningens: typen läses
@@ -9505,6 +9687,8 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     godtaInst: godtaInst, godtaAllaInst: godtaAllaInst, svaraInst: svaraInst,
     instStatus: instStatus, sattInstTyp: sattInstTyp, taBortInst: taBortInst,
     laggTillInst: laggTillInst, flyttaInst: flyttaInst, instHinder: instHinder,
+    ersattInst: ersattInst, ersattHinder: ersattHinder, ersattStatus: ersattStatus,
+    instVersioner: instVersioner,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
@@ -11179,10 +11363,37 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     falt(rutnat, 'Fabrikat', inst.fabrikat);
     falt(rutnat, 'Modell', inst.modell);
     falt(rutnat, 'Externt id', inst.externtId, !inst.externtId);
+    // Installationsdatumet är vad som skiljer versionerna av en installation åt (beslut 95),
+    // så det hör på kortet jämte de utbytta versionerna och inte bara i inläsningsfilen.
+    falt(rutnat, 'Installationsdatum', inst.datum, !inst.datum);
     falt(rutnat, 'Plan', planNamn(r.plan));
     falt(rutnat, 'Rum', rumNamn(inst.rum));
     if (inst.placering) { falt(rutnat, 'Placering', inst.placering); }
     k.appendChild(rutnat);
+
+    // De utbytta versionerna, nyast först (beslut 91): det här är stället planeraren klickar
+    // för att se vad som suttit där. Varje version är en **apparat** som varit och inte en
+    // installation – den har inget rum och ingen tillsyn, eftersom tillsynen pekar på id:t och
+    // består genom utbytet. Därför står den under installationens uppgifter och inte bland dem.
+    var versioner = DP.Plan.instVersioner(inst.id);
+    if (versioner.length) {
+      var vsek = el('div', 'sektion');
+      vsek.appendChild(el('h4', null, 'Tidigare apparater (' + versioner.length + ')'));
+      versioner.forEach(function (v) {
+        var vt = typer[v.typ];
+        var rad = el('div', 'version');
+        var uppgifter = [v.fabrikat, v.modell].filter(Boolean).join(' ');
+        rad.innerHTML = '<div class="v-titel"><b>' + v.id + '</b> · ' +
+          (vt ? vt.namn : v.typ) + (uppgifter ? ' · ' + uppgifter : '') + '</div>' +
+          '<div class="v-rad">' + (v.datum ? 'Installerad ' + v.datum : 'Installationsdatum saknas') +
+          ' · ersatt ' + v.slutdatum + '</div>';
+        vsek.appendChild(rad);
+      });
+      vsek.appendChild(el('div', 'tomt',
+        'Tillsynen följde installationen och inte apparaten: kopplade åtgärder och avvikande ' +
+        'texter pekar på id ' + inst.id + ' och berördes inte av utbytet.'));
+      k.appendChild(vsek);
+    }
 
     (inst.innehaller || []).forEach(function (c) {
       var n = el('div', 'notis');
@@ -13067,6 +13278,12 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     nyInst: { rum: '', benamning: '', beteckning: '', typ: '', fabrikat: '', modell: '',
       datum: '', externtId: '' },
     laggerTillInst: false,
+    // *Ersätt apparaten* (beslut 91–95): installationen vars apparat byts, och uppgifterna om
+    // den nya. Formuläret ligger **på installationens rad**, som typvalet gör, av samma skäl:
+    // utbytet sker där den gamla apparatens uppgifter står. `ersatter` är `null` när inget
+    // utbyte pågår.
+    ersatter: null,
+    nyApparat: null,
     // *Ändra byggnad* i steg 1 (beslut 100 och 103): det nya namnet medan planeraren skriver
     // det. `null` betyder att hon inte döper om – samma mönster som `doper` för ett plan, och
     // av samma skäl: ändringen sker där uppgiften står och inte i en ruta ovanpå sidan.
@@ -14782,13 +14999,153 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     return w;
   }
 
+  // Formuläret för den nya apparaten, på installationens rad (beslut 91–95, berättelse 75).
+  //
+  // Bara apparatens uppgifter frågas om – fabrikat, modell, installationsdatum, externt id och
+  // typen när den nya apparaten är en annan sort. Rummet och id:t står inte med: de hör till
+  // *installationen*, och det som gör utbytet till ett utbyte och inte till en ny installation
+  // är just att de består.
+  function ersattFormular(i) {
+    var n = ui.nyApparat || {};
+    var w = el('div', 'bf-ersatt');
+    w.appendChild(el('div', 'liten-rubrik', 'Den nya apparaten'));
+    var rutnat = el('div', 'bf-instfalt');
+    faltIn(rutnat, 'Installationsdatum', 'ers-datum', n.datum, 't.ex. 2026-11-25',
+      function (v) { n.datum = v; rita(); });
+    faltIn(rutnat, 'Fabrikat', 'ers-fabrikat', n.fabrikat, 'valfritt',
+      function (v) { n.fabrikat = v; rita(); });
+    faltIn(rutnat, 'Modell', 'ers-modell', n.modell, 'valfri',
+      function (v) { n.modell = v; rita(); });
+    faltIn(rutnat, 'Externt id', 'ers-externt', n.externtId, 'valfritt',
+      function (v) { n.externtId = v; rita(); });
+    w.appendChild(rutnat);
+
+    // Typvalet är **hopfällt** bakom en knapp, till skillnad från i *Lägg till installation*:
+    // en apparat byts nästan alltid mot en av samma sort, och en rad typknappar framför
+    // planeraren hade frågat om något hon sällan vill ändra. Öppnar hon det får hon beskedet
+    // om vad ett typbyte gör med tillsynen (beslut 94) innan hon väljer.
+    var nyTyp = n.typ || i.typ;
+    if (n.visaTyp) {
+      w.appendChild(el('div', 'liten-rubrik', 'Installationstyp'));
+      var typval = el('div', 'bf-typval');
+      DP.signifikantaTyper().forEach(function (id) {
+        typval.appendChild(knapp(DP.installationstyper[id].namn,
+          'knapp liten-knapp' + (id === nyTyp ? '' : ' sekundar'), function () {
+            n.typ = id;
+            rita();
+          }, 'Typen avgör vilka åtgärder du kan koppla i Planering steg 5.'));
+      });
+      w.appendChild(typval);
+    } else {
+      var rad0 = el('div', 'knapprad');
+      rad0.appendChild(knapp('Den nya är av en annan typ', 'lank', function () {
+        n.visaTyp = true;
+        rita();
+      }, 'Visa listan med installationstyper. Kopplingar som inte gäller den nya typen ' +
+         'följer inte med.'));
+      w.appendChild(rad0);
+    }
+
+    var hinder = P.ersattHinder(i.id, { datum: n.datum, typ: n.typ });
+    if (hinder) { w.appendChild(el('div', 'bf-fel', hinder)); }
+    else { w.appendChild(ersattBesked(i, P.ersattStatus(i.id, { typ: n.typ }))); }
+
+    var rad = el('div', 'knapprad hoger');
+    var gor = knapp('Ersätt apparaten', 'knapp', function () {
+      // Formuläret stängs **före** utbytet och inte efter: ändringen ritar om steget genom
+      // prenumeranten, och ett `ersatter` som stod kvar hade ritat formuläret en gång till –
+      // nu med den nya apparatens uppgifter, som om ännu ett utbyte väntade.
+      ui.ersatter = null;
+      ui.nyApparat = null;
+      var svar = P.ersattInst(i.id, { datum: n.datum, fabrikat: n.fabrikat, modell: n.modell,
+        externtId: n.externtId, typ: n.typ });
+      if (!svar) { rita(); return; }
+      fragaEfterUtbyte(i, svar);
+    });
+    gor.disabled = !!hinder;
+    if (gor.disabled) { gor.title = hinder; }
+    rad.appendChild(gor);
+    w.appendChild(rad);
+    return w;
+  }
+
+  // Beskedet om vad utbytet gör, innan planeraren trycker. Tillsynen är det hon behöver veta
+  // om: att den består är hela poängen med ett utbyte (beslut 91), och att den delvis inte gör
+  // det vid ett typbyte är det enda som kan överraska henne (beslut 94).
+  //
+  // Vad som följer med räknas **inte** här utan i `P.ersattStatus`, samma uträkning utbytet
+  // självt gör (beslut 61). Hade vyn räknat hade beskedet före och frågan efteråt kunnat säga
+  // olika saker om samma utbyte.
+  function ersattBesked(i, vad) {
+    var html = 'Installationen behåller <b>id ' + DP.Dialog.esc(i.id) + '</b>, sitt rum och ' +
+      'sin beteckning. ' +
+      (i.fabrikat || i.modell
+        ? 'Den gamla apparaten – ' + DP.Dialog.esc([i.fabrikat, i.modell].filter(Boolean).join(' ')) +
+          ' – sparas '
+        : 'Den gamla apparaten sparas ') +
+      'som <b>' + DP.Dialog.esc(vad.version) + '</b> och syns när du klickar på installationen.';
+    if (vad.byterTyp) {
+      html += ' Den nya är <b>' +
+        DP.Dialog.esc(DP.installationstyper[vad.nyTyp].namn) + '</b>, så ' +
+        (vad.kvar.length
+          ? vad.kvar.length + ' av ' + vad.kopplade + ' kopplade åtgärder följer med'
+          : 'ingen av de ' + vad.kopplade + ' kopplade åtgärderna följer med') +
+        ' – resten syns som saknade i Planering steg 5.';
+    } else if (vad.kopplade) {
+      html += ' Tillsynen är densamma: ' +
+        antal(vad.kopplade, 'kopplad åtgärd', 'kopplade åtgärder') +
+        ' pekar på id:t och följer med.';
+    }
+    return el('div', 'bf-notis', html);
+  }
+
+  // Frågan efter utbytet (beslut 97, berättelse 81 och 82). Den är **vägledning och inget lås**:
+  // planeringen är redan ändrad när frågan kommer, och *Nej* öppnar bara steg 5 så att
+  // planeraren kan koppla om där. Därför har den inget Avbryt – det finns inget att avbryta,
+  // och ett ◀ är vägen tillbaka.
+  function fragaEfterUtbyte(i, svar) {
+    var namn = (i.beteckning ? i.beteckning + ' ' : '') + i.benamning;
+    var html = '<p>Du har ersatt apparaten i <b>' + DP.Dialog.esc(namn) + '</b>. ' +
+      'Installationen och id:t består, och den gamla apparaten ligger kvar som <b>' +
+      DP.Dialog.esc(svar.version) + '</b>.</p>';
+    if (svar.tappade.length) {
+      // Vilka åtgärder som föll bort sägs i klartext och inte bara som ett antal: planeraren
+      // ska kunna koppla om just dem, och "3 åtgärder" säger inte vilka.
+      var namnen = svar.tappade.map(function (k) {
+        var a = P.atgard(k.atgard);
+        return a ? a.namn : k.atgard;
+      });
+      html += '<p><b>' + antal(svar.tappade.length, 'åtgärd följde', 'åtgärder följde') +
+        ' inte med</b>, eftersom den nya apparaten är av en annan typ: ' +
+        DP.Dialog.esc(namnen.join(', ')) + '. Installationen syns nu som saknad i steg 5.</p>';
+    }
+    html += '<p>Ska den nya ha samma tillsyn som förut?</p>';
+    DP.Dialog.visa({
+      titel: 'Ska den nya ha samma tillsyn som förut?',
+      html: html,
+      bredd: 560,
+      knappar: [
+        { text: 'Ja, samma tillsyn', prim: true },
+        { text: 'Nej, visa den i Planering', gor: function () {
+          // Ordningen är den befintliga: öppna steget först, visa huvudsteget sedan
+          // (se Balanseringens länk till steg 4 i `vyer.js`). Markeringen blinkar i
+          // modellen, så att planeraren ser *vilken* installation steg 5 gäller.
+          DP.Flode.oppnaSteg(5);
+          DP.Vyer.visa('planering');
+          var inst = P.inst(i.id);
+          if (inst && DP.viewer) { DP.viewer.blinka([inst], 2200, 0xe07b26); }
+        } }
+      ]
+    });
+  }
+
   // En installationsrad: beteckningen, benämningen, typen och uppgifterna ur filen.
   function instrad(i, r) {
     var rad = el('div', 'bf-instrad');
     rad.dataset.inst = i.id;
-    // Raden går inte att dra medan typvalet står öppet: ett klick på en typknapp hade
-    // startat ett drag i stället för att välja typen.
-    rad.draggable = ui.insttyp !== i.id;
+    // Raden går inte att dra medan typvalet eller utbytet står öppet: ett klick på en typknapp
+    // eller i ett fält hade startat ett drag i stället för att välja typen eller skriva.
+    rad.draggable = ui.insttyp !== i.id && ui.ersatter !== i.id;
     if (ui.instdrag && ui.instdrag.id === i.id) { rad.classList.add('dras'); }
     rad.appendChild(el('span', 'bf-planbet', i.beteckning || '–'));
     var txt = el('div', 'bf-btext');
@@ -14798,10 +15155,20 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     if (i.datum) { delar.push('installerad ' + i.datum); }
     delar.push('id ' + i.id);
     if (i.externtId) { delar.push('externt id ' + i.externtId); }
+    // Att apparaten bytts står på raden, eftersom det är en uppgift om installationen –
+    // *vilka* apparater som suttit där syns i informationskortet (beslut 91).
+    if (i.antalVersioner) {
+      delar.push(antal(i.antalVersioner, 'tidigare apparat', 'tidigare apparater'));
+    }
     txt.appendChild(el('span', 'bf-bstatus', delar.join(' · ')));
     rad.appendChild(txt);
     var verktyg = el('div', 'bf-planverktyg');
-    if (ui.insttyp === i.id) {
+    if (ui.ersatter === i.id) {
+      rad.appendChild(ersattFormular(i));
+      verktyg.appendChild(knapp('Avbryt', 'knapp sekundar liten-knapp', function () {
+        ui.ersatter = null; ui.nyApparat = null; rita();
+      }));
+    } else if (ui.insttyp === i.id) {
       // Typvalet ligger **på installationens rad**, som rumstypvalet gör i steg 3: planeraren
       // ska se typen ändras där uppgiften står och inte i en ruta ovanpå sidan.
       var val = el('div', 'bf-typval');
@@ -14822,6 +15189,18 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
         rita();
       }, 'Byt installationstyp. Den avgör vilka åtgärder du kan koppla i Planering steg 5; ' +
          'kopplingar som inte gäller den nya typen syns som saknade där.'));
+      verktyg.appendChild(knapp('Ersätt', 'knapp sekundar liten-knapp', function () {
+        ui.ersatter = i.id;
+        ui.insttyp = null;
+        // Fabrikat och modell står kvar som förval: en apparat byts oftast mot en likadan, och
+        // det planeraren behöver skriva är då bara datumet. Lämnar hon dem orörda är det samma
+        // uppgifter igen – ett tomt fält är inget svar (se `ersattInst`).
+        ui.nyApparat = { fabrikat: i.fabrikat || '', modell: i.modell || '', datum: '',
+          externtId: i.externtId || '', typ: '' };
+        ui.fokus = 'ers-datum';
+        rita();
+      }, 'Ersätt apparaten. Installationen, id:t och tillsynen består; den gamla apparaten ' +
+         'sparas som en tidigare version.'));
       verktyg.appendChild(knapp('Ta bort', 'knapp sekundar liten-knapp', function () {
         P.taBortInst(i.id);
       }, 'Tar bort installationen och dess kopplade åtgärder. ◀ tar den tillbaka.'));
@@ -15031,6 +15410,11 @@ parse_Primary(n.content)}catch(l){}a="/EncryptionInfo";n=Qe.find(e,a);if(!n||!n.
     ui.insttyp = null;
     ui.instdrag = null;
     ui.laggerTillInst = false;
+    // Det halvskrivna utbytet gällde en apparat i den byggnad hon stod i. Installationen finns
+    // inte i den nya, så `ersattHinder` hade svarat "finns inte längre" på ett formulär hon
+    // aldrig öppnat.
+    ui.ersatter = null;
+    ui.nyApparat = null;
     rita();
   });
   rita();
