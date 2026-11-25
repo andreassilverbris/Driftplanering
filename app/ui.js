@@ -10,7 +10,9 @@
   function indexera() {
     b = DP.Plan.byggnad();
     rumIndex = {}; instPerRum = {};
-    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    // Nycklat på rummets nyckel (plan + rumsnummer): rumsnumret löper per plan och är inte
+    // unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
+    b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
     b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
     signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
   }
@@ -31,7 +33,7 @@
   }
   function hex(n) { return '#' + ('000000' + n.toString(16)).slice(-6); }
   function planNamn(id) { var p = b.plan.filter(function (x) { return x.id === id; })[0]; return p.id + ' – ' + p.namn; }
-  function rumNamn(nr) { var r = rumIndex[nr]; return r.nr + ' – ' + r.namn; }
+  function rumNamn(nyckel) { var r = rumIndex[nyckel]; return DP.rumBeteckning(r) + ' – ' + r.namn; }
   function antalText(n, typ) { return n + ' ' + (n === 1 ? typer[typ].namn.toLowerCase() : (PLURAL[typ] || typer[typ].namn.toLowerCase())); }
 
   function atgardForTyp(typ) {
@@ -48,7 +50,7 @@
     planAndrat: uppdateraPlanKnappar,
     lageAndrat: function (lage, r) {
       $('#rumlage').hidden = lage !== 'rum';
-      if (r) { $('#rumlage-namn').textContent = planNamn(r.plan) + ' · ' + rumNamn(r.nr); }
+      if (r) { $('#rumlage-namn').textContent = planNamn(r.plan) + ' · ' + rumNamn(DP.rumBeteckning(r)); }
       document.body.classList.toggle('i-rum', lage === 'rum');
     }
   });
@@ -131,7 +133,7 @@
       var i = b.installationer.filter(function (x) { return x.id === visades.inst.id; })[0];
       if (i) { visaInstKort(i); } else { kort.hidden = true; visas = null; redigerar = null; }
     } else if (visades.rum) {
-      var r = rumIndex[visades.rum.nr];
+      var r = rumIndex[DP.rumBeteckning(visades.rum)];
       if (r) { visaRumKort(r); } else { kort.hidden = true; visas = null; redigerar = null; }
     }
   }
@@ -172,17 +174,18 @@
       sek.appendChild(rubrik);
       b.rum.filter(function (r) { return r.plan === p.id; }).forEach(function (r) {
         var rd = el('details', 'rum');
-        rd.dataset.rum = r.nr;
+        var nyckel = DP.rumBeteckning(r);
+        rd.dataset.rum = nyckel;
         var rs = el('summary');
-        var lista = instPerRum[r.nr] || [];
+        var lista = instPerRum[nyckel] || [];
         var nsig = lista.filter(function (i) { return i.signifikant; }).length;
-        rs.innerHTML = '<span class="rum-nr">' + r.nr + '</span><span class="rum-namn">' + r.namn + '</span>' +
+        rs.innerHTML = '<span class="rum-nr">' + nyckel + '</span><span class="rum-namn">' + r.namn + '</span>' +
           (nsig ? '<span class="rakna">' + nsig + '</span>' : '');
         var gaIn = el('button', 'liten', 'Gå in');
         gaIn.title = 'Gå in i rummet och se dig omkring';
-        gaIn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); viewer.gaIn(r.nr); });
+        gaIn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); viewer.gaIn(nyckel); });
         rs.appendChild(gaIn);
-        rs.addEventListener('click', function () { viewer.visaRum(r.nr); visaRumKort(r); });
+        rs.addEventListener('click', function () { viewer.visaRum(nyckel); visaRumKort(r); });
         rd.appendChild(rs);
 
         var ul = el('ul', 'instlista');
@@ -277,7 +280,7 @@
     falt(rutnat, 'Modell', inst.modell);
     falt(rutnat, 'Externt id', inst.externtId, !inst.externtId);
     falt(rutnat, 'Plan', planNamn(r.plan));
-    falt(rutnat, 'Rum', rumNamn(r.nr));
+    falt(rutnat, 'Rum', rumNamn(inst.rum));
     if (inst.placering) { falt(rutnat, 'Placering', inst.placering); }
     k.appendChild(rutnat);
 
@@ -360,15 +363,16 @@
     var visa = el('button', 'knapp sekundar', 'Visa i modellen');
     visa.addEventListener('click', function () { viewer.valjInstallation(inst, true); });
     var gaIn = el('button', 'knapp sekundar', 'Gå in i ' + r.namn.toLowerCase());
-    gaIn.addEventListener('click', function () { viewer.gaIn(r.nr); viewer.valjInstallation(inst, false); });
+    gaIn.addEventListener('click', function () { viewer.gaIn(inst.rum); viewer.valjInstallation(inst, false); });
     knappar.appendChild(visa); knappar.appendChild(gaIn);
     k.appendChild(knappar);
   }
 
   function visaRumKort(r) {
+    var nyckel = DP.rumBeteckning(r);
     var area = (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
-    var k = nyttKort(rumNamn(r.nr), 'Plan ' + planNamn(r.plan) + ' · ' + area + ' m²');
-    var lista = instPerRum[r.nr] || [];
+    var k = nyttKort(rumNamn(nyckel), 'Plan ' + planNamn(r.plan) + ' · ' + area + ' m²');
+    var lista = instPerRum[nyckel] || [];
     var sig = lista.filter(function (i) { return i.signifikant; });
     var sek = el('div', 'sektion');
     sek.appendChild(el('h4', null, 'Signifikanta installationer (' + sig.length + ')'));
@@ -394,7 +398,7 @@
     }
     var knappar = el('div', 'knapprad');
     var gaIn = el('button', 'knapp', 'Gå in i rummet');
-    gaIn.addEventListener('click', function () { viewer.gaIn(r.nr); });
+    gaIn.addEventListener('click', function () { viewer.gaIn(nyckel); });
     knappar.appendChild(gaIn);
     k.appendChild(knappar);
   }
@@ -416,7 +420,7 @@
       tips.innerHTML = '<b>' + typer[inst.typ].namn + '</b> · ej signifikant<br>' + (DP.ejSignifikantForklaring[inst.typ] || '');
     } else {
       tips.className = 'tips rum';
-      tips.innerHTML = '<b>' + rum.nr + ' ' + rum.namn + '</b><br>Klicka: information · Dubbelklicka: gå in';
+      tips.innerHTML = '<b>' + DP.rumBeteckning(rum) + ' ' + rum.namn + '</b><br>Klicka: information · Dubbelklicka: gå in';
     }
     tips.hidden = false;
   }

@@ -69,7 +69,7 @@ Skriptens ordning i `index.html` spelar roll:
 
 | Fil | Ansvar |
 |---|---|
-| `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan). Byggnaden är källa till starttillståndet, som Garage och Kasern |
+| `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan), och `DP.rumNyckel`/`DP.rumBeteckning` (plan + rumsnummer, beslut 76). Byggnaden är källa till starttillståndet, som Garage och Kasern |
 | `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering), `DP.omraden`, `DP.genereraOvriga()` |
 | `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
 | `data/ordlista.js` | `DP.ordlista`: begreppen i fyra grupper, det som ordlistedialogen visar |
@@ -267,6 +267,15 @@ id/beteckning m.m. samt ej signifikanta), `stil` (tak platt/sadel, färger, fön
 (id i `DP.omraden` – beslut 28) och `farg` (brickornas färg i Balanseringens tidsaxel, beslut 47).
 3D-modellen räknas fram ur detta – en ny byggnad kräver bara en datafil.
 
+**Ett rum pekas ut med plan + rumsnummer** (beslut 76, biljett #33). Rumsnumret `nr` löper per plan
+(`'001'`, `'002'` …) som i verkligheten, så det är **inte** unikt i byggnaden: rum 001 finns på varje
+plan. Nyckeln är `DP.rumNyckel(planId, nr)` = `DP.rumBeteckning(r)` → `'01-001'`, och samma sträng är
+det planeraren ser – det som pekar ut rummet och det som står i modellen är en och samma sak.
+Installationernas `rum` och ett innerrums `iRum` bär **nyckeln**, inte numret, och alla rumsindex
+(`viewer.rumIndex`, `ui.js`, `telefon.js`) är nycklade på den. `viewer.visaRum()` och `viewer.gaIn()`
+tar nyckeln. Nycklas något om på numret ensamt pekar det tyst på det första rummet med det numret.
+Sömmen bor i `data/hangar.js`, som laddas först och skapar `window.DP`.
+
 Identiteten är **id:t och inte objektreferensen** (beslut 2). Tillståndet klonas vid varje historiksteg,
 så samma installation är ett nytt objekt efter varje ändring och efter varje ångra: `viewer.objFor` är
 nycklad på installations-id, och `DP.Plan.inst()` bygger om sitt index när byggnadsdatan bytts.
@@ -301,7 +310,10 @@ balanseringen* (beslut 63) är borttagen. Andra biljetten, **byggnaden som data 
 och 73, biljett #32), är byggd: byggnadens namn, typ, område, färg, plan, rum och installationer ligger i
 historikens ögonblicksbilder, ändras genom `DP.Plan.andraByggnad`, och ingen kod utanför `planering.js`
 läser `DP.byggnader`. För planeraren ser allt ut som förut; sömmen är förberedelsen för hela
-byggnadsflödet.
+byggnadsflödet. Tredje biljetten, **den nya numreringen** (beslut 76, biljett #33), är byggd: alla fyra
+byggnaderna har plan 01 … och rumsnummer 001 … som löper per plan, rummet visas som **01-001** i modellen,
+trädet, informationskortet och telefonen, och rummet pekas ut med plan + rumsnummer i stället för med
+numret ensamt (se Byggnadsdata ovan).
 
 Kända begränsningar:
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar

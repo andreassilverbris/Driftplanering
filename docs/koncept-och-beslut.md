@@ -404,6 +404,11 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     och rum var sin beteckning, och ett rum pekas ut med båda – i rumsfliken och i installationsfliken.
     Det visas kort som **01-001**. Garage, Kaserner och Hangar byter till samma numrering (de har i dag
     1001 = plan 1, rum 1), så att man lär sig på det man möter.
+    *Byggt i biljett #33.* Nyckeln `plan + '-' + nr` är både det som pekar ut rummet i koden
+    (`DP.rumNyckel`/`DP.rumBeteckning`, som installationernas `rum` bär) och det planeraren ser – samma
+    sträng, så det finns ingen översättning att glömma. Kasernens källarplan behåller sin beteckning
+    `00`: beslut 77 säger att planens beteckning behålls som den står, och det väger tyngre än att
+    numrera om källaren till något negativt.
 77. **Planens beteckning behålls som den står, och kopplingarna matchas förlåtande.** Fliken Plan är
     fastighetssystemets id och ska kunna gå tillbaka dit, så systemet döper inte om. När Rum eller
     Installationer pekar på ett plan eller rum: exakt träff är **klar**, träff efter att bokstäver och

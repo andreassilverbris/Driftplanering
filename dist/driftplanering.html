@@ -85,13 +85,15 @@ details.plan[open] > summary::before { content: "▾"; }
 details.rum { margin-left: 14px; }
 details.rum > summary { display: flex; align-items: center; gap: 8px; padding: 5px 6px; cursor: pointer; list-style: none; border-radius: 6px; }
 details.rum > summary:hover { background: #f4f6f9; }
-.rum-nr { font-variant-numeric: tabular-nums; color: var(--dov); width: 36px; }
+/* Rummets nyckel är plan + rumsnummer, "01-001" (beslut 76) – bredden rymmer den utan radbrytning */
+.rum-nr { font-variant-numeric: tabular-nums; color: var(--dov); width: 52px; white-space: nowrap; }
 .rum-namn { flex: 1; }
 .rakna { font-size: 11px; background: #eef1f4; color: var(--dov); border-radius: 999px; padding: 1px 7px; }
 button.liten { font-size: 11px; padding: 2px 8px; border: 1px solid var(--linje); background: #fff; border-radius: 999px; color: var(--accent); visibility: hidden; }
 details.rum > summary:hover button.liten { visibility: visible; }
 
-.instlista { list-style: none; margin: 2px 0 6px 44px; padding: 0; }
+/* Indraget följer rumsnyckelns bredd, så installationerna linjerar med rummets namn */
+.instlista { list-style: none; margin: 2px 0 6px 60px; padding: 0; }
 .instlista li { padding: 3px 6px; border-radius: 5px; font-size: 13px; display: flex; align-items: center; }
 .instlista li.sig { cursor: pointer; }
 .instlista li.sig:hover { background: var(--accent-svag); }
@@ -1899,8 +1901,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
  * Kontorsdelen: x 0–12, z 0–30, tre plan.
  * Hangaren:     x 12–76, z 0–30, ett plan med fri höjd upp till samma nivå som kontorsdelens tak.
  *
- * Rumsnummer: plansiffra + löpnummer (t.ex. 2010 = plan 02, rum 010), enligt
- * vanlig svensk praxis med utgångspunkt i SS-ISO 4157. Plan och rum är egna objekt.
+ * Rumsnummer: löpnummer per plan (001, 002 …) enligt vanlig svensk praxis med utgångspunkt i
+ * SS-ISO 4157. Planet har en egen beteckning (01, 02 …), och ett rum pekas ut med plan + rumsnummer,
+ * skrivet 01-001 (beslut 76). Plan och rum är egna objekt.
  *
  * Installationer:
  *   signifikant: true  -> registreras som individ med 8-siffrigt id, ska ha kopplade åtgärder, klickbar.
@@ -1908,6 +1911,18 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
  */
 (function () {
   'use strict';
+
+  window.DP = window.DP || {};
+
+  // Ett rum pekas ut med plan + rumsnummer (beslut 76). Rumsnumret löper per plan (001, 002 …),
+  // så det är inte unikt i byggnaden: rum 001 finns på varje plan. Nyckeln är därför planets
+  // beteckning och rumsnumret, skrivna ihop med bindestreck – och den strängen är också det
+  // planeraren ser, så det som pekar ut rummet och det som står i modellen är samma sak.
+  // Installationernas `rum` och ett innerrums `iRum` bär den här nyckeln, inte rumsnumret.
+  window.DP.rumNyckel = function (planId, nr) { return planId + '-' + nr; };
+  window.DP.rumBeteckning = function (r) { return window.DP.rumNyckel(r.plan, r.nr); };
+
+  var rk = window.DP.rumNyckel, rumNyckelFor = window.DP.rumBeteckning;
 
   var PLANHOJD = 3.5;     // våningshöjd
   var BJALKLAG = 0.2;     // bjälklagets tjocklek
@@ -1923,51 +1938,51 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // Rum: rect = [x0, z0, x1, z1]
   var rum = [
     // ---- Plan 01 – Entréplan ----
-    { nr: '1001', namn: 'Entré',              plan: '01', typ: 'kommunikation', rect: [0, 24, 7, 30] },
-    { nr: '1002', namn: 'Korridor',           plan: '01', typ: 'kommunikation', rect: [5, 0, 7, 24] },
-    { nr: '1003', namn: 'Trapphus',           plan: '01', typ: 'kommunikation', rect: [9, 24, 12, 30] },
-    { nr: '1004', namn: 'Hisschakt',          plan: '01', typ: 'teknik',        rect: [7, 27, 9, 30] },
-    { nr: '1005', namn: 'Städ',               plan: '01', typ: 'teknik',        rect: [7, 24, 9, 27] },
-    { nr: '1006', namn: 'Omklädningsrum 1',   plan: '01', typ: 'personal',      rect: [0, 12, 5, 24] },
-    { nr: '1007', namn: 'Omklädningsrum 2',   plan: '01', typ: 'personal',      rect: [0, 0, 5, 12] },
-    { nr: '1008', namn: 'Fikarum',            plan: '01', typ: 'personal',      rect: [7, 14, 12, 24] },
-    { nr: '1009', namn: 'Förråd',             plan: '01', typ: 'forrad',        rect: [7, 8, 12, 14] },
-    { nr: '1010', namn: 'Elrum',              plan: '01', typ: 'teknik',        rect: [7, 4, 12, 8] },
-    { nr: '1011', namn: 'Torkrum',            plan: '01', typ: 'personal',      rect: [7, 0, 12, 4] },
-    { nr: '1012', namn: 'Hangar',             plan: '01', typ: 'hangar',        rect: [12, 0, 76, 30], hojd: HANGARHOJD, utanVagg: ['W'] },
-    { nr: '1013', namn: 'Förråd hangar 1',    plan: '01', typ: 'forrad',        rect: [22, 0, 28, 4], hojd: 3.0, iRum: '1012' },
-    { nr: '1014', namn: 'Förråd hangar 2',    plan: '01', typ: 'forrad',        rect: [42, 0, 48, 4], hojd: 3.0, iRum: '1012' },
-    { nr: '1015', namn: 'Förråd hangar 3',    plan: '01', typ: 'forrad',        rect: [62, 0, 68, 4], hojd: 3.0, iRum: '1012' },
+    { nr: '001', namn: 'Entré',              plan: '01', typ: 'kommunikation', rect: [0, 24, 7, 30] },
+    { nr: '002', namn: 'Korridor',           plan: '01', typ: 'kommunikation', rect: [5, 0, 7, 24] },
+    { nr: '003', namn: 'Trapphus',           plan: '01', typ: 'kommunikation', rect: [9, 24, 12, 30] },
+    { nr: '004', namn: 'Hisschakt',          plan: '01', typ: 'teknik',        rect: [7, 27, 9, 30] },
+    { nr: '005', namn: 'Städ',               plan: '01', typ: 'teknik',        rect: [7, 24, 9, 27] },
+    { nr: '006', namn: 'Omklädningsrum 1',   plan: '01', typ: 'personal',      rect: [0, 12, 5, 24] },
+    { nr: '007', namn: 'Omklädningsrum 2',   plan: '01', typ: 'personal',      rect: [0, 0, 5, 12] },
+    { nr: '008', namn: 'Fikarum',            plan: '01', typ: 'personal',      rect: [7, 14, 12, 24] },
+    { nr: '009', namn: 'Förråd',             plan: '01', typ: 'forrad',        rect: [7, 8, 12, 14] },
+    { nr: '010', namn: 'Elrum',              plan: '01', typ: 'teknik',        rect: [7, 4, 12, 8] },
+    { nr: '011', namn: 'Torkrum',            plan: '01', typ: 'personal',      rect: [7, 0, 12, 4] },
+    { nr: '012', namn: 'Hangar',             plan: '01', typ: 'hangar',        rect: [12, 0, 76, 30], hojd: HANGARHOJD, utanVagg: ['W'] },
+    { nr: '013', namn: 'Förråd hangar 1',    plan: '01', typ: 'forrad',        rect: [22, 0, 28, 4], hojd: 3.0, iRum: rk('01', '012') },
+    { nr: '014', namn: 'Förråd hangar 2',    plan: '01', typ: 'forrad',        rect: [42, 0, 48, 4], hojd: 3.0, iRum: rk('01', '012') },
+    { nr: '015', namn: 'Förråd hangar 3',    plan: '01', typ: 'forrad',        rect: [62, 0, 68, 4], hojd: 3.0, iRum: rk('01', '012') },
 
     // ---- Plan 02 – Kontorsplan ----
-    { nr: '2001', namn: 'Korridor',           plan: '02', typ: 'kommunikation', rect: [5, 0, 7, 30] },
-    { nr: '2002', namn: 'Trapphus',           plan: '02', typ: 'kommunikation', rect: [9, 24, 12, 30] },
-    { nr: '2003', namn: 'Hisschakt',          plan: '02', typ: 'teknik',        rect: [7, 27, 9, 30] },
-    { nr: '2004', namn: 'WC',                 plan: '02', typ: 'personal',      rect: [7, 24, 9, 27] },
-    { nr: '2005', namn: 'Kontor 1',           plan: '02', typ: 'kontor',        rect: [0, 24, 5, 30] },
-    { nr: '2006', namn: 'Kontor 2',           plan: '02', typ: 'kontor',        rect: [0, 18, 5, 24] },
-    { nr: '2007', namn: 'Kontor 3',           plan: '02', typ: 'kontor',        rect: [0, 12, 5, 18] },
-    { nr: '2008', namn: 'Kontor 4',           plan: '02', typ: 'kontor',        rect: [0, 6, 5, 12] },
-    { nr: '2009', namn: 'Kontor 5',           plan: '02', typ: 'kontor',        rect: [0, 0, 5, 6] },
-    { nr: '2010', namn: 'Konferensrum',       plan: '02', typ: 'kontor',        rect: [7, 14, 12, 24] },
-    { nr: '2011', namn: 'Kontor 6',           plan: '02', typ: 'kontor',        rect: [7, 9, 12, 14] },
-    { nr: '2012', namn: 'Kontor 7',           plan: '02', typ: 'kontor',        rect: [7, 4, 12, 9] },
-    { nr: '2013', namn: 'Elrum',              plan: '02', typ: 'teknik',        rect: [7, 0, 12, 4] },
+    { nr: '001', namn: 'Korridor',           plan: '02', typ: 'kommunikation', rect: [5, 0, 7, 30] },
+    { nr: '002', namn: 'Trapphus',           plan: '02', typ: 'kommunikation', rect: [9, 24, 12, 30] },
+    { nr: '003', namn: 'Hisschakt',          plan: '02', typ: 'teknik',        rect: [7, 27, 9, 30] },
+    { nr: '004', namn: 'WC',                 plan: '02', typ: 'personal',      rect: [7, 24, 9, 27] },
+    { nr: '005', namn: 'Kontor 1',           plan: '02', typ: 'kontor',        rect: [0, 24, 5, 30] },
+    { nr: '006', namn: 'Kontor 2',           plan: '02', typ: 'kontor',        rect: [0, 18, 5, 24] },
+    { nr: '007', namn: 'Kontor 3',           plan: '02', typ: 'kontor',        rect: [0, 12, 5, 18] },
+    { nr: '008', namn: 'Kontor 4',           plan: '02', typ: 'kontor',        rect: [0, 6, 5, 12] },
+    { nr: '009', namn: 'Kontor 5',           plan: '02', typ: 'kontor',        rect: [0, 0, 5, 6] },
+    { nr: '010', namn: 'Konferensrum',       plan: '02', typ: 'kontor',        rect: [7, 14, 12, 24] },
+    { nr: '011', namn: 'Kontor 6',           plan: '02', typ: 'kontor',        rect: [7, 9, 12, 14] },
+    { nr: '012', namn: 'Kontor 7',           plan: '02', typ: 'kontor',        rect: [7, 4, 12, 9] },
+    { nr: '013', namn: 'Elrum',              plan: '02', typ: 'teknik',        rect: [7, 0, 12, 4] },
 
     // ---- Plan 03 – Teknikplan ----
-    { nr: '3001', namn: 'Trapphus',           plan: '03', typ: 'kommunikation', rect: [9, 24, 12, 30] },
-    { nr: '3002', namn: 'Hall',               plan: '03', typ: 'kommunikation', rect: [0, 24, 9, 30] },
-    { nr: '3003', namn: 'Apparatrum',         plan: '03', typ: 'teknik',        rect: [0, 0, 12, 24] }
+    { nr: '001', namn: 'Trapphus',           plan: '03', typ: 'kommunikation', rect: [9, 24, 12, 30] },
+    { nr: '002', namn: 'Hall',               plan: '03', typ: 'kommunikation', rect: [0, 24, 9, 30] },
+    { nr: '003', namn: 'Apparatrum',         plan: '03', typ: 'teknik',        rect: [0, 0, 12, 24] }
   ];
 
   // Utrymningsvägar per plan (två per plan)
   var utrymningsvagar = [
-    { plan: '01', vag: 'Entrédörr i 1001 Entré' },
-    { plan: '01', vag: 'Portar och gångdörr i 1012 Hangar' },
-    { plan: '02', vag: 'Trapphus 2002' },
-    { plan: '02', vag: 'Utrymningsfönster i 2009 Kontor 5 med utfällbar stege (US01)' },
-    { plan: '03', vag: 'Trapphus 3001' },
-    { plan: '03', vag: 'Utrymningsfönster i 3003 Apparatrum med utfällbar stege (US02)' }
+    { plan: '01', vag: 'Entrédörr i 01-001 Entré' },
+    { plan: '01', vag: 'Portar och gångdörr i 01-012 Hangar' },
+    { plan: '02', vag: 'Trapphus 02-002' },
+    { plan: '02', vag: 'Utrymningsfönster i 02-009 Kontor 5 med utfällbar stege (US01)' },
+    { plan: '03', vag: 'Trapphus 03-001' },
+    { plan: '03', vag: 'Utrymningsfönster i 03-003 Apparatrum med utfällbar stege (US02)' }
   ];
 
   // Installationstyper: namn, kategori (färg i modellen) och hur de monteras
@@ -2018,10 +2033,12 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // ---------------------------------------------------------------
   // Signifikanta installationer (registrerade individer)
   // ---------------------------------------------------------------
-  function sig(id, typ, nr, benamning, fabrikat, modell, beteckning, externtId, rumNr, x, z, h, extra) {
+  // `planId` och `rumNr` pekar tillsammans ut rummet (beslut 76). Installationen bär rummets
+  // nyckel, eftersom rumsnumret löper per plan och inte är unikt i byggnaden.
+  function sig(id, typ, nr, benamning, fabrikat, modell, beteckning, externtId, planId, rumNr, x, z, h, extra) {
     var o = {
       id: id, typ: typ, nr: nr, benamning: benamning, fabrikat: fabrikat, modell: modell,
-      beteckning: beteckning, externtId: externtId, rum: rumNr, x: x, z: z, h: h || 0,
+      beteckning: beteckning, externtId: externtId, rum: rk(planId, rumNr), x: x, z: z, h: h || 0,
       signifikant: true
     };
     if (extra) { for (var k in extra) { o[k] = extra[k]; } }
@@ -2030,93 +2047,95 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   var signifikanta = [
     // Brandlarm
-    sig('00000011', 'brandlarmscentral', 1, 'Brandlarmscentral 1', 'Securia', 'BC-400', 'BLC01', 'L410233', '1001', 0, 27, 1.3),
+    sig('00000011', 'brandlarmscentral', 1, 'Brandlarmscentral 1', 'Securia', 'BC-400', 'BLC01', 'L410233', '01', '001', 0, 27, 1.3),
 
     // Elcentraler (jordfelsbrytare i dessa är EJ signifikanta)
-    sig('00000012', 'huvudcentral', 1, 'Huvudcentral 1', 'Elektra', 'HC-400', 'HC01', 'L551204', '1010', 12, 6, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] }),
-    sig('00000013', 'gruppcentral', 1, 'Gruppcentral 1', 'Elektra', 'GC-63', 'GC01', 'L551205', '1002', 5, 4, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] }),
-    sig('00000014', 'personhiss', 1, 'Personhiss 1', 'Schindler', 'B450', 'HISS01', 'L222290', '1004', 8, 28.5, 0),
-    sig('00000015', 'huvudcentral', 2, 'Huvudcentral 2', 'Elektra', 'HC-250', 'HC02', 'L551206', '2013', 12, 2, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] }),
-    sig('00000016', 'gruppcentral', 2, 'Gruppcentral 2', 'Elektra', 'GC-63', 'GC02', 'L551207', '2001', 5, 20, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] }),
-    sig('00000017', 'huvudcentral', 3, 'Huvudcentral 3', 'Elektra', 'HC-250', 'HC03', 'L551208', '3002', 4, 24, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] }),
-    sig('00000018', 'gruppcentral', 3, 'Gruppcentral 3', 'Elektra', 'GC-63', 'GC03', 'L551209', '3003', 0, 20, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] }),
+    sig('00000012', 'huvudcentral', 1, 'Huvudcentral 1', 'Elektra', 'HC-400', 'HC01', 'L551204', '01', '010', 12, 6, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] }),
+    sig('00000013', 'gruppcentral', 1, 'Gruppcentral 1', 'Elektra', 'GC-63', 'GC01', 'L551205', '01', '002', 5, 4, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] }),
+    sig('00000014', 'personhiss', 1, 'Personhiss 1', 'Schindler', 'B450', 'HISS01', 'L222290', '01', '004', 8, 28.5, 0),
+    sig('00000015', 'huvudcentral', 2, 'Huvudcentral 2', 'Elektra', 'HC-250', 'HC02', 'L551206', '02', '013', 12, 2, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] }),
+    sig('00000016', 'gruppcentral', 2, 'Gruppcentral 2', 'Elektra', 'GC-63', 'GC02', 'L551207', '02', '001', 5, 20, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] }),
+    sig('00000017', 'huvudcentral', 3, 'Huvudcentral 3', 'Elektra', 'HC-250', 'HC03', 'L551208', '03', '002', 4, 24, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] }),
+    sig('00000018', 'gruppcentral', 3, 'Gruppcentral 3', 'Elektra', 'GC-63', 'GC03', 'L551209', '03', '003', 0, 20, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] }),
 
     // Brandposter
-    sig('00000021', 'brandpost', 1, 'Brandpost 1', 'Nordhydrant', 'NH-25', 'BP01', 'L330101', '1002', 5, 14, 0.9),
-    sig('00000022', 'brandpost', 2, 'Brandpost 2', 'Nordhydrant', 'NH-25', 'BP02', 'L330102', '2001', 5, 14, 0.9),
-    sig('00000023', 'brandpost', 3, 'Brandpost 3', 'Nordhydrant', 'NH-25', 'BP03', 'L330103', '1012', 12, 16, 0.9),
-    sig('00000024', 'brandpost', 4, 'Brandpost 4', 'Nordhydrant', 'NH-25', 'BP04', 'L330104', '1012', 76, 16, 0.9),
+    sig('00000021', 'brandpost', 1, 'Brandpost 1', 'Nordhydrant', 'NH-25', 'BP01', 'L330101', '01', '002', 5, 14, 0.9),
+    sig('00000022', 'brandpost', 2, 'Brandpost 2', 'Nordhydrant', 'NH-25', 'BP02', 'L330102', '02', '001', 5, 14, 0.9),
+    sig('00000023', 'brandpost', 3, 'Brandpost 3', 'Nordhydrant', 'NH-25', 'BP03', 'L330103', '01', '012', 12, 16, 0.9),
+    sig('00000024', 'brandpost', 4, 'Brandpost 4', 'Nordhydrant', 'NH-25', 'BP04', 'L330104', '01', '012', 76, 16, 0.9),
 
     // Handbrandsläckare – kontorsdelen (vartannat utrymme)
-    sig('00000030', 'handbrandslackare', 1,  'Handbrandsläckare 1',  'Presto', 'P7kg', 'HB01', null, '1001', 6.8, 25.5, 0.5),
-    sig('00000031', 'handbrandslackare', 2,  'Handbrandsläckare 2',  'Presto', 'P7kg', 'HB02', null, '1006', 4.8, 22, 0.5),
-    sig('00000032', 'handbrandslackare', 3,  'Handbrandsläckare 3',  'Presto', 'P7kg', 'HB03', null, '1008', 7.2, 22, 0.5),
-    sig('00000033', 'handbrandslackare', 4,  'Handbrandsläckare 4',  'Presto', 'K5kg', 'HB04', null, '1010', 7.2, 7, 0.5),
-    sig('00000034', 'handbrandslackare', 5,  'Handbrandsläckare 5',  'Presto', 'P7kg', 'HB05', null, '1007', 4.8, 10, 0.5),
-    sig('00000035', 'handbrandslackare', 6,  'Handbrandsläckare 6',  'Presto', 'P7kg', 'HB06', null, '2001', 6.9, 23, 0.5),
-    sig('00000036', 'handbrandslackare', 7,  'Handbrandsläckare 7',  'Presto', 'P7kg', 'HB07', null, '2006', 4.8, 22.5, 0.5),
-    sig('00000037', 'handbrandslackare', 8,  'Handbrandsläckare 8',  'Presto', 'P7kg', 'HB08', null, '2008', 4.8, 10.5, 0.5),
-    sig('00000038', 'handbrandslackare', 9,  'Handbrandsläckare 9',  'Presto', 'P7kg', 'HB09', null, '2010', 7.2, 22.5, 0.5),
-    sig('00000039', 'handbrandslackare', 10, 'Handbrandsläckare 10', 'Presto', 'P7kg', 'HB10', null, '2012', 7.2, 7.5, 0.5),
-    sig('00000040', 'handbrandslackare', 11, 'Handbrandsläckare 11', 'Presto', 'K5kg', 'HB11', null, '2013', 7.2, 3, 0.5),
-    sig('00000041', 'handbrandslackare', 12, 'Handbrandsläckare 12', 'Presto', 'K5kg', 'HB12', null, '3003', 6, 23.8, 0.5),
-    sig('00000042', 'handbrandslackare', 13, 'Handbrandsläckare 13', 'Presto', 'P7kg', 'HB13', null, '3002', 8.8, 26, 0.5),
+    sig('00000030', 'handbrandslackare', 1,  'Handbrandsläckare 1',  'Presto', 'P7kg', 'HB01', null, '01', '001', 6.8, 25.5, 0.5),
+    sig('00000031', 'handbrandslackare', 2,  'Handbrandsläckare 2',  'Presto', 'P7kg', 'HB02', null, '01', '006', 4.8, 22, 0.5),
+    sig('00000032', 'handbrandslackare', 3,  'Handbrandsläckare 3',  'Presto', 'P7kg', 'HB03', null, '01', '008', 7.2, 22, 0.5),
+    sig('00000033', 'handbrandslackare', 4,  'Handbrandsläckare 4',  'Presto', 'K5kg', 'HB04', null, '01', '010', 7.2, 7, 0.5),
+    sig('00000034', 'handbrandslackare', 5,  'Handbrandsläckare 5',  'Presto', 'P7kg', 'HB05', null, '01', '007', 4.8, 10, 0.5),
+    sig('00000035', 'handbrandslackare', 6,  'Handbrandsläckare 6',  'Presto', 'P7kg', 'HB06', null, '02', '001', 6.9, 23, 0.5),
+    sig('00000036', 'handbrandslackare', 7,  'Handbrandsläckare 7',  'Presto', 'P7kg', 'HB07', null, '02', '006', 4.8, 22.5, 0.5),
+    sig('00000037', 'handbrandslackare', 8,  'Handbrandsläckare 8',  'Presto', 'P7kg', 'HB08', null, '02', '008', 4.8, 10.5, 0.5),
+    sig('00000038', 'handbrandslackare', 9,  'Handbrandsläckare 9',  'Presto', 'P7kg', 'HB09', null, '02', '010', 7.2, 22.5, 0.5),
+    sig('00000039', 'handbrandslackare', 10, 'Handbrandsläckare 10', 'Presto', 'P7kg', 'HB10', null, '02', '012', 7.2, 7.5, 0.5),
+    sig('00000040', 'handbrandslackare', 11, 'Handbrandsläckare 11', 'Presto', 'K5kg', 'HB11', null, '02', '013', 7.2, 3, 0.5),
+    sig('00000041', 'handbrandslackare', 12, 'Handbrandsläckare 12', 'Presto', 'K5kg', 'HB12', null, '03', '003', 6, 23.8, 0.5),
+    sig('00000042', 'handbrandslackare', 13, 'Handbrandsläckare 13', 'Presto', 'P7kg', 'HB13', null, '03', '002', 8.8, 26, 0.5),
     // Handbrandsläckare – hangaren (12 st)
-    sig('00000043', 'handbrandslackare', 14, 'Handbrandsläckare 14', 'Presto', 'P9kg', 'HB14', null, '1012', 20, 30, 0.5),
-    sig('00000044', 'handbrandslackare', 15, 'Handbrandsläckare 15', 'Presto', 'P9kg', 'HB15', null, '1012', 36, 30, 0.5),
-    sig('00000045', 'handbrandslackare', 16, 'Handbrandsläckare 16', 'Presto', 'P9kg', 'HB16', null, '1012', 52, 30, 0.5),
-    sig('00000046', 'handbrandslackare', 17, 'Handbrandsläckare 17', 'Presto', 'P9kg', 'HB17', null, '1012', 68, 30, 0.5),
-    sig('00000047', 'handbrandslackare', 18, 'Handbrandsläckare 18', 'Presto', 'P9kg', 'HB18', null, '1012', 18, 0, 0.5),
-    sig('00000048', 'handbrandslackare', 19, 'Handbrandsläckare 19', 'Presto', 'P9kg', 'HB19', null, '1012', 35, 0, 0.5),
-    sig('00000049', 'handbrandslackare', 20, 'Handbrandsläckare 20', 'Presto', 'P9kg', 'HB20', null, '1012', 55, 0, 0.5),
-    sig('00000050', 'handbrandslackare', 21, 'Handbrandsläckare 21', 'Presto', 'P9kg', 'HB21', null, '1012', 72, 0, 0.5),
-    sig('00000051', 'handbrandslackare', 22, 'Handbrandsläckare 22', 'Presto', 'P9kg', 'HB22', null, '1012', 12, 6, 0.5),
-    sig('00000052', 'handbrandslackare', 23, 'Handbrandsläckare 23', 'Presto', 'P9kg', 'HB23', null, '1012', 12, 25, 0.5),
-    sig('00000053', 'handbrandslackare', 24, 'Handbrandsläckare 24', 'Presto', 'P9kg', 'HB24', null, '1012', 76, 6, 0.5),
-    sig('00000054', 'handbrandslackare', 25, 'Handbrandsläckare 25', 'Presto', 'P9kg', 'HB25', null, '1012', 76, 25, 0.5)
+    sig('00000043', 'handbrandslackare', 14, 'Handbrandsläckare 14', 'Presto', 'P9kg', 'HB14', null, '01', '012', 20, 30, 0.5),
+    sig('00000044', 'handbrandslackare', 15, 'Handbrandsläckare 15', 'Presto', 'P9kg', 'HB15', null, '01', '012', 36, 30, 0.5),
+    sig('00000045', 'handbrandslackare', 16, 'Handbrandsläckare 16', 'Presto', 'P9kg', 'HB16', null, '01', '012', 52, 30, 0.5),
+    sig('00000046', 'handbrandslackare', 17, 'Handbrandsläckare 17', 'Presto', 'P9kg', 'HB17', null, '01', '012', 68, 30, 0.5),
+    sig('00000047', 'handbrandslackare', 18, 'Handbrandsläckare 18', 'Presto', 'P9kg', 'HB18', null, '01', '012', 18, 0, 0.5),
+    sig('00000048', 'handbrandslackare', 19, 'Handbrandsläckare 19', 'Presto', 'P9kg', 'HB19', null, '01', '012', 35, 0, 0.5),
+    sig('00000049', 'handbrandslackare', 20, 'Handbrandsläckare 20', 'Presto', 'P9kg', 'HB20', null, '01', '012', 55, 0, 0.5),
+    sig('00000050', 'handbrandslackare', 21, 'Handbrandsläckare 21', 'Presto', 'P9kg', 'HB21', null, '01', '012', 72, 0, 0.5),
+    sig('00000051', 'handbrandslackare', 22, 'Handbrandsläckare 22', 'Presto', 'P9kg', 'HB22', null, '01', '012', 12, 6, 0.5),
+    sig('00000052', 'handbrandslackare', 23, 'Handbrandsläckare 23', 'Presto', 'P9kg', 'HB23', null, '01', '012', 12, 25, 0.5),
+    sig('00000053', 'handbrandslackare', 24, 'Handbrandsläckare 24', 'Presto', 'P9kg', 'HB24', null, '01', '012', 76, 6, 0.5),
+    sig('00000054', 'handbrandslackare', 25, 'Handbrandsläckare 25', 'Presto', 'P9kg', 'HB25', null, '01', '012', 76, 25, 0.5)
   ];
 
   // Industriportar och fläktluftvärmare ovanför varje port (8 st)
   for (var i = 0; i < 8; i++) {
     var px = 16 + i * 8;
     var n = i + 1, nn = (n < 10 ? '0' : '') + n;
-    signifikanta.push(sig('000000' + (61 + i), 'industriport', n, 'Industriport ' + n, 'Portia', 'IP-5045', 'PORT' + nn, 'L6402' + (10 + i), '1012', px, 30, 0));
-    signifikanta.push(sig('000000' + (71 + i), 'flaktluftvarmare', n, 'Fläktluftvärmare ' + n, 'Värmeflex', 'FV-30', 'FLV' + nn, 'L7120' + (10 + i), '1012', px, 30, 5.4));
+    signifikanta.push(sig('000000' + (61 + i), 'industriport', n, 'Industriport ' + n, 'Portia', 'IP-5045', 'PORT' + nn, 'L6402' + (10 + i), '01', '012', px, 30, 0));
+    signifikanta.push(sig('000000' + (71 + i), 'flaktluftvarmare', n, 'Fläktluftvärmare ' + n, 'Värmeflex', 'FV-30', 'FLV' + nn, 'L7120' + (10 + i), '01', '012', px, 30, 5.4));
   }
 
   signifikanta.push(
     // Lyftutrustning i hangaren
-    sig('00000081', 'travers', 1, 'Travers 1', 'Lyftmax', 'TL-10T', 'TR01', 'L880011', '1012', 40, 15, 0),
-    sig('00000082', 'pelarlyft', 1, 'Pelarlyft 1', 'Lyftmax', 'PL-4x7,5T', 'PL01', 'L880021', '1012', 34, 8, 0),
-    sig('00000083', 'pelarlyft', 2, 'Pelarlyft 2', 'Lyftmax', 'PL-4x7,5T', 'PL02', 'L880022', '1012', 56, 8, 0),
+    sig('00000081', 'travers', 1, 'Travers 1', 'Lyftmax', 'TL-10T', 'TR01', 'L880011', '01', '012', 40, 15, 0),
+    sig('00000082', 'pelarlyft', 1, 'Pelarlyft 1', 'Lyftmax', 'PL-4x7,5T', 'PL01', 'L880021', '01', '012', 34, 8, 0),
+    sig('00000083', 'pelarlyft', 2, 'Pelarlyft 2', 'Lyftmax', 'PL-4x7,5T', 'PL02', 'L880022', '01', '012', 56, 8, 0),
 
     // Apparatrum plan 03
-    sig('00000089', 'luftbehandlingsaggregat', 1, 'Luftbehandlingsaggregat 1', 'Fahoma', 'FTX1127', 'LB01', 'L773892', '3003', 2.2, 6, 0),
-    sig('00000090', 'luftbehandlingsaggregat', 2, 'Luftbehandlingsaggregat 2', 'Fahoma', 'FTX1127', 'LB02', 'L773893', '3003', 2.2, 15, 0),
-    sig('00000091', 'apparatskap', 1, 'Apparatskåp 1', 'Regulia', 'RS-800', 'AS01', 'L774010', '3003', 6, 0, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 4 }] }),
-    sig('00000092', 'varmvattenberedare', 1, 'Varmvattenberedare 1', 'Varmia', 'VV-500', 'VVB01', 'L775120', '3003', 11.1, 20, 0),
-    sig('00000093', 'kompressor', 1, 'Tryckluftskompressor 1', 'Pneumatica', 'PK-55', 'KP01', 'L776201', '3003', 10.9, 9.5, 0),
-    sig('00000094', 'tryckkarl', 1, 'Tryckkärl 1', 'Pneumatica', 'TK-900L', 'TK01', 'L776202', '3003', 10.9, 13, 0),
+    sig('00000089', 'luftbehandlingsaggregat', 1, 'Luftbehandlingsaggregat 1', 'Fahoma', 'FTX1127', 'LB01', 'L773892', '03', '003', 2.2, 6, 0),
+    sig('00000090', 'luftbehandlingsaggregat', 2, 'Luftbehandlingsaggregat 2', 'Fahoma', 'FTX1127', 'LB02', 'L773893', '03', '003', 2.2, 15, 0),
+    sig('00000091', 'apparatskap', 1, 'Apparatskåp 1', 'Regulia', 'RS-800', 'AS01', 'L774010', '03', '003', 6, 0, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 4 }] }),
+    sig('00000092', 'varmvattenberedare', 1, 'Varmvattenberedare 1', 'Varmia', 'VV-500', 'VVB01', 'L775120', '03', '003', 11.1, 20, 0),
+    sig('00000093', 'kompressor', 1, 'Tryckluftskompressor 1', 'Pneumatica', 'PK-55', 'KP01', 'L776201', '03', '003', 10.9, 9.5, 0),
+    sig('00000094', 'tryckkarl', 1, 'Tryckkärl 1', 'Pneumatica', 'TK-900L', 'TK01', 'L776202', '03', '003', 10.9, 13, 0),
     // Enskilt placerade jordfelsbrytare (signifikanta för att de är svåra att hitta)
-    sig('00000095', 'jordfelsbrytare', 1, 'Jordfelsbrytare 1', 'Elektra', 'JF-40/30mA', 'JFB01', null, '3003', 12, 9.5, 1.6, { placering: 'Bakom tryckluftskompressor KP01' }),
-    sig('00000096', 'jordfelsbrytare', 2, 'Jordfelsbrytare 2', 'Elektra', 'JF-40/30mA', 'JFB02', null, '3003', 12, 20, 1.6, { placering: 'Bakom varmvattenberedare VVB01' }),
+    sig('00000095', 'jordfelsbrytare', 1, 'Jordfelsbrytare 1', 'Elektra', 'JF-40/30mA', 'JFB01', null, '03', '003', 12, 9.5, 1.6, { placering: 'Bakom tryckluftskompressor KP01' }),
+    sig('00000096', 'jordfelsbrytare', 2, 'Jordfelsbrytare 2', 'Elektra', 'JF-40/30mA', 'JFB02', null, '03', '003', 12, 20, 1.6, { placering: 'Bakom varmvattenberedare VVB01' }),
 
     // Utrymningsstegar (utanför utrymningsfönster)
-    sig('00000097', 'utrymningsstege', 1, 'Utrymningsstege 1', 'Räddo', 'RS-2', 'US01', null, '2009', 0, 3, 0.9),
-    sig('00000098', 'utrymningsstege', 2, 'Utrymningsstege 2', 'Räddo', 'RS-2', 'US02', null, '3003', 0, 11, 0.9)
+    sig('00000097', 'utrymningsstege', 1, 'Utrymningsstege 1', 'Räddo', 'RS-2', 'US01', null, '02', '009', 0, 3, 0.9),
+    sig('00000098', 'utrymningsstege', 2, 'Utrymningsstege 2', 'Räddo', 'RS-2', 'US02', null, '03', '003', 0, 11, 0.9)
   );
 
   // ---------------------------------------------------------------
   // Övriga (ej signifikanta) installationer – genereras per rum
   // ---------------------------------------------------------------
-  function ovr(typ, rumNr, x, z, h) {
-    return { typ: typ, rum: rumNr, x: x, z: z, h: h || 0, signifikant: false };
+  // `rumNyckel` är rummets nyckel (plan + rumsnummer), inte rumsnumret ensamt.
+  function ovr(typ, rumNyckel, x, z, h) {
+    return { typ: typ, rum: rumNyckel, x: x, z: z, h: h || 0, signifikant: false };
   }
 
   function genereraOvriga() {
     var lista = [];
     rum.forEach(function (r) {
       if (r.namn === 'Hisschakt') { return; }
+      var nyckel = rumNyckelFor(r);
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3];
       var w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
 
@@ -2124,18 +2143,18 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       if (r.typ === 'hangar') {
         for (var gx = 0; gx < 8; gx++) {
           for (var gz = 0; gz < 3; gz++) {
-            lista.push(ovr('lysrorsarmatur', r.nr, x0 + 4 + gx * 8, z0 + 6 + gz * 9, 0));
+            lista.push(ovr('lysrorsarmatur', nyckel, x0 + 4 + gx * 8, z0 + 6 + gz * 9, 0));
           }
         }
       } else if (r.namn === 'Trapphus') {
-        lista.push(ovr('lysrorsarmatur', r.nr, cx, cz, 0));
-        lista.push(ovr('vaggarmatur', r.nr, x1, z0 + 1.5, 2.2));
-        lista.push(ovr('vaggarmatur', r.nr, x1, z1 - 1.5, 2.2));
+        lista.push(ovr('lysrorsarmatur', nyckel, cx, cz, 0));
+        lista.push(ovr('vaggarmatur', nyckel, x1, z0 + 1.5, 2.2));
+        lista.push(ovr('vaggarmatur', nyckel, x1, z1 - 1.5, 2.2));
       } else {
         var nx = Math.max(1, Math.round(w / 3)), nz = Math.max(1, Math.round(d / 3));
         for (var ix = 0; ix < nx; ix++) {
           for (var iz = 0; iz < nz; iz++) {
-            lista.push(ovr('lysrorsarmatur', r.nr, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0));
+            lista.push(ovr('lysrorsarmatur', nyckel, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0));
           }
         }
       }
@@ -2143,38 +2162,38 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       // Brytare nära dörrsidan (mot korridoren), uttag på motsatt sida
       var brytX = (x1 <= 5.5) ? x1 : (x0 >= 6.5 ? x0 : x0);
       if (r.typ === 'hangar') { brytX = 12; }
-      lista.push(ovr('vaggbrytare', r.nr, brytX, Math.min(z1 - 0.6, cz + 1), 1.1));
+      lista.push(ovr('vaggbrytare', nyckel, brytX, Math.min(z1 - 0.6, cz + 1), 1.1));
       var uttagX = (brytX === x0) ? x1 : x0;
       if (r.typ === 'hangar' || r.iRum) {
-        lista.push(ovr('vagguttag', r.nr, x0 + w * 0.3, z0, 0.3));
-        lista.push(ovr('vagguttag', r.nr, x0 + w * 0.7, z0, 0.3));
+        lista.push(ovr('vagguttag', nyckel, x0 + w * 0.3, z0, 0.3));
+        lista.push(ovr('vagguttag', nyckel, x0 + w * 0.7, z0, 0.3));
       } else {
-        lista.push(ovr('vagguttag', r.nr, uttagX, z0 + d * 0.3, 0.3));
-        lista.push(ovr('vagguttag', r.nr, uttagX, z0 + d * 0.7, 0.3));
+        lista.push(ovr('vagguttag', nyckel, uttagX, z0 + d * 0.3, 0.3));
+        lista.push(ovr('vagguttag', nyckel, uttagX, z0 + d * 0.7, 0.3));
       }
 
       // Rökdetektorer (ingår i brandlarmet)
       if (r.typ === 'hangar') {
         [[20, 15], [36, 15], [52, 15], [68, 15], [28, 25], [60, 25]].forEach(function (p) {
-          lista.push(ovr('rokdetektor', r.nr, p[0], p[1], 0));
+          lista.push(ovr('rokdetektor', nyckel, p[0], p[1], 0));
         });
       } else {
-        lista.push(ovr('rokdetektor', r.nr, cx + 0.4, cz + 0.4, 0));
+        lista.push(ovr('rokdetektor', nyckel, cx + 0.4, cz + 0.4, 0));
       }
 
       // Sanitet
       if (r.namn.indexOf('Omklädningsrum') === 0) {
-        lista.push(ovr('toalettstol', r.nr, x0, z0 + 1.0, 0));
-        lista.push(ovr('toalettstol', r.nr, x0, z0 + 2.4, 0));
-        lista.push(ovr('handfat', r.nr, x0, z0 + 4.0, 0.8));
-        lista.push(ovr('handfat', r.nr, x0, z0 + 5.0, 0.8));
+        lista.push(ovr('toalettstol', nyckel, x0, z0 + 1.0, 0));
+        lista.push(ovr('toalettstol', nyckel, x0, z0 + 2.4, 0));
+        lista.push(ovr('handfat', nyckel, x0, z0 + 4.0, 0.8));
+        lista.push(ovr('handfat', nyckel, x0, z0 + 5.0, 0.8));
         for (var s = 0; s < 4; s++) {
-          lista.push(ovr('dusch', r.nr, x0 + 0.8 + s * 1.1, z1, 0));
+          lista.push(ovr('dusch', nyckel, x0 + 0.8 + s * 1.1, z1, 0));
         }
       }
       if (r.namn === 'WC') {
-        lista.push(ovr('toalettstol', r.nr, x0 + 1.0, z1, 0));
-        lista.push(ovr('handfat', r.nr, x1, z0 + 0.8, 0.8));
+        lista.push(ovr('toalettstol', nyckel, x0 + 1.0, z1, 0));
+        lista.push(ovr('handfat', nyckel, x1, z0 + 0.8, 0.8));
       }
     });
     return lista;
@@ -2413,7 +2432,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   DP.genereraOvriga = function (rum, opts) {
     opts = opts || {};
     var lista = [];
-    function ovr(typ, nr, x, z, h) { lista.push({ typ: typ, rum: nr, x: x, z: z, h: h || 0, signifikant: false }); }
+    // Installationen bär rummets nyckel (plan + rumsnummer), inte rumsnumret: numret löper per
+    // plan och är inte unikt i byggnaden (beslut 76).
+    function ovr(typ, r, x, z, h) { lista.push({ typ: typ, rum: DP.rumBeteckning(r), x: x, z: z, h: h || 0, signifikant: false }); }
     var cz = opts.mittZ;
     rum.forEach(function (r) {
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3];
@@ -2421,11 +2442,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       // Belysning: ungefär en armatur per 3 m
       var nx = Math.max(1, Math.round(w / 3)), nz = Math.max(1, Math.round(d / 3));
       if (r.namn === 'Trapphus') {
-        ovr('lysrorsarmatur', r.nr, mx, mz, 0);
-        ovr('vaggarmatur', r.nr, x0, z0 + d * 0.5, 2.2);
+        ovr('lysrorsarmatur', r, mx, mz, 0);
+        ovr('vaggarmatur', r, x0, z0 + d * 0.5, 2.2);
       } else {
         for (var ix = 0; ix < nx; ix++) {
-          for (var iz = 0; iz < nz; iz++) { ovr('lysrorsarmatur', r.nr, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0); }
+          for (var iz = 0; iz < nz; iz++) { ovr('lysrorsarmatur', r, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0); }
         }
       }
       if (r.utanInstallationer) { return; }
@@ -2433,17 +2454,17 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       var dorrZ = (cz !== undefined && mz < cz) ? z1 : z0;
       var andraZ = dorrZ === z1 ? z0 : z1;
       if (r.namn.indexOf('Korridor') === 0) { dorrZ = z0; andraZ = z1; }
-      ovr('vaggbrytare', r.nr, x0 + Math.min(0.6, w / 3), dorrZ, 1.1);
-      ovr('vagguttag', r.nr, x0 + w * 0.3, andraZ, 0.3);
-      ovr('vagguttag', r.nr, x0 + w * 0.7, andraZ, 0.3);
-      if (opts.rokdetektor !== false) { ovr('rokdetektor', r.nr, mx + 0.4, mz + 0.3, 0); }
+      ovr('vaggbrytare', r, x0 + Math.min(0.6, w / 3), dorrZ, 1.1);
+      ovr('vagguttag', r, x0 + w * 0.3, andraZ, 0.3);
+      ovr('vagguttag', r, x0 + w * 0.7, andraZ, 0.3);
+      if (opts.rokdetektor !== false) { ovr('rokdetektor', r, mx + 0.4, mz + 0.3, 0); }
       if (r.namn.indexOf('WC') === 0) {
-        ovr('toalettstol', r.nr, x0 + 1.0, andraZ, 0);
-        ovr('toalettstol', r.nr, x0 + 2.2, andraZ, 0);
-        ovr('handfat', r.nr, x1, mz - 0.6, 0.8);
-        ovr('handfat', r.nr, x1, mz + 0.6, 0.8);
-        ovr('dusch', r.nr, x0 + 3.4, andraZ, 0);
-        ovr('dusch', r.nr, x0 + 4.5, andraZ, 0);
+        ovr('toalettstol', r, x0 + 1.0, andraZ, 0);
+        ovr('toalettstol', r, x0 + 2.2, andraZ, 0);
+        ovr('handfat', r, x1, mz - 0.6, 0.8);
+        ovr('handfat', r, x1, mz + 0.6, 0.8);
+        ovr('dusch', r, x0 + 3.4, andraZ, 0);
+        ovr('dusch', r, x0 + 4.5, andraZ, 0);
       }
     });
     return lista;
@@ -2559,7 +2580,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       grupp: 'Byggnaden',
       poster: [
         { ord: 'Byggnad → Plan → Rum',
-          text: 'Den fysiska strukturen. Plan och rum har var sitt id och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>2010 – Konferensrum</b>.' },
+          text: 'Den fysiska strukturen. Plan och rum har var sin beteckning och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>02-010 – Konferensrum</b>. Rumsnumret löper per plan (001, 002 …), så rum 001 finns på varje plan – därför pekas rummet ut med plan <i>och</i> rumsnummer.' },
         { ord: 'Byggnadstyp',
           text: 'Den sortens byggnad det är (Garage, Kasern, Hangar …). Byggnadstypen ger standardplaneringen och avgör vilka byggnader planeringen kan kopieras mellan.' },
         { ord: 'Område',
@@ -2655,9 +2676,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   var DP = window.DP;
 
   var HOJD = 2.8;
-  var rum = [{ nr: '1001', namn: 'Garage', plan: '01', typ: 'forrad', rect: [0, 0, 8, 7], hojd: HOJD }];
+  // Rumsnumret löper per plan, och rummet pekas ut med plan + rumsnummer: 01-001 (beslut 76).
+  var rum = [{ nr: '001', namn: 'Garage', plan: '01', typ: 'forrad', rect: [0, 0, 8, 7], hojd: HOJD }];
+  var GARAGET = DP.rumNyckel('01', '001');
 
-  function ovr(typ, x, z, h) { return { typ: typ, rum: '1001', x: x, z: z, h: h || 0, signifikant: false }; }
+  function ovr(typ, x, z, h) { return { typ: typ, rum: GARAGET, x: x, z: z, h: h || 0, signifikant: false }; }
 
   DP.byggnader.garage = {
     id: 'garage',
@@ -2672,9 +2695,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     plan: [{ id: '01', namn: 'Garageplan', elev: 0 }],
     rum: rum,
     installationer: [
-      { id: '00000301', typ: 'handbrandslackare', nr: 1, benamning: 'Handbrandsläckare 1', fabrikat: 'Presto', modell: 'P6kg', beteckning: 'HB01', externtId: null, rum: '1001', x: 0, z: 5.5, h: 0.5, signifikant: true },
-      { id: '00000302', typ: 'garageport', nr: 1, benamning: 'Garageport 1', fabrikat: 'Portia', modell: 'GP-2522', beteckning: 'PORT01', externtId: 'L930101', rum: '1001', x: 2.1, z: 7, h: 0, signifikant: true },
-      { id: '00000303', typ: 'garageport', nr: 2, benamning: 'Garageport 2', fabrikat: 'Portia', modell: 'GP-2522', beteckning: 'PORT02', externtId: 'L930102', rum: '1001', x: 5.9, z: 7, h: 0, signifikant: true },
+      { id: '00000301', typ: 'handbrandslackare', nr: 1, benamning: 'Handbrandsläckare 1', fabrikat: 'Presto', modell: 'P6kg', beteckning: 'HB01', externtId: null, rum: GARAGET, x: 0, z: 5.5, h: 0.5, signifikant: true },
+      { id: '00000302', typ: 'garageport', nr: 1, benamning: 'Garageport 1', fabrikat: 'Portia', modell: 'GP-2522', beteckning: 'PORT01', externtId: 'L930101', rum: GARAGET, x: 2.1, z: 7, h: 0, signifikant: true },
+      { id: '00000303', typ: 'garageport', nr: 2, benamning: 'Garageport 2', fabrikat: 'Portia', modell: 'GP-2522', beteckning: 'PORT02', externtId: 'L930102', rum: GARAGET, x: 5.9, z: 7, h: 0, signifikant: true },
       ovr('ventilationsgaller', 0, 1.2, 0.25), ovr('ventilationsgaller', 8, 1.2, 2.4),
       ovr('lysrorsarmatur', 2.2, 3.5, 0), ovr('lysrorsarmatur', 5.8, 3.5, 0),
       ovr('vaggbrytare', 0, 6.4, 1.1), ovr('vagguttag', 8, 2.5, 0.3), ovr('vagguttag', 8, 5, 0.3)
@@ -2709,6 +2732,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     { id: '04', namn: 'Vindsplan',   elev: 3 * PLANHOJD }
   ];
 
+  // Rumsnumret löper per plan (001, 002 …) och rummet pekas ut med plan + rumsnummer,
+  // visat 01-001 (beslut 76). `rk` bygger den nyckel installationerna pekar med.
+  function rk(planId, rumNr) { return DP.rumNyckel(planId, rumNr); }
+
   function rum(nr, namn, planId, typ, rect, extra) {
     var r = { nr: nr, namn: namn, plan: planId, typ: typ, rect: rect };
     if (extra) { for (var k in extra) { r[k] = extra[k]; } }
@@ -2719,54 +2746,54 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var R = [];
     var KH = { hojd: 2.6 };
     // Källarplan
-    R.push(rum('0001', 'Korridor', '00', 'kommunikation', [0, 6, 48, 8], KH));
-    R.push(rum('0002', 'Trapphus', '00', 'kommunikation', [8, 0, 12, 6], KH));
-    R.push(rum('0003', 'Trapphus', '00', 'kommunikation', [36, 0, 40, 6], KH));
-    R.push(rum('0004', 'Undercentral', '00', 'teknik', [0, 0, 8, 6], KH));
-    R.push(rum('0005', 'Tvättstuga', '00', 'personal', [12, 0, 20, 6], KH));
-    R.push(rum('0006', 'Torkrum', '00', 'personal', [20, 0, 24, 6], KH));
-    R.push(rum('0007', 'Förråd', '00', 'forrad', [24, 0, 36, 6], KH));
-    R.push(rum('0008', 'Förråd', '00', 'forrad', [40, 0, 48, 6], KH));
-    R.push(rum('0009', 'Elcentral', '00', 'teknik', [0, 8, 6, 14], KH));
-    R.push(rum('0010', 'Skyddsrum', '00', 'teknik', [6, 8, 20, 14], KH));
-    R.push(rum('0011', 'Förråd', '00', 'forrad', [20, 8, 34, 14], KH));
-    R.push(rum('0012', 'Cykelförråd', '00', 'forrad', [34, 8, 48, 14], KH));
+    R.push(rum('001', 'Korridor', '00', 'kommunikation', [0, 6, 48, 8], KH));
+    R.push(rum('002', 'Trapphus', '00', 'kommunikation', [8, 0, 12, 6], KH));
+    R.push(rum('003', 'Trapphus', '00', 'kommunikation', [36, 0, 40, 6], KH));
+    R.push(rum('004', 'Undercentral', '00', 'teknik', [0, 0, 8, 6], KH));
+    R.push(rum('005', 'Tvättstuga', '00', 'personal', [12, 0, 20, 6], KH));
+    R.push(rum('006', 'Torkrum', '00', 'personal', [20, 0, 24, 6], KH));
+    R.push(rum('007', 'Förråd', '00', 'forrad', [24, 0, 36, 6], KH));
+    R.push(rum('008', 'Förråd', '00', 'forrad', [40, 0, 48, 6], KH));
+    R.push(rum('009', 'Elcentral', '00', 'teknik', [0, 8, 6, 14], KH));
+    R.push(rum('010', 'Skyddsrum', '00', 'teknik', [6, 8, 20, 14], KH));
+    R.push(rum('011', 'Förråd', '00', 'forrad', [20, 8, 34, 14], KH));
+    R.push(rum('012', 'Cykelförråd', '00', 'forrad', [34, 8, 48, 14], KH));
     // Entréplan
-    R.push(rum('1001', 'Entré', '01', 'kommunikation', [20, 8, 28, 14]));
-    R.push(rum('1002', 'Korridor', '01', 'kommunikation', [0, 6, 48, 8]));
-    R.push(rum('1003', 'Trapphus', '01', 'kommunikation', [8, 0, 12, 6]));
-    R.push(rum('1004', 'Trapphus', '01', 'kommunikation', [36, 0, 40, 6]));
-    R.push(rum('1005', 'Kompaniexpedition', '01', 'kontor', [0, 0, 8, 6]));
-    R.push(rum('1006', 'Dagrum', '01', 'personal', [12, 0, 24, 6]));
-    R.push(rum('1007', 'Lektionssal', '01', 'kontor', [24, 0, 36, 6]));
-    R.push(rum('1008', 'Kontor', '01', 'kontor', [40, 0, 48, 6]));
-    R.push(rum('1009', 'Vaktrum', '01', 'kontor', [0, 8, 8, 14]));
-    R.push(rum('1010', 'WC/Dusch', '01', 'personal', [8, 8, 14, 14]));
-    R.push(rum('1011', 'WC/Dusch', '01', 'personal', [14, 8, 20, 14]));
-    R.push(rum('1012', 'Städ', '01', 'teknik', [28, 8, 31, 14]));
-    R.push(rum('1013', 'Elrum', '01', 'teknik', [31, 8, 34, 14]));
-    R.push(rum('1014', 'Materielförråd', '01', 'forrad', [34, 8, 48, 14]));
+    R.push(rum('001', 'Entré', '01', 'kommunikation', [20, 8, 28, 14]));
+    R.push(rum('002', 'Korridor', '01', 'kommunikation', [0, 6, 48, 8]));
+    R.push(rum('003', 'Trapphus', '01', 'kommunikation', [8, 0, 12, 6]));
+    R.push(rum('004', 'Trapphus', '01', 'kommunikation', [36, 0, 40, 6]));
+    R.push(rum('005', 'Kompaniexpedition', '01', 'kontor', [0, 0, 8, 6]));
+    R.push(rum('006', 'Dagrum', '01', 'personal', [12, 0, 24, 6]));
+    R.push(rum('007', 'Lektionssal', '01', 'kontor', [24, 0, 36, 6]));
+    R.push(rum('008', 'Kontor', '01', 'kontor', [40, 0, 48, 6]));
+    R.push(rum('009', 'Vaktrum', '01', 'kontor', [0, 8, 8, 14]));
+    R.push(rum('010', 'WC/Dusch', '01', 'personal', [8, 8, 14, 14]));
+    R.push(rum('011', 'WC/Dusch', '01', 'personal', [14, 8, 20, 14]));
+    R.push(rum('012', 'Städ', '01', 'teknik', [28, 8, 31, 14]));
+    R.push(rum('013', 'Elrum', '01', 'teknik', [31, 8, 34, 14]));
+    R.push(rum('014', 'Materielförråd', '01', 'forrad', [34, 8, 48, 14]));
     // Logementsplan 2 och 3
     ['02', '03'].forEach(function (p) {
       var s = p.slice(1); // '2' / '3'
       var n = 0;
-      function log(lnr, rect) { n++; R.push(rum(s + pad(lnr), 'Logement ' + s + ':' + n, p, 'kontor', rect)); }
-      R.push(rum(s + '001', 'Korridor', p, 'kommunikation', [0, 6, 48, 8]));
-      R.push(rum(s + '002', 'Trapphus', p, 'kommunikation', [8, 0, 12, 6]));
-      R.push(rum(s + '003', 'Trapphus', p, 'kommunikation', [36, 0, 40, 6]));
+      function log(lnr, rect) { n++; R.push(rum(pad(lnr), 'Logement ' + s + ':' + n, p, 'kontor', rect)); }
+      R.push(rum('001', 'Korridor', p, 'kommunikation', [0, 6, 48, 8]));
+      R.push(rum('002', 'Trapphus', p, 'kommunikation', [8, 0, 12, 6]));
+      R.push(rum('003', 'Trapphus', p, 'kommunikation', [36, 0, 40, 6]));
       log(4, [0, 0, 8, 6]); log(5, [12, 0, 18, 6]); log(6, [18, 0, 24, 6]); log(7, [24, 0, 30, 6]);
       log(8, [30, 0, 36, 6]); log(9, [40, 0, 48, 6]); log(10, [0, 8, 8, 14]);
-      R.push(rum(s + '011', 'WC/Dusch', p, 'personal', [8, 8, 14, 14]));
-      R.push(rum(s + '012', 'Torkrum', p, 'personal', [14, 8, 18, 14]));
+      R.push(rum('011', 'WC/Dusch', p, 'personal', [8, 8, 14, 14]));
+      R.push(rum('012', 'Torkrum', p, 'personal', [14, 8, 18, 14]));
       log(13, [18, 8, 24, 14]); log(14, [24, 8, 30, 14]);
-      R.push(rum(s + '015', 'Städ', p, 'teknik', [30, 8, 33, 14]));
-      R.push(rum(s + '016', 'Elrum', p, 'teknik', [33, 8, 36, 14]));
+      R.push(rum('015', 'Städ', p, 'teknik', [30, 8, 33, 14]));
+      R.push(rum('016', 'Elrum', p, 'teknik', [33, 8, 36, 14]));
       log(17, [36, 8, 42, 14]); log(18, [42, 8, 48, 14]);
     });
     // Vindsplan (indragen under sadeltaket)
-    R.push(rum('4001', 'Kallvind', '04', 'forrad', [0, 3, 16, 11], { hojd: 2.4, utanInstallationer: true }));
-    R.push(rum('4002', 'Fläktrum', '04', 'teknik', [16, 3, 32, 11], { hojd: 2.4 }));
-    R.push(rum('4003', 'Kallvind', '04', 'forrad', [32, 3, 48, 11], { hojd: 2.4, utanInstallationer: true }));
+    R.push(rum('001', 'Kallvind', '04', 'forrad', [0, 3, 16, 11], { hojd: 2.4, utanInstallationer: true }));
+    R.push(rum('002', 'Fläktrum', '04', 'teknik', [16, 3, 32, 11], { hojd: 2.4 }));
+    R.push(rum('003', 'Kallvind', '04', 'forrad', [32, 3, 48, 11], { hojd: 2.4, utanInstallationer: true }));
     return R;
   }
   function pad(n) { return ('000' + n).slice(-3); }
@@ -2776,64 +2803,65 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var lista = [];
     var lopnr = nr * 100; // Kasern 1: 00000101…, Kasern 2: 00000201…
     var ext = 800000 + nr * 10000;
-    function sig(typ, n, benamning, fabrikat, modell, bet, harExt, rumNr, x, z, h, extra) {
+    // `rumNyckel` är rummets nyckel (plan + rumsnummer), byggd med rk()
+    function sig(typ, n, benamning, fabrikat, modell, bet, harExt, rumNyckel, x, z, h, extra) {
       lopnr++; ext += 7;
       var o = {
         id: ('00000000' + lopnr).slice(-8), typ: typ, nr: n, benamning: benamning, fabrikat: fabrikat, modell: modell,
-        beteckning: bet, externtId: harExt ? 'L' + ext : null, rum: rumNr, x: x, z: z, h: h || 0, signifikant: true
+        beteckning: bet, externtId: harExt ? 'L' + ext : null, rum: rumNyckel, x: x, z: z, h: h || 0, signifikant: true
       };
       if (extra) { for (var k in extra) { o[k] = extra[k]; } }
       lista.push(o);
     }
     function nn(n) { return (n < 10 ? '0' : '') + n; }
 
-    sig('brandlarmscentral', 1, 'Brandlarmscentral 1', 'Securia', 'BC-200', 'BLC01', true, '1001', 20, 12, 1.3);
-    sig('dorrautomatik', 1, 'Dörrautomatik 1', 'Dorma', 'ED-100', 'DA01', true, '1001', 24, 14, 2.25);
+    sig('brandlarmscentral', 1, 'Brandlarmscentral 1', 'Securia', 'BC-200', 'BLC01', true, rk('01', '001'), 20, 12, 1.3);
+    sig('dorrautomatik', 1, 'Dörrautomatik 1', 'Dorma', 'ED-100', 'DA01', true, rk('01', '001'), 24, 14, 2.25);
 
     // Brandposter: en per plan i korridoren
-    [['0001', 1], ['1002', 2], ['2001', 3], ['3001', 4]].forEach(function (b) {
+    [[rk('00', '001'), 1], [rk('01', '002'), 2], [rk('02', '001'), 3], [rk('03', '001'), 4]].forEach(function (b) {
       sig('brandpost', b[1], 'Brandpost ' + b[1], 'Nordhydrant', 'NH-25', 'BP' + nn(b[1]), true, b[0], 16, 6, 0.9);
     });
 
     // Handbrandsläckare
     var hb = 0;
-    function hbs(rumNr, x, z, modell) { hb++; sig('handbrandslackare', hb, 'Handbrandsläckare ' + hb, 'Presto', modell || 'P6kg', 'HB' + nn(hb), false, rumNr, x, z, 0.5); }
-    hbs('0001', 30, 8); hbs('0004', 7.8, 3, 'K5kg'); hbs('0009', 5.8, 11, 'K5kg'); hbs('0005', 19.8, 3);
-    ['1002', '2001', '3001'].forEach(function (k) { hbs(k, 6, 8); hbs(k, 42, 8); });
-    hbs('4002', 16.2, 7, 'K5kg');
+    function hbs(rumNyckel, x, z, modell) { hb++; sig('handbrandslackare', hb, 'Handbrandsläckare ' + hb, 'Presto', modell || 'P6kg', 'HB' + nn(hb), false, rumNyckel, x, z, 0.5); }
+    hbs(rk('00', '001'), 30, 8); hbs(rk('00', '004'), 7.8, 3, 'K5kg'); hbs(rk('00', '009'), 5.8, 11, 'K5kg'); hbs(rk('00', '005'), 19.8, 3);
+    [rk('01', '002'), rk('02', '001'), rk('03', '001')].forEach(function (k) { hbs(k, 6, 8); hbs(k, 42, 8); });
+    hbs(rk('04', '002'), 16.2, 7, 'K5kg');
 
     // Nödbelysning i korridorerna
     var nb = 0;
-    ['0001', '1002', '2001', '3001'].forEach(function (k) {
+    [rk('00', '001'), rk('01', '002'), rk('02', '001'), rk('03', '001')].forEach(function (k) {
       [12, 36].forEach(function (x) { nb++; sig('nodbelysning', nb, 'Nödbelysningsarmatur ' + nb, 'Lumen', 'NL-3h', 'NB' + nn(nb), false, k, x, 8, 2.3); });
     });
 
     // Brandgasluckor överst i trapphusen
-    sig('brandgaslucka', 1, 'Brandgaslucka 1', 'Brandskydd Nord', 'BGL-1010', 'BGL01', true, '3002', 10, 3, 0);
-    sig('brandgaslucka', 2, 'Brandgaslucka 2', 'Brandskydd Nord', 'BGL-1010', 'BGL02', true, '3003', 38, 3, 0);
+    sig('brandgaslucka', 1, 'Brandgaslucka 1', 'Brandskydd Nord', 'BGL-1010', 'BGL01', true, rk('03', '002'), 10, 3, 0);
+    sig('brandgaslucka', 2, 'Brandgaslucka 2', 'Brandskydd Nord', 'BGL-1010', 'BGL02', true, rk('03', '003'), 38, 3, 0);
 
     // Värme och ventilation
-    sig('undercentral', 1, 'Undercentral 1', 'Termex', 'UC-150', 'UC01', true, '0004', 4, 1.5, 0);
-    sig('luftbehandlingsaggregat', 1, 'Luftbehandlingsaggregat 1', 'Fahoma', 'FTX0840', 'LB01', true, '4002', 24, 7, 0);
-    sig('apparatskap', 1, 'Apparatskåp 1', 'Regulia', 'RS-400', 'AS01', true, '4002', 32, 5, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] });
-    sig('skyddsrumsaggregat', 1, 'Skyddsrumsaggregat 1', 'Skyddsteknik', 'SRV-300', 'SRA01', true, '0010', 6, 11, 0);
+    sig('undercentral', 1, 'Undercentral 1', 'Termex', 'UC-150', 'UC01', true, rk('00', '004'), 4, 1.5, 0);
+    sig('luftbehandlingsaggregat', 1, 'Luftbehandlingsaggregat 1', 'Fahoma', 'FTX0840', 'LB01', true, rk('04', '002'), 24, 7, 0);
+    sig('apparatskap', 1, 'Apparatskåp 1', 'Regulia', 'RS-400', 'AS01', true, rk('04', '002'), 32, 5, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 3 }] });
+    sig('skyddsrumsaggregat', 1, 'Skyddsrumsaggregat 1', 'Skyddsteknik', 'SRV-300', 'SRA01', true, rk('00', '010'), 6, 11, 0);
 
     // El
-    sig('huvudcentral', 1, 'Huvudcentral 1', 'Elektra', 'HC-250', 'HC01', true, '0009', 0, 11, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 4 }] });
-    [['1013', 1, 31], ['2016', 2, 33], ['3016', 3, 33]].forEach(function (g) {
+    sig('huvudcentral', 1, 'Huvudcentral 1', 'Elektra', 'HC-250', 'HC01', true, rk('00', '009'), 0, 11, 0, { innehaller: [{ typ: 'jordfelsbrytare', antal: 4 }] });
+    [[rk('01', '013'), 1, 31], [rk('02', '016'), 2, 33], [rk('03', '016'), 3, 33]].forEach(function (g) {
       sig('gruppcentral', g[1], 'Gruppcentral ' + g[1], 'Elektra', 'GC-63', 'GC' + nn(g[1]), true, g[0], g[2], 11, 1.2, { innehaller: [{ typ: 'jordfelsbrytare', antal: 2 }] });
     });
-    sig('jordfelsbrytare', 1, 'Jordfelsbrytare 1', 'Elektra', 'JF-25/30mA', 'JFB01', false, '0005', 16, 0, 1.5, { placering: 'Bakom tvättmaskinerna' });
+    sig('jordfelsbrytare', 1, 'Jordfelsbrytare 1', 'Elektra', 'JF-25/30mA', 'JFB01', false, rk('00', '005'), 16, 0, 1.5, { placering: 'Bakom tvättmaskinerna' });
 
     // Tvätt och tork
-    sig('tvattmaskin', 1, 'Tvättmaskin 1', 'Tvättex', 'TX-8', 'TM01', true, '0005', 13.5, 0, 0);
-    if (nr === 1) { sig('tvattmaskin', 2, 'Tvättmaskin 2', 'Tvättex', 'TX-8', 'TM02', true, '0005', 14.8, 0, 0); }
-    sig('torkskap', 1, 'Torkskåp 1', 'Tvättex', 'TS-18', 'TS01', true, '0006', 22, 0, 0);
-    sig('torkskap', 2, 'Torkskåp 2', 'Tvättex', 'TS-18', 'TS02', true, '2012', 16, 14, 0);
-    sig('torkskap', 3, 'Torkskåp 3', 'Tvättex', 'TS-18', 'TS03', true, '3012', 16, 14, 0);
+    sig('tvattmaskin', 1, 'Tvättmaskin 1', 'Tvättex', 'TX-8', 'TM01', true, rk('00', '005'), 13.5, 0, 0);
+    if (nr === 1) { sig('tvattmaskin', 2, 'Tvättmaskin 2', 'Tvättex', 'TX-8', 'TM02', true, rk('00', '005'), 14.8, 0, 0); }
+    sig('torkskap', 1, 'Torkskåp 1', 'Tvättex', 'TS-18', 'TS01', true, rk('00', '006'), 22, 0, 0);
+    sig('torkskap', 2, 'Torkskåp 2', 'Tvättex', 'TS-18', 'TS02', true, rk('02', '012'), 16, 14, 0);
+    sig('torkskap', 3, 'Torkskåp 3', 'Tvättex', 'TS-18', 'TS03', true, rk('03', '012'), 16, 14, 0);
 
     // Kasern 2: hiss inbyggd i trapphusöga vid renovering
-    if (nr === 2) { sig('personhiss', 1, 'Personhiss 1', 'Schindler', '3000', 'HISS01', true, '1003', 10, 3, 0); }
+    if (nr === 2) { sig('personhiss', 1, 'Personhiss 1', 'Schindler', '3000', 'HISS01', true, rk('01', '003'), 10, 3, 0); }
     return lista;
   }
 
@@ -5442,6 +5470,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 (function () {
   'use strict';
 
+  var DP = window.DP;
   var T = window.THREE;
   var VAGG_TJ = 0.15;
 
@@ -5499,7 +5528,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     this.blinkar = [];
     this.rumMarkering = null;
     this.b.plan.forEach(function (p) { self.planIndex[p.id] = p; self.planSynligt[p.id] = true; });
-    this.b.rum.forEach(function (r) { self.rumIndex[r.nr] = r; });
+    // Nycklat på rummets nyckel (plan + rumsnummer), eftersom rumsnumret löper per plan och
+    // inte är unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
+    this.b.rum.forEach(function (r) { self.rumIndex[DP.rumBeteckning(r)] = r; });
 
     // Byggnadens mått räknas fram från rummen
     var M = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, topp: 0 };
@@ -5674,11 +5705,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     this.pickbara.push(golv);
 
     // Etikett
-    var text = r.nr + ' ' + r.namn;
+    var text = DP.rumBeteckning(r) + ' ' + r.namn;
     var skala = r.typ === 'hangar' ? 2.2 : 1;
     var sprite = textSprite(text, skala);
     sprite.position.set((x0 + x1) / 2, p.elev + 0.6 * skala, (z0 + z1) / 2);
-    sprite.userData = { rumNr: r.nr };
+    sprite.userData = { rumNyckel: DP.rumBeteckning(r) };
     g.etiketter.add(sprite);
   };
 
@@ -5873,7 +5904,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // Installationer
   // ------------------------------------------------------------------
   Viewer.prototype._byggInstallation = function (inst) {
-    var typ = window.DP.installationstyper[inst.typ];
+    var typ = DP.installationstyper[inst.typ];
     var r = this.rumIndex[inst.rum];
     var p = this.planIndex[r.plan];
     var farg = inst.signifikant ? KATEGORIFARG[typ.kategori] : KATEGORIFARG.ovrig;
@@ -6172,8 +6203,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   };
 
   // Flyg till ett rum i översiktsläge (planet och planen under visas, planen ovanför släcks)
-  Viewer.prototype.visaRum = function (nr) {
-    var r = this.rumIndex[nr];
+  // `nyckel` är rummets nyckel (plan + rumsnummer), som DP.rumBeteckning ger
+  Viewer.prototype.visaRum = function (nyckel) {
+    var r = this.rumIndex[nyckel];
     if (this.lage === 'rum') { this.lamnaRum(true); }
     this._visaPlanUpptill(r.plan);
     var c = this._rumCentrum(r);
@@ -6207,7 +6239,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var mal = this.controls.target.clone();
     var synliga = this.planSynligt;
     var lage = this.lage;
-    var rumNr = this.aktuelltRum && this.aktuelltRum.nr;
+    var rumNyckel = this.aktuelltRum && DP.rumBeteckning(this.aktuelltRum);
     var valdId = this.valdInst && this.valdInst.id;
 
     this.sattByggnad(byggnad);
@@ -6217,9 +6249,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     Object.keys(synliga).forEach(function (id) {
       if (self.planIndex[id]) { self.planSynligt[id] = synliga[id]; }
     });
-    if (lage === 'rum' && this.rumIndex[rumNr]) {
+    if (lage === 'rum' && this.rumIndex[rumNyckel]) {
       // Rumsläget sätter sin egen kamera och plansynlighet, så det får gå före de sparade.
-      this.gaIn(rumNr);
+      this.gaIn(rumNyckel);
     } else {
       this._uppdateraSynlighet();
       this.camera.position.copy(kamera);
@@ -6236,8 +6268,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   };
 
   // Gå in i ett rum: stå i ögonhöjd och se dig omkring
-  Viewer.prototype.gaIn = function (nr) {
-    var r = this.rumIndex[nr];
+  Viewer.prototype.gaIn = function (nyckel) {
+    var r = this.rumIndex[nyckel];
     this.lage = 'rum';
     this.aktuelltRum = r;
     this._visaPlanUpptill(r.plan);
@@ -6288,7 +6320,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     this.markor.userData.bas = new T.Vector3(pos.x, bb.max.y + 0.7, pos.z);
     this.markor.visible = true;
     if (flyg) {
-      if (this.lage === 'rum' && this.aktuelltRum && this.aktuelltRum.nr === r.nr) { return; }
+      if (this.lage === 'rum' && this.aktuelltRum && DP.rumBeteckning(this.aktuelltRum) === DP.rumBeteckning(r)) { return; }
       if (this.lage === 'rum') { this.lamnaRum(true); }
       this._visaPlanUpptill(r.plan);
       var dim = new T.Vector3(); bb.getSize(dim);
@@ -6476,7 +6508,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     });
     el.addEventListener('dblclick', function (ev) {
       var o = traffa(ev);
-      if (o && o.userData.rum) { self.gaIn(o.userData.rum.nr); }
+      if (o && o.userData.rum) { self.gaIn(DP.rumBeteckning(o.userData.rum)); }
     });
     window.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && self.lage === 'rum') { self.lamnaRum(); }
@@ -6503,7 +6535,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function indexera() {
     b = DP.Plan.byggnad();
     rumIndex = {}; instPerRum = {};
-    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    // Nycklat på rummets nyckel (plan + rumsnummer): rumsnumret löper per plan och är inte
+    // unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
+    b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
     b.installationer.forEach(function (i) { (instPerRum[i.rum] = instPerRum[i.rum] || []).push(i); });
     signifikanta = b.installationer.filter(function (i) { return i.signifikant; });
   }
@@ -6524,7 +6558,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   }
   function hex(n) { return '#' + ('000000' + n.toString(16)).slice(-6); }
   function planNamn(id) { var p = b.plan.filter(function (x) { return x.id === id; })[0]; return p.id + ' – ' + p.namn; }
-  function rumNamn(nr) { var r = rumIndex[nr]; return r.nr + ' – ' + r.namn; }
+  function rumNamn(nyckel) { var r = rumIndex[nyckel]; return DP.rumBeteckning(r) + ' – ' + r.namn; }
   function antalText(n, typ) { return n + ' ' + (n === 1 ? typer[typ].namn.toLowerCase() : (PLURAL[typ] || typer[typ].namn.toLowerCase())); }
 
   function atgardForTyp(typ) {
@@ -6541,7 +6575,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     planAndrat: uppdateraPlanKnappar,
     lageAndrat: function (lage, r) {
       $('#rumlage').hidden = lage !== 'rum';
-      if (r) { $('#rumlage-namn').textContent = planNamn(r.plan) + ' · ' + rumNamn(r.nr); }
+      if (r) { $('#rumlage-namn').textContent = planNamn(r.plan) + ' · ' + rumNamn(DP.rumBeteckning(r)); }
       document.body.classList.toggle('i-rum', lage === 'rum');
     }
   });
@@ -6624,7 +6658,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       var i = b.installationer.filter(function (x) { return x.id === visades.inst.id; })[0];
       if (i) { visaInstKort(i); } else { kort.hidden = true; visas = null; redigerar = null; }
     } else if (visades.rum) {
-      var r = rumIndex[visades.rum.nr];
+      var r = rumIndex[DP.rumBeteckning(visades.rum)];
       if (r) { visaRumKort(r); } else { kort.hidden = true; visas = null; redigerar = null; }
     }
   }
@@ -6665,17 +6699,18 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       sek.appendChild(rubrik);
       b.rum.filter(function (r) { return r.plan === p.id; }).forEach(function (r) {
         var rd = el('details', 'rum');
-        rd.dataset.rum = r.nr;
+        var nyckel = DP.rumBeteckning(r);
+        rd.dataset.rum = nyckel;
         var rs = el('summary');
-        var lista = instPerRum[r.nr] || [];
+        var lista = instPerRum[nyckel] || [];
         var nsig = lista.filter(function (i) { return i.signifikant; }).length;
-        rs.innerHTML = '<span class="rum-nr">' + r.nr + '</span><span class="rum-namn">' + r.namn + '</span>' +
+        rs.innerHTML = '<span class="rum-nr">' + nyckel + '</span><span class="rum-namn">' + r.namn + '</span>' +
           (nsig ? '<span class="rakna">' + nsig + '</span>' : '');
         var gaIn = el('button', 'liten', 'Gå in');
         gaIn.title = 'Gå in i rummet och se dig omkring';
-        gaIn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); viewer.gaIn(r.nr); });
+        gaIn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); viewer.gaIn(nyckel); });
         rs.appendChild(gaIn);
-        rs.addEventListener('click', function () { viewer.visaRum(r.nr); visaRumKort(r); });
+        rs.addEventListener('click', function () { viewer.visaRum(nyckel); visaRumKort(r); });
         rd.appendChild(rs);
 
         var ul = el('ul', 'instlista');
@@ -6770,7 +6805,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     falt(rutnat, 'Modell', inst.modell);
     falt(rutnat, 'Externt id', inst.externtId, !inst.externtId);
     falt(rutnat, 'Plan', planNamn(r.plan));
-    falt(rutnat, 'Rum', rumNamn(r.nr));
+    falt(rutnat, 'Rum', rumNamn(inst.rum));
     if (inst.placering) { falt(rutnat, 'Placering', inst.placering); }
     k.appendChild(rutnat);
 
@@ -6853,15 +6888,16 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var visa = el('button', 'knapp sekundar', 'Visa i modellen');
     visa.addEventListener('click', function () { viewer.valjInstallation(inst, true); });
     var gaIn = el('button', 'knapp sekundar', 'Gå in i ' + r.namn.toLowerCase());
-    gaIn.addEventListener('click', function () { viewer.gaIn(r.nr); viewer.valjInstallation(inst, false); });
+    gaIn.addEventListener('click', function () { viewer.gaIn(inst.rum); viewer.valjInstallation(inst, false); });
     knappar.appendChild(visa); knappar.appendChild(gaIn);
     k.appendChild(knappar);
   }
 
   function visaRumKort(r) {
+    var nyckel = DP.rumBeteckning(r);
     var area = (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
-    var k = nyttKort(rumNamn(r.nr), 'Plan ' + planNamn(r.plan) + ' · ' + area + ' m²');
-    var lista = instPerRum[r.nr] || [];
+    var k = nyttKort(rumNamn(nyckel), 'Plan ' + planNamn(r.plan) + ' · ' + area + ' m²');
+    var lista = instPerRum[nyckel] || [];
     var sig = lista.filter(function (i) { return i.signifikant; });
     var sek = el('div', 'sektion');
     sek.appendChild(el('h4', null, 'Signifikanta installationer (' + sig.length + ')'));
@@ -6887,7 +6923,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     }
     var knappar = el('div', 'knapprad');
     var gaIn = el('button', 'knapp', 'Gå in i rummet');
-    gaIn.addEventListener('click', function () { viewer.gaIn(r.nr); });
+    gaIn.addEventListener('click', function () { viewer.gaIn(nyckel); });
     knappar.appendChild(gaIn);
     k.appendChild(knappar);
   }
@@ -6909,7 +6945,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       tips.innerHTML = '<b>' + typer[inst.typ].namn + '</b> · ej signifikant<br>' + (DP.ejSignifikantForklaring[inst.typ] || '');
     } else {
       tips.className = 'tips rum';
-      tips.innerHTML = '<b>' + rum.nr + ' ' + rum.namn + '</b><br>Klicka: information · Dubbelklicka: gå in';
+      tips.innerHTML = '<b>' + DP.rumBeteckning(rum) + ' ' + rum.namn + '</b><br>Klicka: information · Dubbelklicka: gå in';
     }
     tips.hidden = false;
   }
@@ -7375,7 +7411,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   var b, rumIndex, planIndex;
   function indexera() {
     b = P.byggnad(); rumIndex = {}; planIndex = {};
-    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    // Nycklat på rummets nyckel (plan + rumsnummer), som installationernas `rum` bär (beslut 76)
+    b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
     b.plan.forEach(function (p) { planIndex[p.id] = p; });
   }
   indexera();
@@ -7432,7 +7469,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (k.inst === 'BYGGNAD') { return { namn: b.namn + ' (hela byggnaden)', plan: '–', rum: '–', inst: null }; }
     var i = P.inst(k.inst);
     var r = rumIndex[i.rum], p = planIndex[r.plan];
-    return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: r.nr + ' – ' + r.namn, inst: i };
+    return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: DP.rumBeteckning(r) + ' – ' + r.namn, inst: i };
   }
 
   function rita() {

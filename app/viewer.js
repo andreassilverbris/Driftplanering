@@ -6,6 +6,7 @@
 (function () {
   'use strict';
 
+  var DP = window.DP;
   var T = window.THREE;
   var VAGG_TJ = 0.15;
 
@@ -63,7 +64,9 @@
     this.blinkar = [];
     this.rumMarkering = null;
     this.b.plan.forEach(function (p) { self.planIndex[p.id] = p; self.planSynligt[p.id] = true; });
-    this.b.rum.forEach(function (r) { self.rumIndex[r.nr] = r; });
+    // Nycklat på rummets nyckel (plan + rumsnummer), eftersom rumsnumret löper per plan och
+    // inte är unikt i byggnaden (beslut 76). Installationernas `rum` bär samma nyckel.
+    this.b.rum.forEach(function (r) { self.rumIndex[DP.rumBeteckning(r)] = r; });
 
     // Byggnadens mått räknas fram från rummen
     var M = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, topp: 0 };
@@ -238,11 +241,11 @@
     this.pickbara.push(golv);
 
     // Etikett
-    var text = r.nr + ' ' + r.namn;
+    var text = DP.rumBeteckning(r) + ' ' + r.namn;
     var skala = r.typ === 'hangar' ? 2.2 : 1;
     var sprite = textSprite(text, skala);
     sprite.position.set((x0 + x1) / 2, p.elev + 0.6 * skala, (z0 + z1) / 2);
-    sprite.userData = { rumNr: r.nr };
+    sprite.userData = { rumNyckel: DP.rumBeteckning(r) };
     g.etiketter.add(sprite);
   };
 
@@ -437,7 +440,7 @@
   // Installationer
   // ------------------------------------------------------------------
   Viewer.prototype._byggInstallation = function (inst) {
-    var typ = window.DP.installationstyper[inst.typ];
+    var typ = DP.installationstyper[inst.typ];
     var r = this.rumIndex[inst.rum];
     var p = this.planIndex[r.plan];
     var farg = inst.signifikant ? KATEGORIFARG[typ.kategori] : KATEGORIFARG.ovrig;
@@ -736,8 +739,9 @@
   };
 
   // Flyg till ett rum i översiktsläge (planet och planen under visas, planen ovanför släcks)
-  Viewer.prototype.visaRum = function (nr) {
-    var r = this.rumIndex[nr];
+  // `nyckel` är rummets nyckel (plan + rumsnummer), som DP.rumBeteckning ger
+  Viewer.prototype.visaRum = function (nyckel) {
+    var r = this.rumIndex[nyckel];
     if (this.lage === 'rum') { this.lamnaRum(true); }
     this._visaPlanUpptill(r.plan);
     var c = this._rumCentrum(r);
@@ -771,7 +775,7 @@
     var mal = this.controls.target.clone();
     var synliga = this.planSynligt;
     var lage = this.lage;
-    var rumNr = this.aktuelltRum && this.aktuelltRum.nr;
+    var rumNyckel = this.aktuelltRum && DP.rumBeteckning(this.aktuelltRum);
     var valdId = this.valdInst && this.valdInst.id;
 
     this.sattByggnad(byggnad);
@@ -781,9 +785,9 @@
     Object.keys(synliga).forEach(function (id) {
       if (self.planIndex[id]) { self.planSynligt[id] = synliga[id]; }
     });
-    if (lage === 'rum' && this.rumIndex[rumNr]) {
+    if (lage === 'rum' && this.rumIndex[rumNyckel]) {
       // Rumsläget sätter sin egen kamera och plansynlighet, så det får gå före de sparade.
-      this.gaIn(rumNr);
+      this.gaIn(rumNyckel);
     } else {
       this._uppdateraSynlighet();
       this.camera.position.copy(kamera);
@@ -800,8 +804,8 @@
   };
 
   // Gå in i ett rum: stå i ögonhöjd och se dig omkring
-  Viewer.prototype.gaIn = function (nr) {
-    var r = this.rumIndex[nr];
+  Viewer.prototype.gaIn = function (nyckel) {
+    var r = this.rumIndex[nyckel];
     this.lage = 'rum';
     this.aktuelltRum = r;
     this._visaPlanUpptill(r.plan);
@@ -852,7 +856,7 @@
     this.markor.userData.bas = new T.Vector3(pos.x, bb.max.y + 0.7, pos.z);
     this.markor.visible = true;
     if (flyg) {
-      if (this.lage === 'rum' && this.aktuelltRum && this.aktuelltRum.nr === r.nr) { return; }
+      if (this.lage === 'rum' && this.aktuelltRum && DP.rumBeteckning(this.aktuelltRum) === DP.rumBeteckning(r)) { return; }
       if (this.lage === 'rum') { this.lamnaRum(true); }
       this._visaPlanUpptill(r.plan);
       var dim = new T.Vector3(); bb.getSize(dim);
@@ -1040,7 +1044,7 @@
     });
     el.addEventListener('dblclick', function (ev) {
       var o = traffa(ev);
-      if (o && o.userData.rum) { self.gaIn(o.userData.rum.nr); }
+      if (o && o.userData.rum) { self.gaIn(DP.rumBeteckning(o.userData.rum)); }
     });
     window.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && self.lage === 'rum') { self.lamnaRum(); }

@@ -16,7 +16,7 @@
       grupp: 'Byggnaden',
       poster: [
         { ord: 'Byggnad → Plan → Rum',
-          text: 'Den fysiska strukturen. Plan och rum har var sitt id och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>2010 – Konferensrum</b>.' },
+          text: 'Den fysiska strukturen. Plan och rum har var sin beteckning och en benämning, t.ex. plan <b>02 – Kontorsplan</b> och rum <b>02-010 – Konferensrum</b>. Rumsnumret löper per plan (001, 002 …), så rum 001 finns på varje plan – därför pekas rummet ut med plan <i>och</i> rumsnummer.' },
         { ord: 'Byggnadstyp',
           text: 'Den sortens byggnad det är (Garage, Kasern, Hangar …). Byggnadstypen ger standardplaneringen och avgör vilka byggnader planeringen kan kopieras mellan.' },
         { ord: 'Område',

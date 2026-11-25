@@ -98,7 +98,9 @@
   DP.genereraOvriga = function (rum, opts) {
     opts = opts || {};
     var lista = [];
-    function ovr(typ, nr, x, z, h) { lista.push({ typ: typ, rum: nr, x: x, z: z, h: h || 0, signifikant: false }); }
+    // Installationen bär rummets nyckel (plan + rumsnummer), inte rumsnumret: numret löper per
+    // plan och är inte unikt i byggnaden (beslut 76).
+    function ovr(typ, r, x, z, h) { lista.push({ typ: typ, rum: DP.rumBeteckning(r), x: x, z: z, h: h || 0, signifikant: false }); }
     var cz = opts.mittZ;
     rum.forEach(function (r) {
       var x0 = r.rect[0], z0 = r.rect[1], x1 = r.rect[2], z1 = r.rect[3];
@@ -106,11 +108,11 @@
       // Belysning: ungefär en armatur per 3 m
       var nx = Math.max(1, Math.round(w / 3)), nz = Math.max(1, Math.round(d / 3));
       if (r.namn === 'Trapphus') {
-        ovr('lysrorsarmatur', r.nr, mx, mz, 0);
-        ovr('vaggarmatur', r.nr, x0, z0 + d * 0.5, 2.2);
+        ovr('lysrorsarmatur', r, mx, mz, 0);
+        ovr('vaggarmatur', r, x0, z0 + d * 0.5, 2.2);
       } else {
         for (var ix = 0; ix < nx; ix++) {
-          for (var iz = 0; iz < nz; iz++) { ovr('lysrorsarmatur', r.nr, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0); }
+          for (var iz = 0; iz < nz; iz++) { ovr('lysrorsarmatur', r, x0 + (ix + 0.5) * w / nx, z0 + (iz + 0.5) * d / nz, 0); }
         }
       }
       if (r.utanInstallationer) { return; }
@@ -118,17 +120,17 @@
       var dorrZ = (cz !== undefined && mz < cz) ? z1 : z0;
       var andraZ = dorrZ === z1 ? z0 : z1;
       if (r.namn.indexOf('Korridor') === 0) { dorrZ = z0; andraZ = z1; }
-      ovr('vaggbrytare', r.nr, x0 + Math.min(0.6, w / 3), dorrZ, 1.1);
-      ovr('vagguttag', r.nr, x0 + w * 0.3, andraZ, 0.3);
-      ovr('vagguttag', r.nr, x0 + w * 0.7, andraZ, 0.3);
-      if (opts.rokdetektor !== false) { ovr('rokdetektor', r.nr, mx + 0.4, mz + 0.3, 0); }
+      ovr('vaggbrytare', r, x0 + Math.min(0.6, w / 3), dorrZ, 1.1);
+      ovr('vagguttag', r, x0 + w * 0.3, andraZ, 0.3);
+      ovr('vagguttag', r, x0 + w * 0.7, andraZ, 0.3);
+      if (opts.rokdetektor !== false) { ovr('rokdetektor', r, mx + 0.4, mz + 0.3, 0); }
       if (r.namn.indexOf('WC') === 0) {
-        ovr('toalettstol', r.nr, x0 + 1.0, andraZ, 0);
-        ovr('toalettstol', r.nr, x0 + 2.2, andraZ, 0);
-        ovr('handfat', r.nr, x1, mz - 0.6, 0.8);
-        ovr('handfat', r.nr, x1, mz + 0.6, 0.8);
-        ovr('dusch', r.nr, x0 + 3.4, andraZ, 0);
-        ovr('dusch', r.nr, x0 + 4.5, andraZ, 0);
+        ovr('toalettstol', r, x0 + 1.0, andraZ, 0);
+        ovr('toalettstol', r, x0 + 2.2, andraZ, 0);
+        ovr('handfat', r, x1, mz - 0.6, 0.8);
+        ovr('handfat', r, x1, mz + 0.6, 0.8);
+        ovr('dusch', r, x0 + 3.4, andraZ, 0);
+        ovr('dusch', r, x0 + 4.5, andraZ, 0);
       }
     });
     return lista;

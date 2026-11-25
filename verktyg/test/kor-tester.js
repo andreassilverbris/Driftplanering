@@ -3242,8 +3242,10 @@ async function testBalanseringRymsPaSkarmen(browser) {
 // Rummets namn som det står i byggnadsträdet. Läses med textContent och inte innerText:
 // `byggTrad()` bygger trädet från grunden och stänger då planets dragspel, så noden är där men
 // inte synlig – och innerText ger tom sträng för det som inte syns.
-const tradRumNamn = (page, nr) => page.evaluate(n =>
-  document.querySelector('#trad .rum[data-rum="' + n + '"] .rum-namn').textContent, nr);
+// `nyckel` är rummets nyckel (plan + rumsnummer, "01-001"), som trädet sätter i data-rum:
+// rumsnumret löper per plan och duger inte som utpekare (beslut 76).
+const tradRumNamn = (page, nyckel) => page.evaluate(n =>
+  document.querySelector('#trad .rum[data-rum="' + n + '"] .rum-namn').textContent, nyckel);
 
 async function testByggnadenSomData(browser) {
   console.log('Byggnaden som data i tillståndet (beslut 71 och 73)');
@@ -3255,7 +3257,8 @@ async function testByggnadenSomData(browser) {
   // Starttillståndet kommer ur datafilen, men läses ur planeringen.
   const start = await page.evaluate(() => {
     const b = DP.Plan.byggnad();
-    return { namn: b.namn, rumNamn: b.rum[0].namn, rumNr: b.rum[0].nr, antalRum: b.rum.length };
+    const r = b.rum[0];
+    return { namn: b.namn, rumNamn: r.namn, rumNyckel: DP.rumBeteckning(r), antalRum: b.rum.length };
   });
   kontroll(start.antalRum > 0 && !!start.namn, 'byggnadens data läses ur planeringen (' +
     start.namn + ', ' + start.antalRum + ' rum)');
@@ -3276,8 +3279,8 @@ async function testByggnadenSomData(browser) {
     const rd = document.querySelector('#trad .rum[data-rum="' + nr + '"]');
     rd.closest('details.plan').open = true;
     return 1;
-  }, start.rumNr);
-  await page.locator('#trad .rum[data-rum="' + start.rumNr + '"] summary').click();
+  }, start.rumNyckel);
+  await page.locator('#trad .rum[data-rum="' + start.rumNyckel + '"] summary').click();
   kontroll((await page.locator('#infokort').innerText()).includes(start.rumNamn),
     'informationskortet visar rummets namn ur planeringen (' + start.rumNamn + ')');
 
@@ -3300,19 +3303,19 @@ async function testByggnadenSomData(browser) {
 
   // Ändringen: ett rums namn, genom planeringens egen väg. Ett steg i historiken som allt annat.
   const fore = await historiklangd(page);
-  await page.evaluate(nr => {
+  await page.evaluate(nyckel => {
     DP.Plan.andraByggnad('Döpte om rummet', null, function (b) {
-      b.rum.filter(function (r) { return r.nr === nr; })[0].namn = 'Provrummet';
+      b.rum.filter(function (r) { return DP.rumBeteckning(r) === nyckel; })[0].namn = 'Provrummet';
     });
     return 1;
-  }, start.rumNr);
+  }, start.rumNyckel);
   await stegKlart(page, fore, 'ändrat rumsnamn');
   kontroll(await page.evaluate(() => DP.Plan.historik().lista.slice(-1)[0]) === start.namn + ': Döpte om rummet',
     'ändringen av byggnaden är ett eget steg i historiken, namngivet med byggnaden');
 
   // Modellen: viewern bygger sitt rumsindex ur byggnadens data, så ett omritat index betyder
   // att hela modellen byggts om på den nya datan.
-  kontroll(await page.evaluate(nr => DP.viewer.rumIndex[nr].namn, start.rumNr) === 'Provrummet',
+  kontroll(await page.evaluate(nyckel => DP.viewer.rumIndex[nyckel].namn, start.rumNyckel) === 'Provrummet',
     'modellen är ombyggd på den nya datan');
   // Och planeraren står kvar där hon stod. Ombyggnaden går via `byggOmByggnad` och inte
   // `sattByggnad`: den senare nollställer kamera, plansynlighet och markering med flit, vilket
@@ -3328,18 +3331,18 @@ async function testByggnadenSomData(browser) {
     'de släckta planen är fortfarande släckta (' + (vyn.slackta.join(', ') || 'inga') + ')');
   kontroll(vyn.vald === foreVyn.vald,
     'den markerade installationen är fortfarande markerad (' + vyn.vald + ')');
-  kontroll(await tradRumNamn(page, start.rumNr) === 'Provrummet',
+  kontroll(await tradRumNamn(page, start.rumNyckel) === 'Provrummet',
     'byggnadsträdet visar det nya rumsnamnet');
   kontroll((await page.locator('#infokort').innerText()).includes('Provrummet'),
     'informationskortet visar det nya rumsnamnet utan att stängas');
 
   // Ångra går samma väg genom historiken, så omritningen sker av sig själv (beslut 73).
   await angra(page);
-  kontroll(await page.evaluate(nr => DP.Plan.byggnad().rum.filter(r => r.nr === nr)[0].namn, start.rumNr) === start.rumNamn,
+  kontroll(await page.evaluate(nyckel => DP.Plan.byggnad().rum.filter(r => DP.rumBeteckning(r) === nyckel)[0].namn, start.rumNyckel) === start.rumNamn,
     'ångra återställer byggnadens data');
-  kontroll(await page.evaluate(nr => DP.viewer.rumIndex[nr].namn, start.rumNr) === start.rumNamn,
+  kontroll(await page.evaluate(nyckel => DP.viewer.rumIndex[nyckel].namn, start.rumNyckel) === start.rumNamn,
     'ångra bygger om modellen på den återställda datan');
-  kontroll(await tradRumNamn(page, start.rumNr) === start.rumNamn,
+  kontroll(await tradRumNamn(page, start.rumNyckel) === start.rumNamn,
     'ångra ritar om byggnadsträdet');
   kontroll((await page.locator('#infokort').innerText()).includes(start.rumNamn),
     'ångra ritar om informationskortet');
@@ -3347,7 +3350,7 @@ async function testByggnadenSomData(browser) {
   // Planeringen rörs inte av en ändring av byggnaden, och byggnadens data rörs inte av
   // planeringen: de två är skilda delar av samma steg.
   await page.evaluate(() => { DP.Plan.andra('Satte besöksfrekvens', function (s) { s.bas = { typ: 'manad' }; }); return 1; });
-  kontroll(await page.evaluate(nr => DP.Plan.byggnad().rum.filter(r => r.nr === nr)[0].namn, start.rumNr) === start.rumNamn,
+  kontroll(await page.evaluate(nyckel => DP.Plan.byggnad().rum.filter(r => DP.rumBeteckning(r) === nyckel)[0].namn, start.rumNyckel) === start.rumNamn,
     'en ändring av planeringen rör inte byggnadens data');
 
   // Byggnadens namn: ändras det ska byggnadsväljaren och rutintillfällenas namn följa med, för
@@ -3384,6 +3387,178 @@ async function testByggnadenSomData(browser) {
     'ångra återställer installationen');
 
   await bild(page, 'byggnad-som-data');
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
+// Ny numrering: plan 01, rum 001, visat 01-001 (biljett #33, beslut 76). Rumsnumret löper per
+// plan, så rum 001 finns på varje plan. Det som prövas är inte att siffrorna står rätt i
+// datafilen – det är att **utpekandet** håller: två rum med samma nummer på olika plan måste
+// gå att välja, gå in i och visa var för sig. Går något uppslag fortfarande på numret ensamt
+// pekar det på det första rummet med det numret, och planeraren tittar tyst på fel rum.
+async function testRumsnumrering(browser) {
+  console.log('Ny numrering: plan 01, rum 001, visat 01-001 (beslut 76)');
+  const page = await nySida(browser, URL_INDEX, 'kasern1');
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+
+  // ---- Numreringen i datan ----
+  const num = await page.evaluate(() => {
+    const b = DP.Plan.byggnad();
+    const nycklar = {}, dubbletter = [];
+    b.rum.forEach(r => {
+      const k = DP.rumBeteckning(r);
+      if (nycklar[k]) { dubbletter.push(k); }
+      nycklar[k] = r.namn;
+    });
+    return {
+      plan: b.plan.map(p => p.id),
+      // Rumsnumren är tresiffriga löpnummer, inte plansiffra + löpnummer
+      allaTresiffriga: b.rum.every(r => /^\d{3}$/.test(r.nr)),
+      // Rum 001 på varje plan: numret ensamt pekar inte ut ett rum
+      ettor: b.rum.filter(r => r.nr === '001').map(r => DP.rumBeteckning(r)),
+      dubbletter: dubbletter,
+      // Installationerna pekar med rummets nyckel, och varje referens träffar ett rum
+      hangande: b.installationer.filter(i => !nycklar[i.rum]).length,
+      exempel: DP.rumBeteckning(b.rum.filter(r => r.plan === '01' && r.nr === '001')[0])
+    };
+  });
+  kontroll(num.allaTresiffriga, 'alla rumsnummer är löpnummer per plan (001, 002 …)');
+  kontroll(num.exempel === '01-001', 'rummet visas som plan + rumsnummer: ' + num.exempel);
+  kontroll(num.ettor.length === num.plan.length,
+    'rum 001 finns på varje plan, så numret ensamt pekar inte ut ett rum (' + num.ettor.join(', ') + ')');
+  kontroll(num.dubbletter.length === 0,
+    'plan + rumsnummer är ändå unikt i byggnaden (inga dubbletter bland ' + num.ettor.length + ' ettor)');
+  kontroll(num.hangande === 0, 'varje installation pekar på ett rum som finns');
+
+  // ---- Modellen: etiketterna säger 01-001 ----
+  const etiketter = await page.evaluate(() => {
+    const ut = [];
+    Object.keys(DP.viewer.planGrupper).forEach(id => {
+      DP.viewer.planGrupper[id].etiketter.children.forEach(s => ut.push(s.userData.rumNyckel));
+    });
+    return ut;
+  });
+  kontroll(etiketter.indexOf('00-001') >= 0 && etiketter.indexOf('01-001') >= 0,
+    'modellens etiketter bär rummets nyckel, en per plan (' + etiketter.length + ' etiketter)');
+
+  // ---- Trädet: två rum med samma nummer, var för sig ----
+  const rader = await page.evaluate(() => [].map.call(
+    document.querySelectorAll('#trad .rum'), rd => ({
+      nyckel: rd.dataset.rum,
+      nr: rd.querySelector('.rum-nr').textContent,
+      namn: rd.querySelector('.rum-namn').textContent
+    })));
+  const ettorITradet = rader.filter(r => /-001$/.test(r.nyckel));
+  kontroll(ettorITradet.length === num.plan.length,
+    'byggnadsträdet har en egen rad per rum 001, en per plan (' + ettorITradet.length + ' rader)');
+  kontroll(ettorITradet.every(r => r.nr === r.nyckel),
+    'trädet visar plan + rumsnummer i rumsraden: ' + ettorITradet.map(r => r.nr).join(', '));
+  kontroll(new Set(ettorITradet.map(r => r.nyckel)).size === ettorITradet.length,
+    'raderna är åtskilda av sina nycklar, inte av sina nummer');
+
+  // De två rummen heter olika saker, så det syns direkt om fel rum visas.
+  const kallare = '00-001', entre = '01-001';
+  const namn = await page.evaluate(arg => ({
+    kallare: DP.viewer.rumIndex[arg.kallare].namn,
+    entre: DP.viewer.rumIndex[arg.entre].namn
+  }), { kallare, entre });
+  kontroll(namn.kallare !== namn.entre,
+    'de två rummen 001 har olika namn, så fel rum syns direkt (' + namn.kallare + ' / ' + namn.entre + ')');
+
+  // ---- Informationskortet: var för sig ----
+  await page.evaluate(nyckel => {
+    const rd = document.querySelector('#trad .rum[data-rum="' + nyckel + '"]');
+    rd.closest('details.plan').open = true;
+    return 1;
+  }, kallare);
+  await page.locator('#trad .rum[data-rum="' + kallare + '"] summary').click();
+  let kort = await page.locator('#infokort').innerText();
+  kontroll(kort.includes(kallare) && kort.includes(namn.kallare),
+    'informationskortet visar källarens 00-001 ' + namn.kallare);
+  kontroll(!kort.includes(entre),
+    'kortet visar inte entréplanets 01-001 samtidigt');
+
+  await page.evaluate(nyckel => {
+    const rd = document.querySelector('#trad .rum[data-rum="' + nyckel + '"]');
+    rd.closest('details.plan').open = true;
+    return 1;
+  }, entre);
+  await page.locator('#trad .rum[data-rum="' + entre + '"] summary').click();
+  kort = await page.locator('#infokort').innerText();
+  kontroll(kort.includes(entre) && kort.includes(namn.entre),
+    'informationskortet visar entréplanets 01-001 ' + namn.entre);
+
+  // ---- Gå in: de två rummen är skilda mål ----
+  await page.evaluate(nyckel => { DP.viewer.gaIn(nyckel); return 1; }, kallare);
+  await vanta(page, () => DP.viewer.lage === 'rum', 'inne i ett rum');
+  let inne = await page.evaluate(() => ({
+    nyckel: DP.rumBeteckning(DP.viewer.aktuelltRum),
+    namn: DP.viewer.aktuelltRum.namn,
+    text: document.querySelector('#rumlage-namn').textContent
+  }));
+  kontroll(inne.nyckel === kallare && inne.namn === namn.kallare,
+    'Gå in i 00-001 ställer planeraren i källarens rum (' + inne.namn + ')');
+  kontroll(inne.text.includes(kallare),
+    'rumsläget säger vilket rum det är: ' + inne.text);
+
+  await page.evaluate(nyckel => { DP.viewer.gaIn(nyckel); return 1; }, entre);
+  await rorelsePaus(page);
+  inne = await page.evaluate(() => ({
+    nyckel: DP.rumBeteckning(DP.viewer.aktuelltRum),
+    namn: DP.viewer.aktuelltRum.namn,
+    text: document.querySelector('#rumlage-namn').textContent
+  }));
+  kontroll(inne.nyckel === entre && inne.namn === namn.entre,
+    'Gå in i 01-001 byter rum trots samma nummer (' + inne.namn + ')');
+  kontroll(inne.text.includes(entre), 'rumsläget följer med: ' + inne.text);
+  await page.evaluate(() => { DP.viewer.lamnaRum(); return 1; });
+  await rorelsePaus(page);
+
+  // ---- Installationskortet: rätt rum av de likanumrerade ----
+  // Brandlarmscentralen sitter i 01-001 Entré, brandposten i 00-001 Korridor. Går uppslaget
+  // på numret ensamt skulle båda hamna i samma rum.
+  const kort2 = await page.evaluate(() => {
+    const b = DP.Plan.byggnad();
+    const iEntre = b.installationer.filter(i => i.rum === '01-001' && i.signifikant)[0];
+    const iKallare = b.installationer.filter(i => i.rum === '00-001' && i.signifikant)[0];
+    DP.ui.visaInstKort(iEntre);
+    const entre = document.querySelector('#infokort').innerText;
+    DP.ui.visaInstKort(iKallare);
+    return { entre: entre, kallare: document.querySelector('#infokort').innerText,
+      betEntre: iEntre.beteckning, betKallare: iKallare.beteckning };
+  });
+  kontroll(kort2.entre.includes('01-001 – ' + namn.entre),
+    'installationen i 01-001 (' + kort2.betEntre + ') får entréplanets rum på sitt kort');
+  kontroll(kort2.kallare.includes('00-001 – ' + namn.kallare),
+    'installationen i 00-001 (' + kort2.betKallare + ') får källarens rum på sitt kort');
+
+  // ---- Telefonen: rumsraden i rutintillfället ----
+  // Telefonvyn läser rummet ur sitt eget index. Planera och öppna ett rutintillfälle som
+  // innehåller en åtgärd på en installation i ett av de likanumrerade rummen.
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet');
+  const f = page.locator('#flode');
+  await f.locator('button', { hasText: 'Använd standardplanering' }).click();
+  await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+  await vanta(page, () => DP.Plan.state().kopplingar.length > 0, 'standardplaneringen gjord');
+  const telefonRum = await page.evaluate(() => {
+    const s = DP.Plan.state();
+    // Åtgärden på brandlarmscentralen i 01-001 Entré
+    const i = DP.Plan.signifikanta().filter(x => x.rum === '01-001')[0];
+    const k = s.kopplingar.filter(x => x.inst === i.id)[0];
+    const t = DP.Plan.rutintillfallen().filter(x => x.rond === k.rond)[0];
+    DP.Telefon.oppna(t.nyckel);
+    return { inst: i.beteckning, nyckel: t.nyckel };
+  });
+  await vanta(page, () => document.querySelectorAll('.telefon').length > 0, 'telefonvyn öppen');
+  const tel = page.locator('.telefon').first();
+  await tel.locator('.tf-rad', { hasText: telefonRum.inst }).first().click();
+  const telText = await tel.innerText();
+  kontroll(telText.includes('01-001 – ' + namn.entre),
+    'telefonvyn visar plan + rumsnummer för installationen i 01-001 (' + telefonRum.inst + ')');
+
+  await bild(page, 'rumsnumrering');
   kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
   await page.close();
 }
@@ -3575,6 +3750,7 @@ async function testFristaendeFil(browser) {
     await testPlaneringAndratsEfterBalansering(browser);
     await testBalanseringRymsPaSkarmen(browser);
     await testByggnadenSomData(browser);
+    await testRumsnumrering(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

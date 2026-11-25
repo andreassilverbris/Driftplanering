@@ -13,7 +13,8 @@
   var b, rumIndex, planIndex;
   function indexera() {
     b = P.byggnad(); rumIndex = {}; planIndex = {};
-    b.rum.forEach(function (r) { rumIndex[r.nr] = r; });
+    // Nycklat på rummets nyckel (plan + rumsnummer), som installationernas `rum` bär (beslut 76)
+    b.rum.forEach(function (r) { rumIndex[DP.rumBeteckning(r)] = r; });
     b.plan.forEach(function (p) { planIndex[p.id] = p; });
   }
   indexera();
@@ -70,7 +71,7 @@
     if (k.inst === 'BYGGNAD') { return { namn: b.namn + ' (hela byggnaden)', plan: '–', rum: '–', inst: null }; }
     var i = P.inst(k.inst);
     var r = rumIndex[i.rum], p = planIndex[r.plan];
-    return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: r.nr + ' – ' + r.namn, inst: i };
+    return { namn: i.benamning, bet: i.beteckning, plan: p.id + ' – ' + p.namn, rum: DP.rumBeteckning(r) + ' – ' + r.namn, inst: i };
   }
 
   function rita() {

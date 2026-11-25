@@ -78,13 +78,15 @@ details.plan[open] > summary::before { content: "▾"; }
 details.rum { margin-left: 14px; }
 details.rum > summary { display: flex; align-items: center; gap: 8px; padding: 5px 6px; cursor: pointer; list-style: none; border-radius: 6px; }
 details.rum > summary:hover { background: #f4f6f9; }
-.rum-nr { font-variant-numeric: tabular-nums; color: var(--dov); width: 36px; }
+/* Rummets nyckel är plan + rumsnummer, "01-001" (beslut 76) – bredden rymmer den utan radbrytning */
+.rum-nr { font-variant-numeric: tabular-nums; color: var(--dov); width: 52px; white-space: nowrap; }
 .rum-namn { flex: 1; }
 .rakna { font-size: 11px; background: #eef1f4; color: var(--dov); border-radius: 999px; padding: 1px 7px; }
 button.liten { font-size: 11px; padding: 2px 8px; border: 1px solid var(--linje); background: #fff; border-radius: 999px; color: var(--accent); visibility: hidden; }
 details.rum > summary:hover button.liten { visibility: visible; }
 
-.instlista { list-style: none; margin: 2px 0 6px 44px; padding: 0; }
+/* Indraget följer rumsnyckelns bredd, så installationerna linjerar med rummets namn */
+.instlista { list-style: none; margin: 2px 0 6px 60px; padding: 0; }
 .instlista li { padding: 3px 6px; border-radius: 5px; font-size: 13px; display: flex; align-items: center; }
 .instlista li.sig { cursor: pointer; }
 .instlista li.sig:hover { background: var(--accent-svag); }
