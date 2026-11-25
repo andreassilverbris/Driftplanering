@@ -28,6 +28,15 @@ _Undvik_: Mall, startbyggnad
 **Mindre logement**:
 En mindre och enklare byggd variant av kasern: 10–20 rum på ett eller två plan, ofta med toalett i varje rum.
 
+**Militärrestaurang**:
+Byggnad med storkök och matsal. Matsalen är det stora rummet och köket det som ger byggnaden dess tillsyn: storköksfläkt, fettavskiljare och kylrum.
+
+**Utbildningsbyggnad**:
+Byggnad med lektionssalar på båda sidor av en korridor, i ett eller flera plan. Många människor dagtid, som en kasern, men ingen bor där.
+
+**Panncentral**:
+Byggnad som finns för att producera värme. Ett stort pannrum med några birum, ingen som vistas där – och den enda byggnadstypen med ronden *Värme*.
+
 **Plan, rum**:
 Byggnadens våningar och rum. Planen har en beteckning (oftast 01) och benämning. Rummet har ett rumsnummer som löper per plan (001, 002 …) och pekas därför ut med plan + rumsnummer, skrivet 01-001.
 
@@ -118,6 +127,9 @@ Hur ofta någon behöver vara i byggnaden.
 
 **Rond**:
 En grupp åtgärder som görs vid samma tillfälle och har samma frekvens och utförare (Byggnad invändigt, Brandskydd …).
+
+**Värme**:
+Ronden för värmeproduktionens egna installationer: värmepanna, expansionskärl och cirkulationspump. Finns i panncentralens standardplanering. Skild från *Ventilation*, eftersom en panna inte är ett luftbehandlingsaggregat och den som går ronden är värmetekniker.
 
 **Frekvens**:
 Ett rullande intervall i veckor och en startvecka. Visas som t.ex. "Varje månad = var 4:e vecka".

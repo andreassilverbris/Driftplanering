@@ -18,9 +18,13 @@
 
   // Tyngd per installationstyp. Åtgärdens tyngd följer den typ den gäller.
   // Typer som inte står här är normala.
-  var LATT = ['handbrandslackare', 'nodbelysning', 'jordfelsbrytare', 'brandpost', 'utrymningsstege', 'brandgaslucka'];
+  var LATT = ['handbrandslackare', 'nodbelysning', 'jordfelsbrytare', 'brandpost', 'utrymningsstege',
+    'brandgaslucka', 'skorsten', 'expansionskarl'];
   var TUNG = ['luftbehandlingsaggregat', 'undercentral', 'sprinklercentral', 'reservkraft', 'kylaggregat',
-    'varmepump', 'skyddsrumsaggregat', 'personhiss', 'brandlarmscentral'];
+    'varmepump', 'skyddsrumsaggregat', 'personhiss', 'brandlarmscentral',
+    // Panncentralens och storkökets tunga: en panna provkörs och en storköksfläkt kräver att
+    // man kommer åt fettfilter och brandspjäll.
+    'varmepanna', 'storkoksflakt', 'kylrumsaggregat'];
 
   var tyngdPerTyp = {};
   LATT.forEach(function (t) { tyngdPerTyp[t] = 'latt'; });

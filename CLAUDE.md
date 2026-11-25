@@ -76,7 +76,7 @@ Skriptens ordning i `index.html` spelar roll:
 | Fil | Ansvar |
 |---|---|
 | `data/hangar.js` | Hangaren + grundkatalogen: `DP.installationstyper`, `DP.ronder`, `DP.atgarder` (bruttolistan), och `DP.rumNyckel`/`DP.rumBeteckning` (plan + rumsnummer, beslut 76). Byggnaden är källa till starttillståndet, som Garage och Kasern |
-| `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` (standardplanering, stil, konstanter och **planlösningens regel** `planlosning: { regel, djup, korrBredd, langd }` – beslut 99), `DP.omraden`, `DP.genereraOvriga()` |
+| `data/katalog.js` | Fler typer/åtgärder, `DP.byggnadstyper` – **alla sju typerna** (standardplanering, stil, konstanter och **planlösningens regel** `planlosning: { regel, djup, korrBredd, langd }` – beslut 72, 99 och biljett #46), `DP.omraden`, `DP.genereraOvriga()` |
 | `data/rumstyper.js` | `DP.rumstyper`: rumstyperna med namn, kategori (modellens sort), standard-NTA och igenkänningsmönster, plus `DP.rumstypFor(benämning)` och `DP.rumstypAv(kolumnvärde)` (beslut 80, 99 och 108). Tabellens ordning *är* regeln: det mest utpekande mönstret prövas först |
 | `data/installationstyper.js` | `DP.installationstypMonster`: igenkänningen av en installationstyp ur benämningen (Handbrandsläckare 3, Handbr.släckare 3, HC01), plus `DP.installationstypFor(benämning)`, `DP.installationstypAv(kolumnvärde)` och `DP.signifikantaTyper()` (beslut 81 och 109). Tabellens ordning *är* regeln, som i `rumstyper.js`. En **okänd** typ får inget förslag: typen avgör vilka åtgärder som går att koppla |
 | `data/tidsschablon.js` | `DP.tidsschablon`: tyngd per installationstyp, minuter per tyngd, de generella åtgärdernas tid och dagsdelarnas gränser |
@@ -721,6 +721,22 @@ Ett godtaget utbyte går samma väg som utbytet i steg 4, med samma utbytta vers
 fråga** efteråt, och ett *Godta alla* med flera utbyten är ett steg i historiken och en fråga.
 Filen bär fortfarande bara nuvarande versioner när den tas ut: historiken stannar i systemet
 (beslut 96).
+Sextonde biljetten, **de fyra nya byggnadstyperna** (beslut 72, 99 och 108, biljett #46), är
+byggd: **Mindre logement, Militärrestaurang, Utbildningsbyggnad och Panncentral** står i steg 1
+vid sidan av Garage, Kasern och Hangar, var och en med planlösningsregel, utseende, mått och
+standardplanering. En byggnad av varje typ går hela vägen ur en inläsningsfil – fyra gröna steg
+i Byggnad, snabbstarten, sex gröna steg i Planering och med i Balanseringen. Panncentralen har
+den nya ronden **Värme** med värmepanna, expansionskärl och cirkulationspump; en tom rond hade
+varit en rad i tidsaxeln som ser ut att betyda något. **Matsal och Lektionssal är egna
+rumstyper** och inte fikarum och kontor: hallregeln ger det största rummet resten av planet, så
+en matsal med fikarummets standard-NTA hade blivit ett rum i ledet i stället för matsalen.
+Typerna krävde ingen ny kod, bara fyra rader i `DP.byggnadstyper` och nya rader i rums-,
+installationstyps- och tidstabellerna – det är beslut 99:s prov, och därför bygger testet en
+byggnad av varje typ hela vägen i stället för att läsa tabellen. Ett nytt mönster får inte
+vara **bredare än sin typ**: det får varken lägga beslag på ett ord en befintlig åtgärd äger
+eller gissa där planeraren ska få frågan, och testet låser båda. Meningen i steg 1 om att
+typen avgör *vilka rumstyper som känns igen* är rättad – rumstypstabellen är gemensam för
+alla typer (beslut 80), och det typen avgör är hur rummen läggs ut.
 
 Kända begränsningar:
 - Installationernas plats **i** rummet är schematisk: de fördelas jämnt längs väggen mot korridoren,
@@ -737,9 +753,13 @@ Kända begränsningar:
 - Den **beräknade** arean uteblir på ett plan där modellens rektangel inte täcker rummens NTA
   (beslut 79). Korridorsregeln ger korridoren remsan mellan rumsraderna, och den är sällan lika
   stor som korridorens NTA – ett BRA under NTA är geometriskt omöjligt, så uträkningen avstår och
-  visar ett streck. Det slår på just kasernens korridorsplan. Modellens egen brist är biljett #48.
-- Byggnadstypernas planlösningsregel finns för de tre typer som har tabeller (Garage, Kasern,
-  Hangar). De fyra nya typerna i beslut 72 är inte inlagda ännu.
+  visar ett streck. Det slår på kasernens korridorsplan och, sedan biljett #46, också på
+  Mindre logement och Utbildningsbyggnad – alla tre är korridorsregeln. Modellens egen brist är
+  biljett #48.
+- Alla sju byggnadstyperna i beslut 72 har tabeller (biljett #46). De fyra nya delar regel med
+  en befintlig typ: Mindre logement och Utbildningsbyggnad är korridorsregeln i andra mått,
+  Militärrestaurang och Panncentral hallregeln. En åttonde typ med en **annan** form kräver
+  alltså en ny regel i `DP.Planlosning`, inte bara en rad i tabellen.
 - Ett förslag att ta bort uppstår bara när filens flik bär **minst en** av byggnadens egna rader
   (beslut 86). En fil som bara har nya rader är ett tillägg, och en fil som bara har Plan-fliken säger
   ingenting om rummen. Regeln gissar mot att något tas bort, så en fil där planeraren råkat byta ut

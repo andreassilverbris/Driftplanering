@@ -8633,6 +8633,285 @@ async function testUtbyteViaFil(browser) {
   await ip.close();
 }
 
+// ------------------------------------------------------------------
+// De fyra nya byggnadstyperna (biljett #46, beslut 72, 99 och 108)
+// ------------------------------------------------------------------
+// Det som prövas är att en byggnadstyp är **data och ingenting mer** (beslut 99): fyra nya
+// rader i `DP.byggnadstyper` ska räcka för att planeraren ska kunna skapa byggnaden, läsa in
+// en fil, se modellen ritas ur typens regel och få en standardplanering som gör alla sex
+// stegen gröna. Hade någon av de fyra krävt en rad kod vore tabellen inte en tabell.
+//
+// Därför går testet hela vägen per typ i stället för att läsa tabellen: en typ som finns i
+// `DP.byggnadstyper` men vars planlösning inte går att rita, eller vars standardplanering
+// pekar på en rond som inte finns, syns bara när byggnaden faktiskt byggs.
+//
+// Panncentralen prövas hårdast, eftersom den bär det som är nytt på riktigt: ronden **Värme**
+// (beslut 99). En rond utan åtgärder hade blivit en tom rad i tidsaxeln – pedagogiskt värre
+// än ingen rond alls – så kontrollen är att ronden har kopplade åtgärder och planerad tid.
+async function testNyaByggnadstyper(browser) {
+  console.log('De fyra nya byggnadstyperna (beslut 72, 99 och 108)');
+  const page = await nySida(browser, URL_INDEX);
+
+  // ---- Alla sju typerna går att välja i steg 1 (berättelse 8) ----
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+  const bf = page.locator('#byggnadsflode');
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .val[data-typ]'), 'typvalen');
+  const typer = await bf.locator('.val[data-typ]').evaluateAll(
+    ns => ns.map(n => n.dataset.typ + ':' + n.querySelector('b').textContent));
+  const vantade = ['garage:Garage', 'kasern:Kasern', 'hangar:Hangar', 'logement:Mindre logement',
+    'restaurang:Militärrestaurang', 'utbildning:Utbildningsbyggnad', 'panncentral:Panncentral'];
+  kontroll(vantade.every(t => typer.indexOf(t) >= 0) && typer.length === 7,
+    'alla sju byggnadstyperna går att välja i steg 1 (' + typer.join(', ') + ', beslut 72)');
+  // Varje typ bär sin motivering: det är den planeraren läser för att välja rätt.
+  const utanMotivering = await page.evaluate(() => Object.keys(DP.byggnadstyper)
+    .filter(id => !DP.byggnadstyper[id].motivering || !DP.byggnadstyper[id].planlosning
+      || !DP.byggnadstyper[id].standard));
+  kontroll(utanMotivering.length === 0,
+    'varje typ bär planlösningsregel, standardplanering och motivering ('
+    + (utanMotivering.join(', ') || 'alla fyra fälten finns') + ')');
+
+  // ---- Typernas rum och installationer känns igen ur benämningen (beslut 80, 81 och 108) ----
+  // De nya typernas rum och apparater måste gå att skriva som i fastighetssystemet, annars
+  // blir varje rad en fråga och inläsningen är ingen inläsning.
+  const igen = await page.evaluate(() => ({
+    rum: ['Matsal', 'Lektionssal 3', 'Pannrum', 'Kylrum', 'Serveringsrum', 'Grupprum 1']
+      .map(n => n + '=' + DP.rumstypFor(n)),
+    inst: ['Värmepanna 1', 'Panna 2', 'Expansionskärl', 'Cirkulationspump CP1', 'Skorsten',
+      'Storköksfläkt 1', 'Fettavskiljare 1', 'Kylrumsaggregat 1']
+      .map(n => n + '=' + DP.installationstypFor(n)),
+    // Ordningen i tabellen är regeln: värmepannan får inte bli en undercentral ("värme…")
+    // och expansionskärlet inte ett tryckkärl ("…kärl").
+    inteFel: DP.installationstypFor('Värmepanna 1') === 'varmepanna'
+      && DP.installationstypFor('Expansionskärl') === 'expansionskarl'
+      && DP.installationstypFor('Värmeväxlare') === 'undercentral'
+      && DP.installationstypFor('Tryckkärl 1') === 'tryckkarl'
+  }));
+  kontroll(igen.rum.join(' ') === 'Matsal=matsal Lektionssal 3=lektionssal Pannrum=teknik '
+    + 'Kylrum=kylrum Serveringsrum=kok Grupprum 1=lektionssal',
+    'de nya typernas rum känns igen ur benämningen (' + igen.rum.join(', ') + ', beslut 108)');
+  kontroll(igen.inst.every(s => !/=null$/.test(s)),
+    'de nya typernas installationer känns igen ur benämningen (' + igen.inst.join(', ')
+    + ', beslut 81)');
+  kontroll(igen.inteFel,
+    'tabellens ordning håller isär värmepanna/undercentral och expansionskärl/tryckkärl');
+  // De nya mönstren får inte vara bredare än sin typ. Två fällor: ett mönster som lägger
+  // beslag på ett ord en **befintlig** åtgärd äger, och ett som gissar där beslut 109 vill
+  // att planeraren får frågan. En okänd benämning ska mötas av *Övrigt rum* och inte av
+  // en gissning som råkar bli rätt – samma skäl som "Gillestuga" står utanför tabellen.
+  const breda = await page.evaluate(() => ({
+    // "Kylaggregat" ägs av A072 Kontroll kylaggregat, vars typ ännu inte finns i katalogen.
+    // Svarade kylrummets aggregat på ordet vore A072 onåbar för alltid.
+    kylaggregat: DP.installationstypFor('Kylaggregat 1'),
+    // En sal utan mer är ingen lektionssal, och en gillestuga ingen rumstyp alls
+    sal: DP.rumstypFor('Sal 1'),
+    aula: DP.rumstypFor('Aula'),
+    gillestuga: DP.rumstypFor('Gillestuga'),
+    // "Torrförråd" är ett förråd: `forrad` står före `kylrum` och tabellens ordning är regeln
+    torrforrad: DP.rumstypFor('Torrförråd')
+  }));
+  kontroll(breda.kylaggregat !== 'kylrumsaggregat',
+    'kylrummets aggregat lägger inte beslag på ordet "Kylaggregat", som en befintlig åtgärd '
+    + 'äger (' + breda.kylaggregat + ')');
+  kontroll(breda.sal === null && breda.aula === null && breda.gillestuga === null,
+    'en benämning tabellen inte känner igen får inget rumstypsförslag – Sal, Aula och '
+    + 'Gillestuga möts av Övrigt rum (' + [breda.sal, breda.aula, breda.gillestuga].join(', ')
+    + ', beslut 80 och 109)');
+  kontroll(breda.torrforrad === 'forrad',
+    'ett torrförråd är ett förråd och inte ett kylrum (' + breda.torrforrad + ')');
+
+  // ---- En byggnad av varje ny typ, hela vägen ur ett litet ark ----
+  // Arken är små med flit: det som prövas är att typen bär sig själv, inte att inläsningen
+  // fungerar (det gör testStegInstallationer).
+  const byggen = {
+    logement: { namn: 'Logement 9', ark: {
+      Plan: [['Plan', 'Benämning'], ['01', 'Entréplan']],
+      Rum: [['Plan', 'Rum', 'Benämning', 'NTA'],
+        ['01', '001', 'Korridor', '40'], ['01', '002', 'Logement 1', '18'],
+        ['01', '003', 'Logement 2', '18'], ['01', '004', 'WC/D 1', '8'],
+        ['01', '005', 'Dagrum', '30']],
+      Installationer: [['Plan', 'Rum', 'Benämning', 'Beteckning', 'Id', 'Installationsdatum'],
+        ['01', '001', 'Brandlarmscentral 1', 'BLC01', '00009101', '2021-03-01'],
+        ['01', '001', 'Handbrandsläckare 1', 'HB01', '00009102', '2021-03-01'],
+        ['01', '005', 'Gruppcentral GC01', 'GC01', '00009103', '2021-03-01']] } },
+    restaurang: { namn: 'Restaurang 9', ark: {
+      Plan: [['Plan', 'Benämning'], ['01', 'Entréplan']],
+      Rum: [['Plan', 'Rum', 'Benämning', 'NTA'],
+        ['01', '001', 'Matsal', '240'], ['01', '002', 'Kök', '90'],
+        ['01', '003', 'Kylrum', '16'], ['01', '004', 'Entré', '20']],
+      Installationer: [['Plan', 'Rum', 'Benämning', 'Beteckning', 'Id', 'Installationsdatum'],
+        ['01', '002', 'Storköksfläkt 1', 'SKF01', '00009201', '2020-06-01'],
+        ['01', '002', 'Fettavskiljare 1', 'FA01', '00009202', '2020-06-01'],
+        ['01', '003', 'Kylrumsaggregat 1', 'KA01', '00009203', '2020-06-01'],
+        ['01', '001', 'Handbrandsläckare 1', 'HB01', '00009204', '2020-06-01'],
+        ['01', '002', 'Huvudcentral HC01', 'HC01', '00009205', '2020-06-01']] } },
+    utbildning: { namn: 'Utbildningshus 9', ark: {
+      Plan: [['Plan', 'Benämning'], ['01', 'Entréplan'], ['02', 'Plan 2']],
+      Rum: [['Plan', 'Rum', 'Benämning', 'NTA'],
+        ['01', '001', 'Korridor', '80'], ['01', '002', 'Lektionssal 1', '60'],
+        ['01', '003', 'Lektionssal 2', '60'], ['02', '001', 'Korridor', '80'],
+        ['02', '002', 'Grupprum 1', '24']],
+      Installationer: [['Plan', 'Rum', 'Benämning', 'Beteckning', 'Id', 'Installationsdatum'],
+        ['01', '001', 'Brandlarmscentral 1', 'BLC01', '00009301', '2022-01-10'],
+        ['01', '001', 'Handbrandsläckare 1', 'HB01', '00009302', '2022-01-10'],
+        ['02', '001', 'Luftbehandlingsaggregat LB01', 'LB01', '00009303', '2022-01-10'],
+        ['01', '001', 'Huvudcentral HC01', 'HC01', '00009304', '2022-01-10']] } },
+    panncentral: { namn: 'Panncentral 9', ark: {
+      Plan: [['Plan', 'Benämning'], ['01', 'Entréplan']],
+      Rum: [['Plan', 'Rum', 'Benämning', 'NTA'],
+        ['01', '001', 'Pannrum', '120'], ['01', '002', 'Entré', '12'],
+        ['01', '003', 'Elrum', '14']],
+      Installationer: [['Plan', 'Rum', 'Benämning', 'Beteckning', 'Id', 'Installationsdatum'],
+        ['01', '001', 'Värmepanna 1', 'P01', '00009401', '2019-08-01'],
+        ['01', '001', 'Värmepanna 2', 'P02', '00009402', '2019-08-01'],
+        ['01', '001', 'Expansionskärl 1', 'EK01', '00009403', '2019-08-01'],
+        ['01', '001', 'Cirkulationspump CP1', 'CP01', '00009404', '2019-08-01'],
+        ['01', '001', 'Skorsten', 'SK01', '00009405', '2019-08-01'],
+        ['01', '003', 'Huvudcentral HC01', 'HC01', '00009406', '2019-08-01'],
+        ['01', '001', 'Handbrandsläckare 1', 'HB01', '00009407', '2020-01-01']] } }
+  };
+
+  for (const typ of Object.keys(byggen)) {
+    const { namn, ark } = byggen[typ];
+    await page.locator('.pl-steg[data-steg="byggnad"]').click();
+    await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet för ' + namn);
+    await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+    await bf.locator('.val[data-typ="' + typ + '"]').click();
+    await bf.locator('input[data-falt="namn"]').fill(namn);
+    const fore = await historiklangd(page);
+    await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+    await stegKlart(page, fore, 'skapa ' + namn);
+
+    await bf.locator('.steg-kort[data-bsteg="4"] .steg-huvud').click();
+    await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="4"].oppen'),
+      'steg 4 öppet för ' + namn);
+    await lasInFil(page, skrivArk('typ-' + typ + '.xlsx', ark));
+
+    const b = await page.evaluate(() => {
+      const bb = DP.Plan.byggnad(), form = DP.Planlosning.form(bb);
+      return {
+        namn: bb.namn, typ: bb.typ,
+        steg: DP.Plan.byggnadsSteg(), status: DP.Plan.byggnadStatus(),
+        rum: bb.rum.length, inst: bb.installationer.filter(i => i.signifikant).length,
+        oavgjort: ['plan', 'rum', 'inst'].reduce((s, f) => {
+          const r = DP.Plan.inlasningStatus(f).raknat;
+          return s + r.forslag + r.oplacerad + r.andrade + r.bort;
+        }, 0),
+        // Modellen ritas ur typens regel: varje rum har en rektangel med en yta, och
+        // två rum får inte ligga på samma plats.
+        rektanglar: form.rum.filter(r => !r.skal).map(r => r.plan + '-' + r.nr + ':'
+          + Math.round((r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]))),
+        overlapp: (() => {
+          const fel = [];
+          form.rum.filter(r => !r.skal).forEach((a, i, lista) => {
+            lista.slice(i + 1).filter(c => c.plan === a.plan && !a.iRum && !c.iRum)
+              .forEach(c => {
+                if (a.rect[0] < c.rect[2] - 0.01 && c.rect[0] < a.rect[2] - 0.01
+                  && a.rect[1] < c.rect[3] - 0.01 && c.rect[1] < a.rect[3] - 0.01) {
+                  fel.push(a.nr + '/' + c.nr);
+                }
+              });
+          });
+          return fel;
+        })(),
+        modellRum: Object.keys(DP.viewer.rumIndex).length
+      };
+    });
+    kontroll(b.steg[1] && b.steg[2] && b.steg[3] && b.steg[4] && b.oavgjort === 0,
+      namn + ': alla fyra stegen i Byggnad blir gröna ur ett litet ark ('
+      + JSON.stringify(b.steg) + ', ' + b.oavgjort + ' oavgjorda rader)');
+    kontroll(b.status === 'Klar för Planering',
+      namn + ': byggnaden står som Klar för Planering (' + b.status + ')');
+    kontroll(b.rektanglar.length === b.rum && b.rektanglar.every(r => !/\:0$/.test(r)),
+      namn + ': varje rum får en rektangel med en yta ur typens planlösning ('
+      + b.rektanglar.join(' ') + ', beslut 78 och 99)');
+    kontroll(b.overlapp.length === 0,
+      namn + ': inga två rum på samma plan ligger över varandra ('
+      + (b.overlapp.join(', ') || 'inga') + ')');
+    kontroll(b.modellRum === b.rum,
+      namn + ': modellen har byggnadens alla rum (' + b.modellRum + ' av ' + b.rum + ')');
+
+    // ---- Snabbstarten ger typens standardplanering, och alla sex stegen blir gröna ----
+    await page.locator('.pl-steg[data-steg="planering"]').click();
+    await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet för ' + namn);
+    const foreStd = await historiklangd(page);
+    await page.locator('#flode .snabbstart button', { hasText: 'Använd standardplanering' })
+      .first().click();
+    await page.locator('.dlg button', { hasText: 'Skapa förslag' }).click();
+    await stegKlart(page, foreStd, 'standardplanering för ' + namn);
+
+    const pl = await page.evaluate(() => {
+      const s = DP.Plan.state();
+      return {
+        steg: DP.Plan.stegStatus(), klar: DP.Plan.byggnadKlar(DP.Plan.aktivId()),
+        ronder: s.ronder.map(r => r.id),
+        rondNamn: s.ronder.map(r => DP.Plan.rondNamn(r.id)),
+        // En rond utan kopplade åtgärder är en tom rad i tidsaxeln
+        tomma: s.ronder.filter(r => !s.kopplingar.some(k => k.rond === r.id)).map(r => r.id),
+        kopplingar: s.kopplingar.length,
+        utanAtgard: DP.Plan.kopplingsStatus().saknas.length,
+        tider: DP.Plan.tidStatus().rader.filter(r => r.godkand).map(r => r.rond + ':' + r.dagsdel)
+      };
+    });
+    kontroll(pl.klar && Object.keys(pl.steg).every(k => pl.steg[k]),
+      namn + ': snabbstarten gör alla sex stegen i Planering gröna ('
+      + JSON.stringify(pl.steg) + ', berättelse 66)');
+    kontroll(pl.utanAtgard === 0 && pl.tomma.length === 0,
+      namn + ': varje installation har en åtgärd och ingen rond är tom ('
+      + pl.kopplingar + ' kopplingar, tomma: ' + (pl.tomma.join(', ') || 'inga') + ')');
+    kontroll(pl.tider.length === pl.ronder.length,
+      namn + ': varje rond har en godkänd planerad tid (' + pl.tider.join(' ') + ')');
+
+    if (typ === 'panncentral') {
+      // Ronden Värme är det enda helt nya i planeringen (beslut 99), och ska bära
+      // panncentralens egna åtgärder – inte vara en tom rad som ser ut att betyda något.
+      kontroll(pl.ronder.indexOf('VA') >= 0 && pl.rondNamn.indexOf('Värme') >= 0,
+        'Panncentralen har ronden Värme i sin standardplanering ('
+        + pl.rondNamn.join(', ') + ', beslut 99)');
+      const varme = await page.evaluate(() => {
+        const s = DP.Plan.state();
+        const kopp = s.kopplingar.filter(k => k.rond === 'VA');
+        return {
+          atgarder: kopp.map(k => DP.atgarder.filter(a => a.id === k.atgard)[0].namn)
+            .filter((v, i, l) => l.indexOf(v) === i),
+          antal: kopp.length,
+          // Tidsaxeln visar ronden med sitt namn, så planeraren ser den
+          iTidsaxeln: Array.from(document.querySelectorAll('#tidsaxel .ta-etikett .ta-namn'))
+            .some(n => n.textContent === 'Värme')
+        };
+      });
+      kontroll(varme.antal >= 3 && varme.atgarder.some(n => /värmepanna/i.test(n)),
+        'ronden Värme bär panncentralens egna åtgärder (' + varme.atgarder.join(', ') + ')');
+      kontroll(varme.iTidsaxeln, 'ronden Värme syns med sitt namn i tidsaxeln');
+      await bild(page, 'byggnad-panncentral');
+    }
+  }
+
+  // ---- De fyra nya byggnaderna räknas med i Balansering som alla andra ----
+  // En ny typ som inte gick att balansera hade varit halvfärdig: Balanseringen läser
+  // `klaraByggnader()` och bryr sig inte om typen, så kontrollen är att den gör det.
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'balansering', 'Balansering öppet');
+  const bal = await page.evaluate(() => {
+    const u = DP.Plan.balanseringsUnderlag();
+    return {
+      byggnader: u.byggnader.map(b => b.namn),
+      nya: u.byggnader.filter(b => /9$/.test(b.namn)).length,
+      ronder: u.byggnader.filter(b => b.namn === 'Panncentral 9')
+        .map(b => b.ronder.map(r => r.id).join('+'))[0]
+    };
+  });
+  kontroll(bal.nya === 4,
+    'alla fyra nya byggnaderna är med i Balanseringens underlag (' + bal.byggnader.join(', ')
+    + ', beslut 39)');
+  kontroll(/VA/.test(bal.ronder || ''),
+    'panncentralens värmerond följer med till Balanseringen (' + bal.ronder + ')');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   try {
@@ -8666,6 +8945,7 @@ async function testUtbyteViaFil(browser) {
     await testUtbyte(browser);
     await testUtbyteViaFil(browser);
     await testUtbyteFlera(browser);
+    await testNyaByggnadstyper(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

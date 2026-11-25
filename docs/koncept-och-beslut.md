@@ -725,6 +725,43 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     regel, rumstyperna och standardplaneringen per typ (se tabellerna i grillningen 2026-11-24, ett första
     utkast att justera) är data, liksom tidsschablonen redan är (beslut 43). Panncentralen får en ny rond,
     **Värme**. I dag justeras tabellerna i datafilerna; ett administrationsgränssnitt är idé 11.
+
+    *Byggt i biljett #46.* De fyra nya typerna – **Mindre logement, Militärrestaurang,
+    Utbildningsbyggnad och Panncentral** – är fyra rader till i `DP.byggnadstyper`, och
+    ingenting mer: steg 1 listar typerna ur tabellen, `DP.Planlosning.regelFor` läser
+    planlösningen ur den, och snabbstarten standardplaneringen. Att de fyra inte krävde en rad
+    kod är beslutets prov, och det är därför testet bygger en byggnad av varje typ hela vägen
+    i stället för att läsa tabellen: en typ vars planlösning inte går att rita, eller vars
+    standardplanering pekar på en rond som inte finns, syns bara när byggnaden byggs.
+
+    Tre val som provet tvingade fram. **Matsal och Lektionssal blev egna rumstyper** och inte
+    fikarum och kontor, trots samma kategori: hallregeln ger det största rummet resten av
+    planet, och en matsal med fikarummets standard-NTA på 36 m² hade blivit ett rum i ledet i
+    stället för militärrestaurangens matsal. Standard-NTA är alltså inte en detalj i tabellen
+    utan det som avgör vad modellen visar. **Panncentralens åtgärder fick ronden Värme men
+    undercentralen behöll sin BI** – undercentralen sitter i varje byggnad som tar emot
+    fjärrvärme, och en byggnad utan värmerond ska inte tappa sin tillsyn när panncentralen får
+    en. Och **ronden Värme fick riktiga åtgärder** (värmepanna, expansionskärl,
+    cirkulationspump) i stället för att stå tom: en tom rond blir en rad i tidsaxeln som ser ut
+    att betyda något, vilket är värre än ingen rond alls.
+
+    Granskningen tvingade fram en fjärde lärdom, och den gäller **mönstertabellerna**: ett nytt
+    mönster får inte vara bredare än sin typ. Två fällor visade sig. Kylrummets aggregat sökte
+    först också på "Kylaggregat", ett ord åtgärden *A072 Kontroll kylaggregat* äger – hade
+    mönstret fått stå kvar vore A072 onåbar för alltid, eftersom ingen benämning längre kunnat
+    peka på dess typ. Och lektionssalen sökte på "Sal" och "Aula", vilket är den bredaste
+    gissningen i hela tabellen: beslut 80 och 109 vill att en okänd benämning möts av *Övrigt
+    rum* och kolumnen Rumstyp, inte av en gissning som råkar bli rätt. Båda togs bort, och
+    testet låser dem: `Kylaggregat`, `Sal`, `Aula` och `Gillestuga` ska alla sakna förslag.
+
+    Samtidigt rättades en mening i steg 1 som nu var mätbart fel: den sa att byggnadstypen
+    avgör *vilka rumstyper som känns igen*. Rumstypen läses ur en tabell som är gemensam för
+    alla typer (beslut 80), så "Matsal" känns igen i ett garage också. Det typen avgör är hur
+    rummen **läggs ut** – korridor eller hall – och det är den skillnaden planeraren ser.
+
+    Kvar står den kända bristen i beslut 79: korridorsregeln ger korridoren remsan mellan
+    rumsraderna, så BRA och BTA uteblir på ett plan där korridorens NTA är större än remsan.
+    Den slår nu också på Mindre logement och Utbildningsbyggnad, och är biljett #48.
 100. **Ta bort byggnad** finns i *Ändra byggnad* och är ett steg i historiken. Planeringen försvinner med
      byggnaden, och har den varit med i en balansering markeras Balansering som ändrad.
 

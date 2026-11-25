@@ -318,6 +318,7 @@
     { id: 'BS', namn: 'Brandskydd' },
     { id: 'VE', namn: 'Ventilation' },
     { id: 'KY', namn: 'Kyla' },
+    { id: 'VA', namn: 'Värme' },
     { id: 'EL', namn: 'El' },
     { id: 'HI', namn: 'Hiss' }
   ];

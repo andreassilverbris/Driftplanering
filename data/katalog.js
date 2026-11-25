@@ -17,6 +17,17 @@
     dorrautomatik:      { namn: 'Dörrautomatik',           kategori: 'byggnad', montage: 'vagg' },
     nodbelysning:       { namn: 'Nödbelysningsarmatur',    kategori: 'brand',   montage: 'vagg' },
     garageport:         { namn: 'Garageport',              kategori: 'byggnad', montage: 'fasad' },
+    // Panncentralen (beslut 72 och 99): byggnaden finns för att producera värme, så dess
+    // installationer är värmeproduktionens egna. De får ronden **Värme** och inte Ventilation:
+    // en panna är inte ett luftbehandlingsaggregat, och den som går ronden är värmetekniker.
+    varmepanna:         { namn: 'Värmepanna',              kategori: 'vvs',     montage: 'golv' },
+    expansionskarl:     { namn: 'Expansionskärl',          kategori: 'vvs',     montage: 'golv' },
+    cirkulationspump:   { namn: 'Cirkulationspump',        kategori: 'vvs',     montage: 'vagg' },
+    skorsten:           { namn: 'Skorsten',                kategori: 'byggnad', montage: 'utsida' },
+    // Militärrestaurangens kök
+    storkoksflakt:      { namn: 'Storköksfläkt',           kategori: 'vvs',     montage: 'tak' },
+    fettavskiljare:     { namn: 'Fettavskiljare',          kategori: 'vvs',     montage: 'golv' },
+    kylrumsaggregat:    { namn: 'Kylrumsaggregat',         kategori: 'vvs',     montage: 'vagg' },
     // Ej signifikanta
     ventilationsgaller: { namn: 'Ventilationsgaller',      kategori: 'ovrig',   montage: 'vagg' }
   };
@@ -35,7 +46,23 @@
     { id: 'A075', namn: 'Kontroll skyddsrum', galler: ['skyddsrumsaggregat'], foreslagenRond: 'BI',
       kontrollpunkter: ['Att aggregatet startar vid provkörning', 'Att filter och tätningar är hela', 'Att gastäta dörrar går att stänga', 'Att utrustningsförteckning finns', 'Att skyddsrummet är fritt från otillåtet förråd'] },
     { id: 'A092', namn: 'Kontroll torkskåp', galler: ['torkskap'], foreslagenRond: 'BI',
-      kontrollpunkter: ['Att värme och fläkt fungerar', 'Att timer fungerar', 'Att luddfilter är rent', 'Att dörren stänger tätt'] }
+      kontrollpunkter: ['Att värme och fläkt fungerar', 'Att timer fungerar', 'Att luddfilter är rent', 'Att dörren stänger tätt'] },
+    // Panncentralens åtgärder hamnar i ronden **Värme** (beslut 99). Undercentralen behåller
+    // sin BI: den sitter i varje byggnad som tar emot fjärrvärme, och en byggnad utan
+    // värmerond ska inte tappa den.
+    { id: 'A100', namn: 'Kontroll värmepanna', galler: ['varmepanna'], foreslagenRond: 'VA',
+      kontrollpunkter: ['Att panntryck och panntemperatur ligger inom driftområdet', 'Att brännaren startar och stannar som den ska', 'Att inga läckage finns vid pannan eller dess ventiler', 'Att larmindikeringar är släckta', 'Att pannrummets tillluft är fri'] },
+    { id: 'A101', namn: 'Kontroll expansionskärl', galler: ['expansionskarl'], foreslagenRond: 'VA',
+      kontrollpunkter: ['Att förtryck och vattennivå är rätt', 'Att säkerhetsventilen inte läcker', 'Att kärlet är fritt från korrosion'] },
+    { id: 'A102', namn: 'Kontroll cirkulationspump', galler: ['cirkulationspump'], foreslagenRond: 'VA',
+      kontrollpunkter: ['Att pumpen går utan missljud', 'Att varvtal och driftläge stämmer med inställningen', 'Att inga läckage finns vid packboxen'] },
+    { id: 'A103', namn: 'Kontroll skorsten', galler: ['skorsten'], foreslagenRond: 'BU',
+      kontrollpunkter: ['Att stag och infästningar är hela', 'Att inga sprickor eller rostskador syns', 'Att sotlucka går att öppna och stänga', 'Att stegar och fallskydd är hela'] },
+    // Militärrestaurangens kök: storköket är det som skiljer byggnaden från ett kontor.
+    { id: 'A110', namn: 'Kontroll storköksfläkt', galler: ['storkoksflakt'], foreslagenRond: 'VE',
+      kontrollpunkter: ['Att fläkten startar och går utan missljud', 'Att fettfilter är rengjorda och hela', 'Att imkanalens rensluckor är åtkomliga', 'Att brandspjäll löser ut vid provning'] },
+    { id: 'A111', namn: 'Kontroll kylrumsaggregat', galler: ['kylrumsaggregat'], foreslagenRond: 'KY',
+      kontrollpunkter: ['Att temperaturen håller inställt värde', 'Att larm vid temperaturavvikelse fungerar', 'Att kondensor är ren', 'Att dörr och tätningslist är hela', 'Att nödöppning inifrån fungerar'] }
   ].forEach(function (a) { DP.atgarder.push(a); });
 
   // ---------------- Områden ----------------
@@ -120,6 +147,95 @@
         ]
       },
       motivering: 'Hög installationstäthet. Egna ronder för brandskydd, ventilation, el och hiss.'
+    },
+    // De fyra typerna i beslut 72. Var och en bär samma fyra saker som de tre ovan –
+    // planlösningens regel, utseendet, måtten och standardplaneringen – och ingenting mer:
+    // en typ är data, så en femte typ kräver ingen ändring i koden (beslut 99).
+    logement: {
+      namn: 'Mindre logement',
+      // Samma korridorsregel som kasernen men smalare och kortare: 10–20 rum på ett eller
+      // två plan (beslut 72). Djupet rymmer ett logement med egen toalett på var sida.
+      planlosning: { regel: 'korridor', djup: 11, korrBredd: 1.8, langd: 24 },
+      stil: { tak: 'sadel', sadel: { bas: 6.4, hojd: 2.4 }, ytterFarg: 0xd6c9ae, takFarg: 0x5d4a3c,
+        fonster: { bredd: 1.1, steg: 3.2, hojd: 1.2, brost: 1.0 } },
+      konstanter: { PLANHOJD: 3.0, BJALKLAG: 0.2, FRIHOJD: 2.8 },
+      standard: {
+        bas: { typ: 'manad', startManad: null },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: { typ: 'kvartal', startManad: null }, utforare: 'anna' },
+          { id: 'BS', freq: 'bas', utforare: 'bertil' },
+          { id: 'EL', freq: { typ: 'halvar', startManad: 4 }, utforare: 'cecilia' }
+        ]
+      },
+      motivering: 'Som en kasern men mindre: få installationer och ingen egen ventilationsrond. ' +
+        'Brandskydd och invändig kontroll varje månad, utvändigt varje kvartal, el varje halvår.'
+    },
+    restaurang: {
+      namn: 'Militärrestaurang',
+      // Matsalen dominerar planet, som hangarens flyghall gör: hallregeln ger den resten av
+      // planet och lägger kök, kyl och personalrum i en rad längs ena långsidan. `langd` är
+      // **skalets** mått: så snart planet har rum räknas längden ur deras NTA, som i garaget
+      // och hangaren. Talet är alltså den tomma byggnaden planeraren ser i steg 2 (beslut 85).
+      planlosning: { regel: 'hall', djup: 20, langd: 36 },
+      stil: { tak: 'platt', ytterFarg: 0xe0d6c3, takFarg: 0x7a7f84,
+        fonster: { bredd: 1.6, steg: 3.0, hojd: 1.8, brost: 0.9 } },
+      konstanter: { PLANHOJD: 3.6, BJALKLAG: 0.2, FRIHOJD: 3.4 },
+      standard: {
+        bas: { typ: 'manad', startManad: null },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: { typ: 'kvartal', startManad: null }, utforare: 'anna' },
+          { id: 'BS', freq: 'bas', utforare: 'bertil' },
+          { id: 'VE', freq: 'bas', utforare: 'cecilia' },
+          { id: 'KY', freq: 'bas', utforare: 'cecilia' },
+          { id: 'EL', freq: { typ: 'halvar', startManad: 3 }, utforare: 'cecilia' }
+        ]
+      },
+      motivering: 'Storkök med livsmedel: ventilation och kyla varje månad, inte varje kvartal. ' +
+        'Ett kylrum som står still en vecka är förstörda livsmedel.'
+    },
+    utbildning: {
+      namn: 'Utbildningsbyggnad',
+      // Lektionssalar på båda sidor av en korridor. Djupare än kasernen – en lektionssal är
+      // större än ett logement – och korridoren bredare, eftersom hela kullar rör sig i den.
+      planlosning: { regel: 'korridor', djup: 16, korrBredd: 2.6, langd: 40 },
+      stil: { tak: 'platt', ytterFarg: 0xcdd3d8, takFarg: 0x82888d,
+        fonster: { bredd: 1.8, steg: 3.4, hojd: 1.6, brost: 1.0 } },
+      konstanter: { PLANHOJD: 3.4, BJALKLAG: 0.2, FRIHOJD: 3.2 },
+      standard: {
+        bas: { typ: 'manad', startManad: null },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: { typ: 'kvartal', startManad: null }, utforare: 'anna' },
+          { id: 'BS', freq: 'bas', utforare: 'bertil' },
+          { id: 'VE', freq: { typ: 'kvartal', startManad: null }, utforare: 'cecilia' },
+          { id: 'EL', freq: { typ: 'halvar', startManad: 2 }, utforare: 'cecilia' }
+        ]
+      },
+      motivering: 'Många människor i lokalerna dagtid. Samma rytm som en kasern: brandskydd och ' +
+        'invändig kontroll varje månad, ventilation och utvändigt varje kvartal, el varje halvår.'
+    },
+    panncentral: {
+      namn: 'Panncentral',
+      // Ett enda stort pannrum med några birum, alltså hallregeln. Liten till ytan men full
+      // av installationer – det är därför den har en egen rond.
+      planlosning: { regel: 'hall', djup: 12, langd: 18 },
+      stil: { tak: 'sadel', sadel: { bas: 4.2, hojd: 1.6 }, ytterFarg: 0xb4aca0, takFarg: 0x4a4c4f,
+        fonster: { bredd: 0.9, steg: 4.5, hojd: 0.7, brost: 2.0 } },
+      konstanter: { PLANHOJD: 4.5, BJALKLAG: 0.2, FRIHOJD: 4.3 },
+      standard: {
+        bas: { typ: 'manad', startManad: null },
+        ronder: [
+          { id: 'BI', freq: 'bas', utforare: 'anna' },
+          { id: 'BU', freq: { typ: 'kvartal', startManad: null }, utforare: 'anna' },
+          { id: 'BS', freq: { typ: 'kvartal', startManad: null }, utforare: 'bertil' },
+          { id: 'VA', freq: 'bas', utforare: 'cecilia' },
+          { id: 'EL', freq: { typ: 'kvartal', startManad: null }, utforare: 'cecilia' }
+        ]
+      },
+      motivering: 'Byggnaden finns för att producera värme, och får därför den egna ronden ' +
+        'Värme varje månad. Inga människor vistas här, så brandskyddet räcker varje kvartal.'
     }
   };
 

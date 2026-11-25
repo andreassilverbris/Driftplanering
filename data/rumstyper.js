@@ -55,12 +55,22 @@
     skyddsrum: { namn: 'Skyddsrum', kategori: 'teknik', nta: 84,
       monster: [/^skyddsrum/i] },
     kok:       { namn: 'Kök', kategori: 'personal', nta: 60,
-      monster: [/^kök/i, /^kok\b/i, /^diskrum/i, /^disk\b/i] },
+      monster: [/^kök/i, /^kok\b/i, /^diskrum/i, /^disk\b/i, /^serveringsrum/i, /^servering/i] },
+    // Matsalen och lektionssalen är **egna** typer och inte fikarum och kontor, trots att de
+    // ligger i samma kategori (beslut 72 och 99). Skälet är standard-NTA: hallregeln ger det
+    // största rummet resten av planet, och en matsal med fikarummets 36 m² hade inte blivit
+    // militärrestaurangens matsal utan ett rum i ledet. Samma sak i en utbildningsbyggnad:
+    // en lektionssal på kontorets 24 m² rymmer inte en kull.
+    matsal:    { namn: 'Matsal', kategori: 'personal', nta: 180,
+      monster: [/^matsal/i, /^spisrum/i, /^mässlokal/i] },
     fikarum:   { namn: 'Fikarum', kategori: 'personal', nta: 36,
-      monster: [/^fika/i, /^pentry/i, /^personalrum/i, /^matsal/i] },
+      monster: [/^fika/i, /^pentry/i, /^personalrum/i] },
+    kylrum:    { namn: 'Kyl- och frysrum', kategori: 'personal', nta: 18,
+      monster: [/^kylrum/i, /^frysrum/i] },
+    lektionssal: { namn: 'Lektionssal', kategori: 'kontor', nta: 60,
+      monster: [/^lektionssal/i, /^lektion/i, /^undervisningssal/i, /^lärosal/i, /^grupprum/i] },
     kontor:    { namn: 'Kontor', kategori: 'kontor', nta: 24,
-      monster: [/^kontor/i, /expedition/i, /^lektionssal/i, /^lektion/i, /^mötesrum/i,
-        /^konferens/i, /^vaktrum/i] },
+      monster: [/^kontor/i, /expedition/i, /^mötesrum/i, /^konferens/i, /^vaktrum/i] },
     // "Gillestuga" står **inte** här med flit: den är exemplet i beslut 109 på en benämning
     // systemet inte känner igen, och den som fyller i den filen ska mötas av förslaget
     // *Övrigt rum* och kolumnen Rumstyp – inte av en gissning som råkar bli rätt.

@@ -44,6 +44,20 @@
     ['skyddsrumsaggregat',      [/^skyddsrumsaggregat/i, /^skyddsrumsagg/i]],
     ['luftbehandlingsaggregat', [/^luftbehandlingsaggregat/i, /^luftbehandling/i, /^lb(\s|\d|$)/i, /^ftx/i, /^ventilationsaggregat/i]],
     ['flaktluftvarmare',        [/^fläktluftvärmare/i, /^flaktluftvarmare/i, /^fläktluftv/i, /^aerotemper/i]],
+    // Panncentralens typer. "Värmepanna" står före undercentralen eftersom båda börjar på
+    // "värme", och "Expansionskärl" före "Tryckkärl" eftersom båda slutar på "kärl" – det är
+    // samma ordningsregel som brandlarmscentralen före huvudcentralen.
+    ['varmepanna',              [/^värmepanna/i, /^varmepanna/i, /^panna(\s|\d|$)/i, /^pelletspanna/i, /^oljepanna/i, /^elpanna/i]],
+    ['expansionskarl',          [/^expansionskärl/i, /^expansionskarl/i, /^exp\.?kärl/i]],
+    ['cirkulationspump',        [/^cirkulationspump/i, /^cirk\.?pump/i, /^cp(\s|\d|$)/i]],
+    ['skorsten',                [/^skorsten/i, /^rökkanal/i, /^rokkanal/i]],
+    // Militärrestaurangens kök
+    ['storkoksflakt',           [/^storköksfläkt/i, /^storkoksflakt/i, /^imkanalsfläkt/i, /^kökskåpa/i, /^imkåpa/i]],
+    ['fettavskiljare',          [/^fettavskiljare/i, /^fettavskilj/i]],
+    // Inte /^kylaggregat/: ordet ägs av A072 Kontroll kylaggregat, vars typ `kylaggregat`
+    // ännu inte finns i katalogen. Att låta kylrummets aggregat svara på det hade gjort
+    // A072 onåbar för alltid – en åtgärd ingen benämning längre kan nå.
+    ['kylrumsaggregat',         [/^kylrumsaggregat/i, /^kylrumsagg/i, /^kylmaskin/i]],
     ['undercentral',            [/^undercentral/i, /^fjärrvärmecentral/i, /^värmeväxlare/i]],
     ['varmvattenberedare',      [/^varmvattenberedare/i, /^vvb(\s|\d|$)/i, /^beredare/i]],
     ['jordfelsbrytare',         [/^jordfelsbrytare/i, /^jfb(\s|\d|$)/i, /^jordfelsbr/i]],

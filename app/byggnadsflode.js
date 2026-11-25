@@ -275,9 +275,13 @@
 
   function nyByggnadsformular(kropp) {
     kropp.appendChild(el('p', 'forklar',
-      'Byggnadstypen är mallen: den avgör hur modellen ritas, vilka rumstyper som känns igen ' +
-      'och vilken standardplanering Planering föreslår. <b>Typen går inte att ändra efteråt</b> – ' +
-      'blir det fel skapar du en ny byggnad och läser in samma fil.'));
+      // Inte "vilka rumstyper som känns igen": rumstypen läses ur benämningen ur en tabell
+      // som är gemensam för alla typer (beslut 80), så "Matsal" känns igen i ett garage
+      // också. Det typen avgör är hur rummen **läggs ut** – korridor eller hall – och det
+      // är den skillnaden planeraren ser i modellen.
+      'Byggnadstypen är mallen: den avgör hur rummen läggs ut i modellen, hur byggnaden ser ' +
+      'ut och vilken standardplanering Planering föreslår. <b>Typen går inte att ändra ' +
+      'efteråt</b> – blir det fel skapar du en ny byggnad och läser in samma fil.'));
 
     kropp.appendChild(el('div', 'liten-rubrik', 'Byggnadstyp'));
     var typval = el('div', 'frekvensval');
