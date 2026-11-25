@@ -208,14 +208,31 @@
       .sort(function (a, b) { return a - b; });
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
+  // Nycklarna i två kartor, utan dubbletter och i den första kartans ordning först. Används när
+  // något jämförs före och efter ett steg som kan ha *lagt till* eller *tagit bort* en byggnad:
+  // då finns byggnaden bara på en av sidorna, och en loop över bara den ena hade missat den.
+  function allaIdn(a, b) {
+    var ut = Object.keys(a || {});
+    Object.keys(b || {}).forEach(function (id) { if (ut.indexOf(id) < 0) { ut.push(id); } });
+    return ut;
+  }
 
   // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
   // planering och vilken byggnad steget gällde. Ångra växlar till den byggnaden.
-  var BYGGNADSORDNING = ['garage', 'kasern1', 'kasern2', 'hangar'].filter(function (id) { return DP.byggnader[id]; });
-  var aktiv = BYGGNADSORDNING[0];
+  //
+  // **Vilka byggnader som finns är också en del av tillståndet** (beslut 73): planeraren kan
+  // skapa en ny byggnad, och ångrar hon förbi det steget ska byggnaden försvinna. Därför bär
+  // varje historiksteg sin egen `ordning` – listan över byggnads-id i den ordning de visas –
+  // och `byggnadsordning()` svarar ur det aktuella steget. Listan nedan är bara *startens*
+  // ordning, på samma sätt som `DP.byggnader` bara är starttillståndet.
+  var STARTORDNING = ['garage', 'kasern1', 'kasern2', 'hangar'].filter(function (id) { return DP.byggnader[id]; });
+  var aktiv = STARTORDNING[0];
+  // Byggnaderna i det aktuella historiksteget. Varje läsare som går igenom alla byggnader går
+  // den här vägen, så att en byggnad som ångrats bort inte längre räknas med någonstans.
+  function ordning() { return historik[pos].ordning; }
   function allaTomma() {
     var a = {};
-    BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
+    STARTORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
     return a;
   }
   // Byggnaden själv – namn, typ, område, färg, plan, rum och installationer – är **data i
@@ -227,10 +244,11 @@
   // databas senare kopplas in: då byts starttillståndet, inte läsarna.
   function startByggnader() {
     var a = {};
-    BYGGNADSORDNING.forEach(function (id) { a[id] = klona(DP.byggnader[id]); });
+    STARTORDNING.forEach(function (id) { a[id] = klona(DP.byggnader[id]); });
     return a;
   }
-  var historik = [{ alla: allaTomma(), byggnader: startByggnader(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
+  var historik = [{ alla: allaTomma(), byggnader: startByggnader(), ordning: STARTORDNING.slice(),
+    gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
   var pos = 0;
   var lyssnare = [], byteLyssnare = [];
 
@@ -256,7 +274,8 @@
     bokforBortstadade(gem, aktiv, bort);
     var namn = (byggnader[aktiv] || {}).namn || aktiv;
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().slice(), gemensamt: gem,
+      text: namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
     meddela(fore, ny, utokaInfo(info, [aktiv], allaFore, byggnaderFore));
   }
@@ -298,7 +317,8 @@
     var rordaIds = Object.keys(rorda);
     rordaIds.forEach(function (id) { if (alla[id]) { bokforBortstadade(gem, id, stada(alla[id])); } });
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().slice(), gemensamt: gem,
+      text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
     meddela(fore, state(), utokaInfo(info, rordaIds, allaFore, byggnaderFore));
   }
@@ -329,10 +349,158 @@
     if (fn(byggnader[id]) === false) { return; }
     var gem = klona(historik[pos].gemensamt);
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem,
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().slice(), gemensamt: gem,
       text: byggnadsNamn(id) + ': ' + text, byggnad: id, rorda: [id] });
     pos = historik.length - 1;
     meddela(fore, state(), utokaInfo(info, [id], allaFore, byggnaderFore));
+  }
+
+  // ------------------------------------------------------------------
+  // Skapa en ny byggnad (beslut 69, 103 och 104)
+  // ------------------------------------------------------------------
+  // Byggnadens färger plockas ur en lista i stället för att väljas av planeraren: färgen är
+  // brickornas färg i Balanseringens tidsaxel (beslut 47) och säger inget om byggnaden, så
+  // det finns inget att ta ställning till. Systemet tar den första som ingen annan byggnad
+  // har; är listan slut vandrar den runt nyansvarvet i stället för att två byggnader får
+  // samma färg.
+  // Listan börjar där de fyra typbyggnaderna slutar (orange, blått, lila, grönt), så att den
+  // femte byggnaden får en färg som går att skilja från dem på en bricka i tidsaxeln – inte
+  // bara en annan hex-kod.
+  var BYGGNADSFARGER = ['#b03a3a', '#2f9fa8', '#9f2f7f', '#7a6a2f', '#4f5f8f', '#3f9f3f',
+    '#c87a1f', '#5f3fa8', '#2f6f4f', '#a8482f'];
+  function ledigFarg() {
+    var tagna = {};
+    ordning().forEach(function (bid) { tagna[(B(bid) || {}).farg] = true; });
+    var fri = BYGGNADSFARGER.filter(function (f) { return !tagna[f]; })[0];
+    if (fri) { return fri; }
+    // Listan är slut: gå runt färgvarvet i steg som inte går jämnt upp, och **pröva varje
+    // nyans mot de tagna**. Att räkna ut nyansen ur antalet byggnader hade räckt till ett
+    // vanligt fall men inte till löftet: skapar planeraren den femtonde byggnaden, ångrar
+    // bort den och skapar en ny är antalet detsamma och färgen hade kommit igen.
+    for (var i = 0; i < 360; i++) {
+      var f = 'hsl(' + ((i * 47) % 360) + ', 55%, 45%)';
+      if (!tagna[f]) { return f; }
+    }
+    return BYGGNADSFARGER[0];
+  }
+  // Namnet är unikt (beslut 103): rutintillfällen heter Byggnad-Rond-ÅÅÅÅvVV, så två byggnader
+  // med samma namn hade gett tillfällen med samma namn. Jämförelsen är på trimmad text utan
+  // skillnad på stora och små bokstäver – "Kasern 1" och "kasern 1" är samma namn för den som
+  // läser en lista. `utom` är byggnaden som får behålla sitt eget namn vid ett namnbyte.
+  function namnTaget(namn, utom) {
+    var n = String(namn || '').trim().toLowerCase();
+    if (!n) { return false; }
+    return ordning().some(function (bid) {
+      return bid !== utom && String(byggnadsNamn(bid)).trim().toLowerCase() === n;
+    });
+  }
+  // Varför namnet inte går att använda, i klartext – eller tomt när det går. Texten formuleras
+  // här och inte i vyn, av samma skäl som balanseringens förklaring (beslut 61): regeln bor
+  // hos den som kan den, och besvärligheten går att läsa i ett test utan DOM.
+  function namnHinder(namn, utom) {
+    var n = String(namn || '').trim();
+    if (!n) { return 'Byggnaden behöver ett namn.'; }
+    if (namnTaget(n, utom)) {
+      return 'Det finns redan en byggnad som heter ' + n + '. Namnet måste vara unikt, eftersom ' +
+        'rutintillfällena namnges efter byggnaden.';
+    }
+    return '';
+  }
+  // Id:t är inte namnet (beslut 103 lämnar ett byggnads-id till senare), men byggnaden behöver
+  // en nyckel som står still när namnet byts. Den räknas fram som ett löpnummer, och hoppar
+  // över det som redan finns – också det som tagits bort av ett ångra och kan komma tillbaka
+  // med ett gör om.
+  function nyttByggnadsId() {
+    var tagna = {};
+    historik.forEach(function (h) {
+      Object.keys(h.byggnader).forEach(function (id) { tagna[id] = true; });
+    });
+    for (var n = 1; ; n++) {
+      if (!tagna['byggnad' + n]) { return 'byggnad' + n; }
+    }
+  }
+  // Skapa byggnaden som ett steg i historiken (beslut 73): ångrar planeraren förbi steget
+  // försvinner byggnaden, eftersom listan över byggnader ligger i steget och inte i en
+  // modulvariabel. Byggnaden är tom – inga plan, rum eller installationer – och fylls i de
+  // följande stegen i byggnadsflödet.
+  //
+  // Svaret är byggnadens id, eller null när namnet inte går att använda. Vyn frågar
+  // `namnHinder()` först och visar beskedet direkt medan planeraren skriver (beslut 103);
+  // kontrollen här är den som gäller, så att ingen väg förbi vyn kan ge två lika namn.
+  function skapaByggnad(uppgifter) {
+    var u = uppgifter || {};
+    var namn = String(u.namn || '').trim();
+    if (namnHinder(namn)) { return null; }
+    if (!DP.byggnadstyper[u.typ]) { return null; }
+    var id = nyttByggnadsId();
+    var fore = state();
+    var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
+    var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
+    alla[id] = tomtTillstand();
+    byggnader[id] = nyByggnad(id, namn, u.typ, u.omrade, ledigFarg());
+    historik = historik.slice(0, pos + 1);
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().concat([id]),
+      gemensamt: klona(historik[pos].gemensamt),
+      text: 'Skapa byggnad ' + namn + ' (' + DP.byggnadstyper[u.typ].namn.toLowerCase() + ')',
+      byggnad: id, rorda: [id] });
+    pos = historik.length - 1;
+    // Byggnaden som just skapats blir den aktiva: det är den planeraren arbetar med nu, och
+    // flödets följande steg gäller den. Bytet går samma väg som planerarens eget byte, så
+    // modellen, trädet och väljaren ritas om av sina egna lyssnare.
+    vaxlaByggnad(id);
+    meddela(fore, state(), utokaInfo(u.info, [id], allaFore, byggnaderFore));
+    return id;
+  }
+  // En tom byggnad: allt som vyerna läser finns, men är tomt. Måtten och stilen kommer ur
+  // byggnadstypen, så att skalet och taket ser ut som typen även innan något är inläst.
+  function nyByggnad(id, namn, typ, omrade, farg) {
+    var t = DP.byggnadstyper[typ] || {};
+    var hojd = (t.konstanter && t.konstanter.PLANHOJD) || 3.5;
+    return {
+      id: id,
+      namn: namn,
+      typ: typ,
+      omrade: omrade || (DP.omraden[0] || {}).id,
+      farg: farg,
+      beskrivning: '',
+      stil: klona(t.stil || { tak: 'platt' }),
+      konstanter: klona(t.konstanter || { PLANHOJD: hojd, BJALKLAG: 0.2, FRIHOJD: hojd - 0.2 }),
+      plan: [],
+      rum: [],
+      installationer: []
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Byggnadsflödets fyra steg (beslut 69 och 107)
+  // ------------------------------------------------------------------
+  // Samma form som Planeringens `stegStatus`: reglerna bor i planeringen, så att steglistan,
+  // byggnadslistan och processlinjen alltid är eniga om vad som är klart – och så att de går
+  // att läsa i ett test utan DOM.
+  //
+  // Steg 1 är klart när byggnaden har namn, typ och område. De tre följande – Plan, Rum och
+  // Installationer – byggs i senare biljetter och är klara när det de handlar om finns.
+  function byggnadsSteg(bid) {
+    var b = B(bid);
+    if (!b) { return { 1: false, 2: false, 3: false, 4: false }; }
+    return {
+      1: !!(b.namn && b.typ && b.omrade),
+      2: b.plan.length > 0,
+      3: b.rum.length > 0,
+      4: b.installationer.some(function (i) { return i.signifikant; })
+    };
+  }
+  // Byggnadens läge i byggnadslistan, i klartext (berättelse 7). Statusen är *var arbetet
+  // står*, inte en bock: en byggnad som inte har någon plan väntar på uppgifterna, och en som
+  // har allt är klar att planera.
+  function byggnadStatus(bid) {
+    var k = byggnadsSteg(bid);
+    if (!k[1]) { return 'Ny byggnad'; }
+    if (!k[2]) { return 'Väntar på inläsningsfil'; }
+    if (!k[3] || !k[4]) { return 'Inläsning pågår'; }
+    return 'Klar för Planering';
   }
 
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
@@ -360,7 +528,9 @@
     // frekvens rör inte ett rum. Jämförelsen görs här och inte hos den som ändrar, av samma skäl
     // som `flyttade`: då gäller den även ångra och gör om, som går samma väg genom `ga()`.
     if (byggnaderFore) {
-      ut.byggnadsdata = BYGGNADSORDNING.filter(function (bid) {
+      // Både före och efter, så att en byggnad som just skapats eller ångrats bort räknas
+      // som ändrad: den finns på bara en av sidorna, och vyerna behöver veta det.
+      ut.byggnadsdata = allaIdn(byggnaderFore, historik[pos].byggnader).filter(function (bid) {
         return !lika(byggnaderFore[bid], historik[pos].byggnader[bid]);
       });
     } else {
@@ -378,13 +548,28 @@
     if (till < 0 || till >= historik.length || till === pos) { return; }
     // Vilken byggnad gäller steget? Byt dit först så att man ser vad som ändras.
     var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
-    if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
+    // Byggnaden steget gäller kan vara en som inte finns *i det här* steget: gör planeraren om
+    // ett *Skapa byggnad* finns den bara i steget hon går till. Bytet görs därför efter
+    // flytten nedan, när byggnaden finns, och här bara när den redan gör det.
+    var bytTill = bid && bid !== aktiv && historik[till].byggnader[bid] ? bid : null;
+    if (bytTill && historik[pos].byggnader[bid]) { vaxlaByggnad(bid); bytTill = null; }
     var fore = state();
     var allaFore = historik[pos].alla;
     var byggnaderFore = historik[pos].byggnader;
     var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore, byggnaderFore));
+    // Ångrar planeraren förbi *Skapa byggnad* finns byggnaden inte längre i steget, och den
+    // kan då inte vara aktiv (beslut 73). Byt till den sista som finns – den som skapades före
+    // eller fanns från början – i stället för att lämna vyerna pekande på ingenting.
+    if (!historik[pos].byggnader[aktiv]) {
+      var kvar = ordning();
+      bytTill = kvar[kvar.length - 1];
+    }
+    if (bytTill && bytTill !== aktiv) {
+      aktiv = bytTill;
+      byteLyssnare.forEach(function (fn) { fn(aktiv); });
+    }
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || ordning()).slice(), allaFore, byggnaderFore));
   }
   function vaxlaByggnad(id) {
     if (!historik[pos].byggnader[id] || id === aktiv) { return; }
@@ -410,7 +595,7 @@
   function inst(id) {
     if (indexeratFor !== historik[pos].byggnader) {
       instIndex = {};
-      BYGGNADSORDNING.forEach(function (bid) {
+      ordning().forEach(function (bid) {
         var b = historik[pos].byggnader[bid];
         if (!b) { return; }
         b.installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
@@ -876,7 +1061,7 @@
   }
   // `las(bid)` är vägen till en byggnads planering, och får utelämnas som ovan.
   function klaraByggnader(las) {
-    return BYGGNADSORDNING.filter(function (bid) { return byggnadKlar(bid, las && las(bid)); });
+    return ordning().filter(function (bid) { return byggnadKlar(bid, las && las(bid)); });
   }
 
   // Underlaget till DP.Balansering: de klara byggnadernas rondserier med utförare, planerad
@@ -1216,7 +1401,7 @@
   // och listan ska krympa med dem (beslut 45).
   function foreslagnaStrykningar() {
     var ut = [];
-    BYGGNADSORDNING.forEach(function (bid) {
+    ordning().forEach(function (bid) {
       var s = stateFor(bid);
       tillfallenMedStrukna(s, bid).forEach(function (t) {
         if (t.foreslagen) {
@@ -1507,7 +1692,9 @@
     // Byggnader som slutat vara klara räknas inte längre med i balanseringen, och den
     // byggnadens förskjutning säger inget om belastningen – det är den tyngsta ändringen av
     // alla, så den redovisas som en egen rad och ronderna i den räknas inte upp en gång till.
-    BYGGNADSORDNING.forEach(function (bid) {
+    // Byggnaderna i sammandraget *och* de som finns nu: en byggnad som skapats efter
+    // balanseringen finns bara i nuläget, och en som ångrats bort bara i sammandraget.
+    allaIdn(fore.byggnader, nu.byggnader).forEach(function (bid) {
       var f = fore.byggnader[bid], n = nu.byggnader[bid];
       if (f && !n) {
         lagg(bid, 'ej-klar', byggnadsNamn(bid) + ' är inte längre klar i alla sex stegen och räknas inte med');
@@ -1642,7 +1829,14 @@
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
     state: state, stateFor: stateFor, andra: andra, klona: klona,
     byggnad: B, andraByggnad: andraByggnad, aktivFickNyData: aktivFickNyData,
-    aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
+    aktivId: function () { return aktiv; },
+    // Vilka byggnader som finns ligger i historiken (beslut 73), så listan läses ur det
+    // aktuella steget varje gång. En kopia, så att ingen läsare kan ändra ordningen förbi
+    // historiken. Egenskapen och inte en funktion, eftersom alla läsare redan har formen
+    // `byggnadsordning.forEach(…)` – och den formen ska fortsätta att svara sant.
+    get byggnadsordning() { return ordning().slice(); },
+    skapaByggnad: skapaByggnad, namnTaget: namnTaget, namnHinder: namnHinder,
+    byggnadsSteg: byggnadsSteg, byggnadStatus: byggnadStatus,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },

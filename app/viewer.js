@@ -75,6 +75,11 @@
       M.x1 = Math.max(M.x1, r.rect[2]); M.z1 = Math.max(M.z1, r.rect[3]);
       if (!r.iRum) { M.topp = Math.max(M.topp, self.planIndex[r.plan].elev + self._rumHojd(r)); }
     });
+    // En byggnad utan rum – en nyskapad byggnad, innan plan och rum lästs in (beslut 69) –
+    // har inga mått att räkna fram. Måtten sätts då till en liten ruta kring origo, så att
+    // kameran, rutnätet och marken har något att utgå från och vyn visar en tom tomt i stället
+    // för att räkna med Infinity och ge en svart ruta.
+    if (!this.b.rum.length) { M.x0 = 0; M.z0 = 0; M.x1 = 12; M.z1 = 12; M.topp = 0; }
     // Ytterväggarna är de som ligger på byggnadens yttre gränser (vindsrum med indrag räknas inte)
     this.M = M;
     this.stil = this.b.stil || {};
@@ -192,10 +197,13 @@
     // Väggar per plan
     this.b.plan.forEach(function (p) { self._byggVaggar(p); });
 
-    // Tak: platt eller sadeltak
+    // Tak: platt eller sadeltak. En byggnad utan rum har inget tak att rita – måtten är då
+    // bara en tom tomt, och ett tak över ingenting hade sett ut som ett fel.
     this.takGrupp = new T.Group();
     var M = this.M, takFarg = this.stil.takFarg || 0x8d969e;
-    if (this.stil.tak === 'sadel') {
+    if (!this.b.rum.length) {
+      // inget tak – gruppen läggs till tom nedan, så att synlighetslagret har något att peka på
+    } else if (this.stil.tak === 'sadel') {
       var s = this.stil.sadel, ut = 0.35;
       var form = new T.Shape();
       form.moveTo(-(M.z0 - ut), 0);
@@ -214,9 +222,12 @@
     }
     this.root.add(this.takGrupp);
 
-    // Dekor (fordon, markeringar) – inte installationer
-    if (this.stil.dekor === 'hangar') { this._byggHangarDekor(); }
-    if (this.stil.dekor === 'garage') { this._byggGarageDekor(); }
+    // Dekor (fordon, markeringar) – inte installationer. Dekoren står på golvet i ett plan,
+    // så den kräver att det finns ett.
+    if (this.b.plan.length) {
+      if (this.stil.dekor === 'hangar') { this._byggHangarDekor(); }
+      if (this.stil.dekor === 'garage') { this._byggGarageDekor(); }
+    }
 
     // Installationer
     this.b.installationer.forEach(function (inst) { self._byggInstallation(inst); });
@@ -665,9 +676,10 @@
       g.inner.visible = self.lager.innerVaggar;
       g.etiketter.visible = self.lager.etiketter && self.lage === 'oversikt';
     });
-    // Taket visas bara om översta planet visas
+    // Taket visas bara om översta planet visas. En byggnad utan plan har inget översta plan
+    // och inget tak (se _byggScen), så gruppen är tom och synligheten spelar ingen roll.
     var plan = this.b.plan;
-    this.takGrupp.visible = this.lager.tak && this.planSynligt[plan[plan.length - 1].id] !== false;
+    this.takGrupp.visible = this.lager.tak && (!plan.length || this.planSynligt[plan[plan.length - 1].id] !== false);
     // Marken döljs när man tittar ner i källaren (inget plan ovan mark visas)
     var kallareSynlig = plan.some(function (p) { return p.elev < 0 && self.planSynligt[p.id]; });
     var ovanMarkSynlig = plan.some(function (p) { return p.elev >= 0 && self.planSynligt[p.id]; });

@@ -529,3 +529,33 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bt-fsk.tom { background: none; }
 .bt-fsk.rond { background: #dfeaf7; box-shadow: inset 0 0 0 1px #9dbce0; }
 .bal-fsk { font-size: 10px; color: #2d5580; line-height: 1.4; }
+
+/* ---------- Byggnadsflödet: huvudsteget Byggnad som vägledd process (beslut 69 och 107) ----------
+   Steglistan återanvänder .steg-kort från Planering med flit: formen är inlärd, och
+   enhetligheten är viktigare än vilken form som är bäst (beslut 107). Här ligger bara det
+   som är byggnadsflödets eget – byggnadslistan och steg 1:s formulär. */
+.bf-lista { margin-bottom: 10px; }
+.bf-listhuvud { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.bf-listhuvud .liten-rubrik { margin: 0; }
+.bf-byggnad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 4px; cursor: pointer; }
+.bf-byggnad:hover { border-color: #b8cff8; }
+.bf-byggnad.aktiv { border-color: var(--accent); background: var(--accent-svag); }
+.bf-btext { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.bf-bnamn { font-weight: 600; font-size: 13px; }
+.bf-bstatus { font-size: 11px; color: var(--dov); }
+.bf-falt { width: 100%; border: 1px solid var(--linje); border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: var(--text); }
+.bf-falt:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31,111,235,.12); }
+/* Beskedet om att namnet redan finns. Rött och intill fältet, inte en dialog: planeraren ska
+   kunna rätta namnet där hon står (beslut 103). */
+.bf-fel { margin-top: 6px; background: #fdecea; border: 1px solid #f5c2bd; border-radius: 6px; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: #8c2018; }
+.bf-notis { margin-top: 10px; font-size: 12px; color: var(--dov); line-height: 1.5; }
+.bf-faltrutnat { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.bf-faltrutnat .falt .varde { margin-top: 2px; font-size: 14px; }
+/* Färgrutan står ensam i ett fält och inte i en flexrad, så den behöver egen storlek */
+.bf-faltrutnat .bal-farg { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+/* Byggnaden utan plan: beskedet står mitt i vyn där modellen hade legat. */
+.tom-byggnad { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); max-width: 460px; text-align: center; background: rgba(255,255,255,.92); border: 1px solid var(--linje); border-radius: 12px; padding: 18px 22px; box-shadow: 0 4px 18px rgba(20,30,45,.08); }
+.tb-rubrik { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+.tb-text { font-size: 13px; color: var(--dov); line-height: 1.55; }
+.bf-byggnad.bf-ny { border-style: dashed; }
+.bf-byggnad.bf-ny .bal-farg { background: var(--svag); opacity: .4; }

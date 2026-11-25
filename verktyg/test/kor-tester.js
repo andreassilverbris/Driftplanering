@@ -3391,6 +3391,175 @@ async function testByggnadenSomData(browser) {
   await page.close();
 }
 
+// Skapa ny byggnad: byggnadsflödet och steg 1 (biljett #34, beslut 69, 103 och 104).
+//
+// Det som prövas är planerarens väg genom steget och vad som blir kvar i tillståndet: att
+// byggnaden faktiskt kommer till, att den syns med sin status, att namnet inte kan krocka med
+// ett som finns, att typen står låst efteråt – och att **ångra tar bort byggnaden** (beslut 73).
+// Det sista är det som skiljer en byggnad i tillståndet från en i en modulvariabel: ett ångra
+// som lämnade kvar en halv byggnad hade gjort historiken osann.
+async function testSkapaNyByggnad(browser) {
+  console.log('Skapa ny byggnad: byggnadsflödet och steg 1 (beslut 69, 103 och 104)');
+  const page = await nySida(browser, URL_INDEX);
+  await page.locator('.pl-steg[data-steg="byggnad"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'byggnad', 'Byggnad öppet');
+
+  const bf = page.locator('#byggnadsflode');
+  // Steglistan har samma form som Planeringens (beslut 107): fyra steg i en lodrät lista.
+  const steg = await bf.locator('.steg-kort').count();
+  kontroll(steg === 4, 'byggnadsflödet har fyra steg i en lodrät lista (' + steg + ')');
+  const titlar = await bf.locator('.steg-titel').allInnerTexts();
+  kontroll(titlar.join(' → ') === 'Byggnadstyp och namn → Plan → Rum → Installationer',
+    'stegen är Byggnadstyp och namn → Plan → Rum → Installationer (' + titlar.join(', ') + ')');
+  // De fyra typbyggnaderna står i listan med sin status (berättelse 7)
+  kontroll(await bf.locator('.bf-byggnad').count() === 4,
+    'byggnadslistan visar de fyra byggnader som finns');
+  kontroll((await bf.locator('.bf-byggnad[data-byggnad="garage"]').innerText()).includes('Klar för Planering'),
+    'en färdig byggnad har statusen "Klar för Planering"');
+
+  // ---- Namnet är unikt (beslut 103) ----
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('.val[data-typ="kasern"]').click();
+  await bf.locator('input[data-falt="namn"]').fill('Kasern 1');
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-fel'), 'beskedet om namnet');
+  kontroll((await bf.locator('.bf-fel').innerText()).includes('redan en byggnad som heter Kasern 1'),
+    'ett namn som redan finns stoppas med ett besked i steg 1');
+  kontroll(await bf.locator('button', { hasText: 'Skapa byggnad' }).isDisabled(),
+    'knappen Skapa byggnad är avstängd så länge namnet är upptaget');
+  // Regeln bor i planeringen och inte i vyn, så att den går att läsa utan DOM (beslut 61).
+  // Skillnad på stora och små bokstäver gör inte namnet till ett annat för den som läser en lista.
+  kontroll(await page.evaluate(() => DP.Plan.namnTaget('kasern 1')),
+    'namnet är upptaget även med annan versalisering');
+  kontroll(await page.evaluate(() => !DP.Plan.namnTaget('Kasern 3')), 'ett ledigt namn är ledigt');
+
+  // ---- Skapa byggnaden ----
+  const fore = await historiklangd(page);
+  await bf.locator('input[data-falt="namn"]').fill('Kasern 3');
+  await bf.locator('.val[data-omrade="flygfaltet"]').click();
+  await bf.locator('button', { hasText: 'Skapa byggnad' }).click();
+  await stegKlart(page, fore, 'skapa byggnad');
+
+  const ny = await page.evaluate(() => {
+    const id = DP.Plan.aktivId(), b = DP.Plan.byggnad();
+    return {
+      id, namn: b.namn, typ: b.typ, omrade: b.omrade, farg: b.farg,
+      ordning: DP.Plan.byggnadsordning,
+      status: DP.Plan.byggnadStatus(),
+      steg: DP.Plan.byggnadsSteg(),
+      // Färgen ska vara en som ingen annan byggnad har (berättelse 12)
+      andraFarger: DP.Plan.byggnadsordning.filter(x => x !== id).map(x => DP.Plan.byggnad(x).farg),
+      text: DP.Plan.historik().lista.slice(-1)[0]
+    };
+  });
+  kontroll(ny.namn === 'Kasern 3' && ny.typ === 'kasern' && ny.omrade === 'flygfaltet',
+    'byggnaden fick valt namn, typ och område (' + ny.namn + ', ' + ny.typ + ', ' + ny.omrade + ')');
+  kontroll(ny.ordning.length === 5 && ny.ordning[4] === ny.id,
+    'byggnaden finns i byggnadsordningen (' + ny.ordning.join(', ') + ')');
+  kontroll(ny.andraFarger.indexOf(ny.farg) < 0,
+    'byggnaden fick en egen färg som ingen annan har (' + ny.farg + ' mot ' + ny.andraFarger.join(', ') + ')');
+  kontroll(ny.status === 'Väntar på inläsningsfil',
+    'byggnadslistan visar statusen "Väntar på inläsningsfil" (' + ny.status + ')');
+  kontroll(ny.steg[1] === true && ny.steg[2] === false,
+    'steg 1 är klart och steg 2 Plan är det inte');
+  kontroll(ny.text === 'Skapa byggnad Kasern 3 (kasern)',
+    'skapandet är ett steg i historiken med text i klartext ("' + ny.text + '")');
+  kontroll((await bf.locator('.bf-byggnad[data-byggnad="' + ny.id + '"]').innerText()).includes('Kasern 3'),
+    'den nya byggnaden syns i byggnadslistan');
+  // Steg 1 fälls ihop med grön bock när det är klart (samma form som Planering)
+  kontroll(await bf.locator('.steg-kort[data-bsteg="1"].klar').count() === 1,
+    'steg 1 har grön bock');
+  kontroll(await bf.locator('.steg-kort[data-bsteg="1"] .steg-kropp').count() === 0,
+    'steg 1 är hopfällt när det är klart');
+
+  // ---- En byggnad utan plan går att visa utan fel ----
+  const tom = await page.evaluate(() => ({
+    plan: DP.Plan.byggnad().plan.length,
+    rum: DP.Plan.byggnad().rum.length,
+    modellRum: Object.keys(DP.viewer.rumIndex).length,
+    besked: !document.getElementById('tom-byggnad').hidden
+  }));
+  kontroll(tom.plan === 0 && tom.rum === 0 && tom.modellRum === 0,
+    'den nya byggnaden är tom och modellen är ombyggd på den');
+  kontroll(tom.besked, 'vyn säger att byggnaden inte har några plan ännu, i stället för en tom ruta');
+  await bild(page, 'byggnad-steg1-skapad');
+
+  // ---- Typen är låst när byggnaden skapats (beslut 104) ----
+  await bf.locator('.steg-kort[data-bsteg="1"] .steg-huvud').click();
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .steg-kort[data-bsteg="1"] .steg-kropp'),
+    'steg 1 öppet igen');
+  const kropp1 = await bf.locator('.steg-kort[data-bsteg="1"] .steg-kropp').innerText();
+  kontroll(kropp1.includes('låst'), 'steg 1 säger att byggnadstypen är låst');
+  kontroll(await bf.locator('.steg-kort[data-bsteg="1"] .val[data-typ]').count() === 0,
+    'typen går inte att ändra när byggnaden skapats – inga typval visas');
+
+  // ---- Ångra tar bort byggnaden, gör om skapar den igen (beslut 73) ----
+  await angra(page);
+  const efterAngra = await page.evaluate(() => ({
+    ordning: DP.Plan.byggnadsordning,
+    aktiv: DP.Plan.aktivId(),
+    aktivFinns: !!DP.Plan.byggnad(),
+    ilistan: document.querySelectorAll('#byggnadsflode .bf-byggnad').length
+  }));
+  kontroll(efterAngra.ordning.length === 4 && efterAngra.ordning.indexOf(ny.id) < 0,
+    'ångra tar bort byggnaden (' + efterAngra.ordning.join(', ') + ')');
+  kontroll(efterAngra.aktivFinns && efterAngra.ordning.indexOf(efterAngra.aktiv) >= 0,
+    'den aktiva byggnaden är en som finns efter ångran (' + efterAngra.aktiv + ')');
+  kontroll(efterAngra.ilistan === 4, 'byggnadslistan ritas om utan den borttagna byggnaden');
+
+  await gorOm(page);
+  const efterGorOm = await page.evaluate(() => ({
+    ordning: DP.Plan.byggnadsordning,
+    aktiv: DP.Plan.aktivId(),
+    namn: DP.Plan.byggnad().namn
+  }));
+  kontroll(efterGorOm.ordning.length === 5 && efterGorOm.ordning[4] === ny.id,
+    'gör om skapar byggnaden igen (' + efterGorOm.ordning.join(', ') + ')');
+  kontroll(efterGorOm.aktiv === ny.id && efterGorOm.namn === 'Kasern 3',
+    'den återskapade byggnaden är aktiv och heter som förut');
+
+  // ---- Byter planeraren byggnad mitt i ifyllningen lämnas formuläret ----
+  // Formuläret hör till den byggnad hon höll på att skapa. Stod det kvar hade stegen under
+  // det varit låsta för en byggnad som är färdig, och "Ny byggnad" legat kvar i listan.
+  await bf.locator('button', { hasText: 'Skapa ny byggnad' }).click();
+  await bf.locator('input[data-falt="namn"]').fill('Halvfärdig');
+  await vanta(page, () => !!document.querySelector('#byggnadsflode .bf-ny'), 'raden för den nya byggnaden');
+  await bf.locator('.bf-byggnad[data-byggnad="garage"]').click();
+  await vanta(page, () => DP.Plan.aktivId() === 'garage', 'byte till Garage');
+  kontroll(await bf.locator('.bf-ny').count() === 0,
+    'formuläret lämnas när planeraren byter byggnad mitt i ifyllningen');
+  kontroll(await bf.locator('.steg-kort[data-bsteg="2"].last').count() === 0,
+    'steg 2 är inte längre låst efter bytet – det gäller en byggnad som finns');
+  await byggnadsval(page, ny.id);
+
+  // ---- Övriga vyer tål den tomma byggnaden ----
+  // Balansering listar alla byggnader och räknar bara på dem som är klara (beslut 39). Den
+  // nya byggnaden saknar planering, så den ska stå med som inte klar och inte fälla något.
+  await page.locator('.pl-steg[data-steg="balansering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'balansering', 'Balansering öppet');
+  kontroll(await page.locator('.bal-byggnad[data-byggnad="' + ny.id + '"]').count() === 1,
+    'den nya byggnaden står med i Balanseringens byggnadslista');
+  kontroll(await page.evaluate(id => DP.Plan.klaraByggnader().indexOf(id) < 0, ny.id),
+    'den nya byggnaden räknas inte med i balanseringen – den har ingen planering');
+  // Och Planering: steglistan ska rita om sig för en byggnad utan installationer.
+  await page.locator('.pl-steg[data-steg="planering"]').click();
+  await vanta(page, () => DP.Vyer.aktivt() === 'planering', 'Planering öppet');
+  kontroll(await page.locator('#flode .steg-kort').count() === 6,
+    'Planeringens sex steg ritas även för en byggnad utan installationer');
+
+  // ---- Färgen är alltid en som ingen annan har, också när färglistan tagit slut ----
+  // Listan rymmer tio färger. Skapas fler byggnader än så går koden över till att räkna fram
+  // nyanser, och löftet gäller fortfarande: två byggnader får aldrig samma färg.
+  const farger = await page.evaluate(() => {
+    for (let i = 0; i < 14; i++) { DP.Plan.skapaByggnad({ namn: 'Provbyggnad ' + i, typ: 'garage', omrade: 'kasernomradet' }); }
+    return DP.Plan.byggnadsordning.map(id => DP.Plan.byggnad(id).farg);
+  });
+  kontroll(new Set(farger).size === farger.length,
+    'alla ' + farger.length + ' byggnader har var sin färg, också bortom färglistans tio');
+
+  kontroll(page.fel.length === 0, 'inga JavaScript-fel ' + page.fel.join(' | '));
+  await page.close();
+}
+
 // Ny numrering: plan 01, rum 001, visat 01-001 (biljett #33, beslut 76). Rumsnumret löper per
 // plan, så rum 001 finns på varje plan. Det som prövas är inte att siffrorna står rätt i
 // datafilen – det är att **utpekandet** håller: två rum med samma nummer på olika plan måste
@@ -3751,6 +3920,7 @@ async function testFristaendeFil(browser) {
     await testBalanseringRymsPaSkarmen(browser);
     await testByggnadenSomData(browser);
     await testRumsnumrering(browser);
+    await testSkapaNyByggnad(browser);
     await testFristaendeFil(browser);
   } catch (e) {
     kontroll(false, 'testet avbröts: ' + e.message.split('\n')[0]);

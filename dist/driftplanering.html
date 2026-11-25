@@ -703,6 +703,36 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 .bt-fsk.rond { background: #dfeaf7; box-shadow: inset 0 0 0 1px #9dbce0; }
 .bal-fsk { font-size: 10px; color: #2d5580; line-height: 1.4; }
 
+/* ---------- Byggnadsflödet: huvudsteget Byggnad som vägledd process (beslut 69 och 107) ----------
+   Steglistan återanvänder .steg-kort från Planering med flit: formen är inlärd, och
+   enhetligheten är viktigare än vilken form som är bäst (beslut 107). Här ligger bara det
+   som är byggnadsflödets eget – byggnadslistan och steg 1:s formulär. */
+.bf-lista { margin-bottom: 10px; }
+.bf-listhuvud { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.bf-listhuvud .liten-rubrik { margin: 0; }
+.bf-byggnad { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--linje); border-radius: 8px; background: #fff; margin-bottom: 4px; cursor: pointer; }
+.bf-byggnad:hover { border-color: #b8cff8; }
+.bf-byggnad.aktiv { border-color: var(--accent); background: var(--accent-svag); }
+.bf-btext { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.bf-bnamn { font-weight: 600; font-size: 13px; }
+.bf-bstatus { font-size: 11px; color: var(--dov); }
+.bf-falt { width: 100%; border: 1px solid var(--linje); border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: var(--text); }
+.bf-falt:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31,111,235,.12); }
+/* Beskedet om att namnet redan finns. Rött och intill fältet, inte en dialog: planeraren ska
+   kunna rätta namnet där hon står (beslut 103). */
+.bf-fel { margin-top: 6px; background: #fdecea; border: 1px solid #f5c2bd; border-radius: 6px; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: #8c2018; }
+.bf-notis { margin-top: 10px; font-size: 12px; color: var(--dov); line-height: 1.5; }
+.bf-faltrutnat { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.bf-faltrutnat .falt .varde { margin-top: 2px; font-size: 14px; }
+/* Färgrutan står ensam i ett fält och inte i en flexrad, så den behöver egen storlek */
+.bf-faltrutnat .bal-farg { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+/* Byggnaden utan plan: beskedet står mitt i vyn där modellen hade legat. */
+.tom-byggnad { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); max-width: 460px; text-align: center; background: rgba(255,255,255,.92); border: 1px solid var(--linje); border-radius: 12px; padding: 18px 22px; box-shadow: 0 4px 18px rgba(20,30,45,.08); }
+.tb-rubrik { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+.tb-text { font-size: 13px; color: var(--dov); line-height: 1.55; }
+.bf-byggnad.bf-ny { border-style: dashed; }
+.bf-byggnad.bf-ny .bal-farg { background: var(--svag); opacity: .4; }
+
 </style>
 </head>
 <body>
@@ -722,7 +752,12 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       <div class="pl-rad">
         <button id="ordlista-knapp" class="knapp sekundar liten-knapp" title="Slå upp ett begrepp utan att lämna steget du står i">Ordlista</button>
       </div>
-      <section id="hs-byggnad" class="hs-innehall" hidden><div id="trad"></div></section>
+      <section id="hs-byggnad" class="hs-innehall" hidden>
+        <!-- Byggnadsflödet: fyra steg i en lodrät lista som Planeringens (beslut 69 och 107).
+             Byggnadsträdet ligger under flödet, som den färdiga byggnadens innehåll. -->
+        <div id="byggnadsflode"></div>
+        <div id="trad"></div>
+      </section>
       <section id="hs-planering" class="hs-innehall"><div id="flode"></div></section>
       <section id="hs-balansering" class="hs-innehall" hidden>
         <div id="balansering"></div>
@@ -757,6 +792,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
           <span id="rumlage-namn"></span>
           <button id="lamna-rum" class="knapp">Lämna rummet (Esc)</button>
         </div>
+
+        <!-- Beskedet när byggnaden inte har några plan ännu: modellen växer fram med
+             stegen (beslut 111), och en tom ruta utan förklaring ser ut som ett fel. -->
+        <div id="tom-byggnad" class="tom-byggnad" hidden></div>
 
         <div id="telefoner" class="telefoner"></div>
         <div id="infokort" class="infokort" hidden></div>
@@ -2384,9 +2423,18 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
 
   // ---------------- Byggnadstyper och standardplanering ----------------
   //   freq: 'bas' = samma som besöken, annars { typ, startManad }
+  //
+  // Byggnadstypen är mallen (beslut 72): den ger standardplaneringen och – för en byggnad
+  // planeraren skapar själv – utseendet och måtten modellen ritas med. `stil` och `konstanter`
+  // har samma form som i datafilerna under `data/`, så en skapad byggnad och en handritad är
+  // samma sorts data. Planlösningens regel (hur rummen placeras ut) hör också till typen, men
+  // byggs i en senare biljett i spåret.
   DP.byggnadstyper = {
     garage: {
       namn: 'Garage',
+      stil: { tak: 'sadel', sadel: { bas: 2.8, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N',
+        fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
+      konstanter: { PLANHOJD: 2.8, BJALKLAG: 0.2, FRIHOJD: 2.8 },
       standard: {
         bas: { typ: 'halvar', startManad: 4 },
         ronder: [
@@ -2398,6 +2446,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     },
     kasern: {
       namn: 'Kasern',
+      stil: { tak: 'sadel', sadel: { bas: 10.3, hojd: 3.0 }, ytterFarg: 0xd9d2c4, takFarg: 0x6b4b3a },
+      konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
       standard: {
         bas: { typ: 'manad', startManad: null },
         ronder: [
@@ -2412,6 +2462,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     },
     hangar: {
       namn: 'Hangar',
+      stil: { tak: 'platt', ytterFarg: 0xb9c0c7, takFarg: 0x8d969e },
+      konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
       standard: {
         bas: { typ: 'manad', startManad: null },
         ronder: [
@@ -3797,14 +3849,31 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       .sort(function (a, b) { return a - b; });
   }
   function klona(s) { return JSON.parse(JSON.stringify(s)); }
+  // Nycklarna i två kartor, utan dubbletter och i den första kartans ordning först. Används när
+  // något jämförs före och efter ett steg som kan ha *lagt till* eller *tagit bort* en byggnad:
+  // då finns byggnaden bara på en av sidorna, och en loop över bara den ena hade missat den.
+  function allaIdn(a, b) {
+    var ut = Object.keys(a || {});
+    Object.keys(b || {}).forEach(function (id) { if (ut.indexOf(id) < 0) { ut.push(id); } });
+    return ut;
+  }
 
   // Varje byggnad har sin egen planering. Historiken är gemensam: varje steg sparar alla byggnaders
   // planering och vilken byggnad steget gällde. Ångra växlar till den byggnaden.
-  var BYGGNADSORDNING = ['garage', 'kasern1', 'kasern2', 'hangar'].filter(function (id) { return DP.byggnader[id]; });
-  var aktiv = BYGGNADSORDNING[0];
+  //
+  // **Vilka byggnader som finns är också en del av tillståndet** (beslut 73): planeraren kan
+  // skapa en ny byggnad, och ångrar hon förbi det steget ska byggnaden försvinna. Därför bär
+  // varje historiksteg sin egen `ordning` – listan över byggnads-id i den ordning de visas –
+  // och `byggnadsordning()` svarar ur det aktuella steget. Listan nedan är bara *startens*
+  // ordning, på samma sätt som `DP.byggnader` bara är starttillståndet.
+  var STARTORDNING = ['garage', 'kasern1', 'kasern2', 'hangar'].filter(function (id) { return DP.byggnader[id]; });
+  var aktiv = STARTORDNING[0];
+  // Byggnaderna i det aktuella historiksteget. Varje läsare som går igenom alla byggnader går
+  // den här vägen, så att en byggnad som ångrats bort inte längre räknas med någonstans.
+  function ordning() { return historik[pos].ordning; }
   function allaTomma() {
     var a = {};
-    BYGGNADSORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
+    STARTORDNING.forEach(function (id) { a[id] = tomtTillstand(); });
     return a;
   }
   // Byggnaden själv – namn, typ, område, färg, plan, rum och installationer – är **data i
@@ -3816,10 +3885,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // databas senare kopplas in: då byts starttillståndet, inte läsarna.
   function startByggnader() {
     var a = {};
-    BYGGNADSORDNING.forEach(function (id) { a[id] = klona(DP.byggnader[id]); });
+    STARTORDNING.forEach(function (id) { a[id] = klona(DP.byggnader[id]); });
     return a;
   }
-  var historik = [{ alla: allaTomma(), byggnader: startByggnader(), gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
+  var historik = [{ alla: allaTomma(), byggnader: startByggnader(), ordning: STARTORDNING.slice(),
+    gemensamt: tomtGemensamt(), text: 'Start', byggnad: null }];
   var pos = 0;
   var lyssnare = [], byteLyssnare = [];
 
@@ -3845,7 +3915,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     bokforBortstadade(gem, aktiv, bort);
     var namn = (byggnader[aktiv] || {}).namn || aktiv;
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().slice(), gemensamt: gem,
+      text: namn + ': ' + text, byggnad: aktiv, rorda: [aktiv] });
     pos = historik.length - 1;
     meddela(fore, ny, utokaInfo(info, [aktiv], allaFore, byggnaderFore));
   }
@@ -3887,7 +3958,8 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     var rordaIds = Object.keys(rorda);
     rordaIds.forEach(function (id) { if (alla[id]) { bokforBortstadade(gem, id, stada(alla[id])); } });
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem, text: text, byggnad: null, rorda: rordaIds });
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().slice(), gemensamt: gem,
+      text: text, byggnad: null, rorda: rordaIds });
     pos = historik.length - 1;
     meddela(fore, state(), utokaInfo(info, rordaIds, allaFore, byggnaderFore));
   }
@@ -3918,10 +3990,158 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (fn(byggnader[id]) === false) { return; }
     var gem = klona(historik[pos].gemensamt);
     historik = historik.slice(0, pos + 1);
-    historik.push({ alla: alla, byggnader: byggnader, gemensamt: gem,
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().slice(), gemensamt: gem,
       text: byggnadsNamn(id) + ': ' + text, byggnad: id, rorda: [id] });
     pos = historik.length - 1;
     meddela(fore, state(), utokaInfo(info, [id], allaFore, byggnaderFore));
+  }
+
+  // ------------------------------------------------------------------
+  // Skapa en ny byggnad (beslut 69, 103 och 104)
+  // ------------------------------------------------------------------
+  // Byggnadens färger plockas ur en lista i stället för att väljas av planeraren: färgen är
+  // brickornas färg i Balanseringens tidsaxel (beslut 47) och säger inget om byggnaden, så
+  // det finns inget att ta ställning till. Systemet tar den första som ingen annan byggnad
+  // har; är listan slut vandrar den runt nyansvarvet i stället för att två byggnader får
+  // samma färg.
+  // Listan börjar där de fyra typbyggnaderna slutar (orange, blått, lila, grönt), så att den
+  // femte byggnaden får en färg som går att skilja från dem på en bricka i tidsaxeln – inte
+  // bara en annan hex-kod.
+  var BYGGNADSFARGER = ['#b03a3a', '#2f9fa8', '#9f2f7f', '#7a6a2f', '#4f5f8f', '#3f9f3f',
+    '#c87a1f', '#5f3fa8', '#2f6f4f', '#a8482f'];
+  function ledigFarg() {
+    var tagna = {};
+    ordning().forEach(function (bid) { tagna[(B(bid) || {}).farg] = true; });
+    var fri = BYGGNADSFARGER.filter(function (f) { return !tagna[f]; })[0];
+    if (fri) { return fri; }
+    // Listan är slut: gå runt färgvarvet i steg som inte går jämnt upp, och **pröva varje
+    // nyans mot de tagna**. Att räkna ut nyansen ur antalet byggnader hade räckt till ett
+    // vanligt fall men inte till löftet: skapar planeraren den femtonde byggnaden, ångrar
+    // bort den och skapar en ny är antalet detsamma och färgen hade kommit igen.
+    for (var i = 0; i < 360; i++) {
+      var f = 'hsl(' + ((i * 47) % 360) + ', 55%, 45%)';
+      if (!tagna[f]) { return f; }
+    }
+    return BYGGNADSFARGER[0];
+  }
+  // Namnet är unikt (beslut 103): rutintillfällen heter Byggnad-Rond-ÅÅÅÅvVV, så två byggnader
+  // med samma namn hade gett tillfällen med samma namn. Jämförelsen är på trimmad text utan
+  // skillnad på stora och små bokstäver – "Kasern 1" och "kasern 1" är samma namn för den som
+  // läser en lista. `utom` är byggnaden som får behålla sitt eget namn vid ett namnbyte.
+  function namnTaget(namn, utom) {
+    var n = String(namn || '').trim().toLowerCase();
+    if (!n) { return false; }
+    return ordning().some(function (bid) {
+      return bid !== utom && String(byggnadsNamn(bid)).trim().toLowerCase() === n;
+    });
+  }
+  // Varför namnet inte går att använda, i klartext – eller tomt när det går. Texten formuleras
+  // här och inte i vyn, av samma skäl som balanseringens förklaring (beslut 61): regeln bor
+  // hos den som kan den, och besvärligheten går att läsa i ett test utan DOM.
+  function namnHinder(namn, utom) {
+    var n = String(namn || '').trim();
+    if (!n) { return 'Byggnaden behöver ett namn.'; }
+    if (namnTaget(n, utom)) {
+      return 'Det finns redan en byggnad som heter ' + n + '. Namnet måste vara unikt, eftersom ' +
+        'rutintillfällena namnges efter byggnaden.';
+    }
+    return '';
+  }
+  // Id:t är inte namnet (beslut 103 lämnar ett byggnads-id till senare), men byggnaden behöver
+  // en nyckel som står still när namnet byts. Den räknas fram som ett löpnummer, och hoppar
+  // över det som redan finns – också det som tagits bort av ett ångra och kan komma tillbaka
+  // med ett gör om.
+  function nyttByggnadsId() {
+    var tagna = {};
+    historik.forEach(function (h) {
+      Object.keys(h.byggnader).forEach(function (id) { tagna[id] = true; });
+    });
+    for (var n = 1; ; n++) {
+      if (!tagna['byggnad' + n]) { return 'byggnad' + n; }
+    }
+  }
+  // Skapa byggnaden som ett steg i historiken (beslut 73): ångrar planeraren förbi steget
+  // försvinner byggnaden, eftersom listan över byggnader ligger i steget och inte i en
+  // modulvariabel. Byggnaden är tom – inga plan, rum eller installationer – och fylls i de
+  // följande stegen i byggnadsflödet.
+  //
+  // Svaret är byggnadens id, eller null när namnet inte går att använda. Vyn frågar
+  // `namnHinder()` först och visar beskedet direkt medan planeraren skriver (beslut 103);
+  // kontrollen här är den som gäller, så att ingen väg förbi vyn kan ge två lika namn.
+  function skapaByggnad(uppgifter) {
+    var u = uppgifter || {};
+    var namn = String(u.namn || '').trim();
+    if (namnHinder(namn)) { return null; }
+    if (!DP.byggnadstyper[u.typ]) { return null; }
+    var id = nyttByggnadsId();
+    var fore = state();
+    var allaFore = historik[pos].alla;
+    var byggnaderFore = historik[pos].byggnader;
+    var alla = klona(historik[pos].alla);
+    var byggnader = klona(historik[pos].byggnader);
+    alla[id] = tomtTillstand();
+    byggnader[id] = nyByggnad(id, namn, u.typ, u.omrade, ledigFarg());
+    historik = historik.slice(0, pos + 1);
+    historik.push({ alla: alla, byggnader: byggnader, ordning: ordning().concat([id]),
+      gemensamt: klona(historik[pos].gemensamt),
+      text: 'Skapa byggnad ' + namn + ' (' + DP.byggnadstyper[u.typ].namn.toLowerCase() + ')',
+      byggnad: id, rorda: [id] });
+    pos = historik.length - 1;
+    // Byggnaden som just skapats blir den aktiva: det är den planeraren arbetar med nu, och
+    // flödets följande steg gäller den. Bytet går samma väg som planerarens eget byte, så
+    // modellen, trädet och väljaren ritas om av sina egna lyssnare.
+    vaxlaByggnad(id);
+    meddela(fore, state(), utokaInfo(u.info, [id], allaFore, byggnaderFore));
+    return id;
+  }
+  // En tom byggnad: allt som vyerna läser finns, men är tomt. Måtten och stilen kommer ur
+  // byggnadstypen, så att skalet och taket ser ut som typen även innan något är inläst.
+  function nyByggnad(id, namn, typ, omrade, farg) {
+    var t = DP.byggnadstyper[typ] || {};
+    var hojd = (t.konstanter && t.konstanter.PLANHOJD) || 3.5;
+    return {
+      id: id,
+      namn: namn,
+      typ: typ,
+      omrade: omrade || (DP.omraden[0] || {}).id,
+      farg: farg,
+      beskrivning: '',
+      stil: klona(t.stil || { tak: 'platt' }),
+      konstanter: klona(t.konstanter || { PLANHOJD: hojd, BJALKLAG: 0.2, FRIHOJD: hojd - 0.2 }),
+      plan: [],
+      rum: [],
+      installationer: []
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Byggnadsflödets fyra steg (beslut 69 och 107)
+  // ------------------------------------------------------------------
+  // Samma form som Planeringens `stegStatus`: reglerna bor i planeringen, så att steglistan,
+  // byggnadslistan och processlinjen alltid är eniga om vad som är klart – och så att de går
+  // att läsa i ett test utan DOM.
+  //
+  // Steg 1 är klart när byggnaden har namn, typ och område. De tre följande – Plan, Rum och
+  // Installationer – byggs i senare biljetter och är klara när det de handlar om finns.
+  function byggnadsSteg(bid) {
+    var b = B(bid);
+    if (!b) { return { 1: false, 2: false, 3: false, 4: false }; }
+    return {
+      1: !!(b.namn && b.typ && b.omrade),
+      2: b.plan.length > 0,
+      3: b.rum.length > 0,
+      4: b.installationer.some(function (i) { return i.signifikant; })
+    };
+  }
+  // Byggnadens läge i byggnadslistan, i klartext (berättelse 7). Statusen är *var arbetet
+  // står*, inte en bock: en byggnad som inte har någon plan väntar på uppgifterna, och en som
+  // har allt är klar att planera.
+  function byggnadStatus(bid) {
+    var k = byggnadsSteg(bid);
+    if (!k[1]) { return 'Ny byggnad'; }
+    if (!k[2]) { return 'Väntar på inläsningsfil'; }
+    if (!k[3] || !k[4]) { return 'Inläsning pågår'; }
+    return 'Klar för Planering';
   }
 
   // Lyssnarna får veta vilka byggnader steget ändrade, så att vyerna kan rita om rätt saker,
@@ -3949,7 +4169,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     // frekvens rör inte ett rum. Jämförelsen görs här och inte hos den som ändrar, av samma skäl
     // som `flyttade`: då gäller den även ångra och gör om, som går samma väg genom `ga()`.
     if (byggnaderFore) {
-      ut.byggnadsdata = BYGGNADSORDNING.filter(function (bid) {
+      // Både före och efter, så att en byggnad som just skapats eller ångrats bort räknas
+      // som ändrad: den finns på bara en av sidorna, och vyerna behöver veta det.
+      ut.byggnadsdata = allaIdn(byggnaderFore, historik[pos].byggnader).filter(function (bid) {
         return !lika(byggnaderFore[bid], historik[pos].byggnader[bid]);
       });
     } else {
@@ -3967,13 +4189,28 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (till < 0 || till >= historik.length || till === pos) { return; }
     // Vilken byggnad gäller steget? Byt dit först så att man ser vad som ändras.
     var bid = till < pos ? historik[pos].byggnad : historik[till].byggnad;
-    if (bid && bid !== aktiv) { vaxlaByggnad(bid); }
+    // Byggnaden steget gäller kan vara en som inte finns *i det här* steget: gör planeraren om
+    // ett *Skapa byggnad* finns den bara i steget hon går till. Bytet görs därför efter
+    // flytten nedan, när byggnaden finns, och här bara när den redan gör det.
+    var bytTill = bid && bid !== aktiv && historik[till].byggnader[bid] ? bid : null;
+    if (bytTill && historik[pos].byggnader[bid]) { vaxlaByggnad(bid); bytTill = null; }
     var fore = state();
     var allaFore = historik[pos].alla;
     var byggnaderFore = historik[pos].byggnader;
     var steget = till < pos ? historik[pos] : historik[till];
     pos = till;
-    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || BYGGNADSORDNING).slice(), allaFore, byggnaderFore));
+    // Ångrar planeraren förbi *Skapa byggnad* finns byggnaden inte längre i steget, och den
+    // kan då inte vara aktiv (beslut 73). Byt till den sista som finns – den som skapades före
+    // eller fanns från början – i stället för att lämna vyerna pekande på ingenting.
+    if (!historik[pos].byggnader[aktiv]) {
+      var kvar = ordning();
+      bytTill = kvar[kvar.length - 1];
+    }
+    if (bytTill && bytTill !== aktiv) {
+      aktiv = bytTill;
+      byteLyssnare.forEach(function (fn) { fn(aktiv); });
+    }
+    meddela(fore, state(), utokaInfo(info || { historik: true }, (steget.rorda || ordning()).slice(), allaFore, byggnaderFore));
   }
   function vaxlaByggnad(id) {
     if (!historik[pos].byggnader[id] || id === aktiv) { return; }
@@ -3999,7 +4236,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   function inst(id) {
     if (indexeratFor !== historik[pos].byggnader) {
       instIndex = {};
-      BYGGNADSORDNING.forEach(function (bid) {
+      ordning().forEach(function (bid) {
         var b = historik[pos].byggnader[bid];
         if (!b) { return; }
         b.installationer.forEach(function (i) { if (i.signifikant) { instIndex[i.id] = i; } });
@@ -4465,7 +4702,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   }
   // `las(bid)` är vägen till en byggnads planering, och får utelämnas som ovan.
   function klaraByggnader(las) {
-    return BYGGNADSORDNING.filter(function (bid) { return byggnadKlar(bid, las && las(bid)); });
+    return ordning().filter(function (bid) { return byggnadKlar(bid, las && las(bid)); });
   }
 
   // Underlaget till DP.Balansering: de klara byggnadernas rondserier med utförare, planerad
@@ -4805,7 +5042,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   // och listan ska krympa med dem (beslut 45).
   function foreslagnaStrykningar() {
     var ut = [];
-    BYGGNADSORDNING.forEach(function (bid) {
+    ordning().forEach(function (bid) {
       var s = stateFor(bid);
       tillfallenMedStrukna(s, bid).forEach(function (t) {
         if (t.foreslagen) {
@@ -5096,7 +5333,9 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     // Byggnader som slutat vara klara räknas inte längre med i balanseringen, och den
     // byggnadens förskjutning säger inget om belastningen – det är den tyngsta ändringen av
     // alla, så den redovisas som en egen rad och ronderna i den räknas inte upp en gång till.
-    BYGGNADSORDNING.forEach(function (bid) {
+    // Byggnaderna i sammandraget *och* de som finns nu: en byggnad som skapats efter
+    // balanseringen finns bara i nuläget, och en som ångrats bort bara i sammandraget.
+    allaIdn(fore.byggnader, nu.byggnader).forEach(function (bid) {
       var f = fore.byggnader[bid], n = nu.byggnader[bid];
       if (f && !n) {
         lagg(bid, 'ej-klar', byggnadsNamn(bid) + ' är inte längre klar i alla sex stegen och räknas inte med');
@@ -5231,7 +5470,14 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     manadForVecka: manadForVecka, veckoNamn: veckoNamn, forstaVeckan: forstaVeckan,
     state: state, stateFor: stateFor, andra: andra, klona: klona,
     byggnad: B, andraByggnad: andraByggnad, aktivFickNyData: aktivFickNyData,
-    aktivId: function () { return aktiv; }, byggnadsordning: BYGGNADSORDNING,
+    aktivId: function () { return aktiv; },
+    // Vilka byggnader som finns ligger i historiken (beslut 73), så listan läses ur det
+    // aktuella steget varje gång. En kopia, så att ingen läsare kan ändra ordningen förbi
+    // historiken. Egenskapen och inte en funktion, eftersom alla läsare redan har formen
+    // `byggnadsordning.forEach(…)` – och den formen ska fortsätta att svara sant.
+    get byggnadsordning() { return ordning().slice(); },
+    skapaByggnad: skapaByggnad, namnTaget: namnTaget, namnHinder: namnHinder,
+    byggnadsSteg: byggnadsSteg, byggnadStatus: byggnadStatus,
     vaxlaByggnad: vaxlaByggnad, prenumereraByte: function (fn) { byteLyssnare.push(fn); },
     angra: function (info) { ga(pos - 1, info); },
     gorOm: function (info) { ga(pos + 1, info); },
@@ -5539,6 +5785,11 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       M.x1 = Math.max(M.x1, r.rect[2]); M.z1 = Math.max(M.z1, r.rect[3]);
       if (!r.iRum) { M.topp = Math.max(M.topp, self.planIndex[r.plan].elev + self._rumHojd(r)); }
     });
+    // En byggnad utan rum – en nyskapad byggnad, innan plan och rum lästs in (beslut 69) –
+    // har inga mått att räkna fram. Måtten sätts då till en liten ruta kring origo, så att
+    // kameran, rutnätet och marken har något att utgå från och vyn visar en tom tomt i stället
+    // för att räkna med Infinity och ge en svart ruta.
+    if (!this.b.rum.length) { M.x0 = 0; M.z0 = 0; M.x1 = 12; M.z1 = 12; M.topp = 0; }
     // Ytterväggarna är de som ligger på byggnadens yttre gränser (vindsrum med indrag räknas inte)
     this.M = M;
     this.stil = this.b.stil || {};
@@ -5656,10 +5907,13 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     // Väggar per plan
     this.b.plan.forEach(function (p) { self._byggVaggar(p); });
 
-    // Tak: platt eller sadeltak
+    // Tak: platt eller sadeltak. En byggnad utan rum har inget tak att rita – måtten är då
+    // bara en tom tomt, och ett tak över ingenting hade sett ut som ett fel.
     this.takGrupp = new T.Group();
     var M = this.M, takFarg = this.stil.takFarg || 0x8d969e;
-    if (this.stil.tak === 'sadel') {
+    if (!this.b.rum.length) {
+      // inget tak – gruppen läggs till tom nedan, så att synlighetslagret har något att peka på
+    } else if (this.stil.tak === 'sadel') {
       var s = this.stil.sadel, ut = 0.35;
       var form = new T.Shape();
       form.moveTo(-(M.z0 - ut), 0);
@@ -5678,9 +5932,12 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     }
     this.root.add(this.takGrupp);
 
-    // Dekor (fordon, markeringar) – inte installationer
-    if (this.stil.dekor === 'hangar') { this._byggHangarDekor(); }
-    if (this.stil.dekor === 'garage') { this._byggGarageDekor(); }
+    // Dekor (fordon, markeringar) – inte installationer. Dekoren står på golvet i ett plan,
+    // så den kräver att det finns ett.
+    if (this.b.plan.length) {
+      if (this.stil.dekor === 'hangar') { this._byggHangarDekor(); }
+      if (this.stil.dekor === 'garage') { this._byggGarageDekor(); }
+    }
 
     // Installationer
     this.b.installationer.forEach(function (inst) { self._byggInstallation(inst); });
@@ -6129,9 +6386,10 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
       g.inner.visible = self.lager.innerVaggar;
       g.etiketter.visible = self.lager.etiketter && self.lage === 'oversikt';
     });
-    // Taket visas bara om översta planet visas
+    // Taket visas bara om översta planet visas. En byggnad utan plan har inget översta plan
+    // och inget tak (se _byggScen), så gruppen är tom och synligheten spelar ingen roll.
     var plan = this.b.plan;
-    this.takGrupp.visible = this.lager.tak && this.planSynligt[plan[plan.length - 1].id] !== false;
+    this.takGrupp.visible = this.lager.tak && (!plan.length || this.planSynligt[plan[plan.length - 1].id] !== false);
     // Marken döljs när man tittar ner i källaren (inget plan ovan mark visas)
     var kallareSynlig = plan.some(function (p) { return p.elev < 0 && self.planSynligt[p.id]; });
     var ovanMarkSynlig = plan.some(function (p) { return p.elev >= 0 && self.planSynligt[p.id]; });
@@ -6646,6 +6904,7 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     if (tomKort) { viewer.sattByggnad(b); } else { viewer.byggOmByggnad(b); }
     byggPlanKnappar();
     byggTrad();
+    uppdateraTomBesked();
     byggValjare();
     $('#tips').hidden = true;
     if (tomKort || !visades) {
@@ -6971,7 +7230,26 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
     f.appendChild(av);
   }
 
+  // ------------------------------------------------------------------
+  // Tom byggnad: beskedet i stället för modellen
+  // ------------------------------------------------------------------
+  // En nyskapad byggnad har inga plan än (beslut 69), och modellen visar då en tom tomt. En
+  // tom ruta utan förklaring ser ut som ett fel, så vyn säger vad som fattas och var det
+  // fylls i. Den ritas av trädets ombyggnad, så den kommer och går med byggnadens data –
+  // också vid ångra och gör om.
+  function uppdateraTomBesked() {
+    var ruta = $('#tom-byggnad');
+    var tom = !b.plan.length;
+    ruta.hidden = !tom;
+    if (!tom) { return; }
+    ruta.innerHTML = '<div class="tb-rubrik">' + b.namn + ' har inga plan ännu</div>' +
+      '<div class="tb-text">Modellen växer fram steg för steg: först planen som ett skal, ' +
+      'sedan rummen och sist installationerna. Fyll i <b>steg 2 Plan</b> i byggnadsflödet ' +
+      'till vänster, med en inläsningsfil eller för hand.</div>';
+  }
+
   byggTrad();
+  uppdateraTomBesked();
   byggForklaring();
 
   // Öppet informationskort ritas om när planeringen ändras
@@ -8576,6 +8854,319 @@ body.drar-bricka .bt-cell:hover { box-shadow: none; }
   DP.Flode = { rita: rita, skrivStandard: skrivStandard, oppnaSteg: oppnaSteg };
   rita();
   DP.Tidsaxel.rita();
+})();
+
+</script>
+  <script>
+/*
+ * Byggnadsflödet: huvudsteget Byggnad som en vägledd process (beslut 69 och 107).
+ *
+ * Fyra steg i en lodrät lista – Byggnadstyp och namn → Plan → Rum → Installationer – med
+ * samma form som Planeringens steglista: grön bock, hopfällning när steget är klart och
+ * vilket steg som helst öppningsbart igen. Formen är inte vald för att vara bäst, utan för
+ * att den redan är inlärd: enhetligheten är viktigare (beslut 107).
+ *
+ * Den här filen bygger listan, byggnadslistan med status och **steg 1** (byggnadstyp, namn,
+ * område och färg). Steg 2–4 syns med sitt läge men är tomma tills de byggs i de följande
+ * biljetterna i spåret.
+ *
+ * Reglerna – vad som är klart, om namnet går att använda och vad statusen heter – bor i
+ * `DP.Plan` och inte här (beslut 61): de ska gå att läsa i ett test utan DOM, och
+ * byggnadslistan och steglistan ska aldrig kunna säga olika saker om samma byggnad.
+ */
+(function () {
+  'use strict';
+
+  var DP = window.DP, P = DP.Plan;
+  var rot = document.getElementById('byggnadsflode');
+
+  var STEG = [
+    { n: 1, titel: 'Byggnadstyp och namn', kropp: steg1 },
+    { n: 2, titel: 'Plan', kropp: stegKommer },
+    { n: 3, titel: 'Rum', kropp: stegKommer },
+    { n: 4, titel: 'Installationer', kropp: stegKommer }
+  ];
+
+  // Flödet är stängt tills planeraren väljer *Skapa ny byggnad* eller öppnar ett steg: utan
+  // det hade byggnadsträdet för en färdig byggnad hamnat långt ner bakom fyra steg som inte
+  // har något att säga. `ny` är det som skrivs i steg 1 innan byggnaden finns.
+  var ui = {
+    oppet: 0,
+    skapar: false,
+    ny: { namn: '', typ: '', omrade: '' }
+  };
+
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (html !== undefined && html !== null) { e.innerHTML = html; }
+    return e;
+  }
+  function knapp(text, cls, gor, titel) {
+    var k = el('button', cls || 'knapp', text);
+    if (titel) { k.title = titel; }
+    k.addEventListener('click', function (e) { e.stopPropagation(); gor(k, e); });
+    return k;
+  }
+
+  // ------------------------------------------------------------------
+  // Steglistan
+  // ------------------------------------------------------------------
+  function rita() {
+    // Rullningen står kvar vid varje omritning (beslut 105): planeraren ska aldrig behöva
+    // leta sig tillbaka till det hon just klickade på.
+    var skroll = rot.parentNode ? rot.parentNode.scrollTop : 0;
+    var fokus = document.activeElement;
+    var fokusFalt = fokus && rot.contains(fokus) ? fokus.dataset.falt : null;
+    var markering = fokusFalt && fokus.setSelectionRange ? fokus.selectionStart : null;
+    rot.innerHTML = '';
+    rot.appendChild(byggnadslista());
+
+    // Medan planeraren fyller i en **ny** byggnad gäller stegen den byggnaden och inte den
+    // aktiva: ett grönt steg 1 och "1 plan" i steg 2 hade varit den byggnad hon står i, och
+    // sagt att arbetet är gjort innan det börjat. Den nya byggnaden har inget klart alls.
+    var k = ui.skapar ? { 1: false, 2: false, 3: false, 4: false } : P.byggnadsSteg();
+    STEG.forEach(function (st) {
+      var oppen = ui.oppet === st.n;
+      var klar = !!k[st.n];
+      // Steg 2–4 gäller en byggnad som inte finns än, så de är låsta tills den skapats –
+      // samma regel som Planeringens steglista: svara på frågorna ovanför först.
+      var last = ui.skapar && st.n > 1;
+      var kort = el('section', 'steg-kort' + (oppen ? ' oppen' : '') + (klar ? ' klar' : '') + (last ? ' last' : ''));
+      kort.dataset.bsteg = st.n;
+      var h = el('header', 'steg-huvud');
+      h.innerHTML = '<span class="steg-nr">' + (klar ? '✓' : st.n) + '</span>' +
+        '<div class="steg-text"><div class="steg-titel">' + st.titel + '</div>' +
+        (oppen ? '' : '<div class="steg-sammanf">' + sammanfattning(st.n, klar) + '</div>') + '</div>';
+      if (last) {
+        h.title = 'Skapa byggnaden i steg 1 först';
+      } else {
+        h.addEventListener('click', function () { ui.oppet = oppen ? 0 : st.n; rita(); });
+      }
+      kort.appendChild(h);
+      if (oppen && !last) {
+        var kropp = el('div', 'steg-kropp');
+        st.kropp(kropp, st.n);
+        kort.appendChild(kropp);
+      }
+      rot.appendChild(kort);
+    });
+
+    if (rot.parentNode) { rot.parentNode.scrollTop = skroll; }
+    // Skriver planeraren i namnfältet ska omritningen inte ta ifrån henne tangentbordet:
+    // beskedet om ett upptaget namn kommer medan hon skriver (beslut 103), och ett tappat
+    // fokus hade betytt att resten av namnet hamnade någon annanstans.
+    if (fokusFalt) {
+      var nytt = rot.querySelector('[data-falt="' + fokusFalt + '"]');
+      if (nytt) {
+        nytt.focus();
+        if (markering !== null && nytt.setSelectionRange) { nytt.setSelectionRange(markering, markering); }
+      }
+    }
+  }
+
+  // Vad steget säger när det är hopfällt. Steg 1 säger vad byggnaden är, de övriga hur mycket
+  // som är inläst – samma uppgift som listan visar, så att planeraren ser läget utan att
+  // öppna steget (berättelse 6).
+  function sammanfattning(n, klar) {
+    // Den nya byggnaden är tom: stegen säger vad som ska fyllas i, inte vad den aktiva
+    // byggnaden råkar ha.
+    if (ui.skapar) {
+      return n === 1 ? 'Välj typ och ge byggnaden ett namn' : 'Skapa byggnaden först';
+    }
+    var b = P.byggnad();
+    if (!b) { return ''; }
+    if (n === 1) {
+      if (!klar) { return 'Välj typ och ge byggnaden ett namn'; }
+      var typ = DP.byggnadstyper[b.typ];
+      var omr = DP.omraden.filter(function (o) { return o.id === b.omrade; })[0];
+      return b.namn + ' · ' + (typ ? typ.namn : b.typ) + (omr ? ' · ' + omr.namn : '');
+    }
+    if (n === 2) { return b.plan.length ? antal(b.plan.length, 'plan', 'plan') : 'Inget plan ännu'; }
+    if (n === 3) { return b.rum.length ? antal(b.rum.length, 'rum', 'rum') : 'Inga rum ännu'; }
+    var sig = b.installationer.filter(function (i) { return i.signifikant; }).length;
+    return sig ? antal(sig, 'signifikant installation', 'signifikanta installationer') : 'Inga installationer ännu';
+  }
+  function antal(n, ett, flera) { return n + ' ' + (n === 1 ? ett : flera); }
+
+  // ------------------------------------------------------------------
+  // Byggnadslistan: var varje byggnad står (berättelse 7)
+  // ------------------------------------------------------------------
+  function byggnadslista() {
+    var w = el('section', 'bf-lista');
+    var h = el('div', 'bf-listhuvud');
+    h.appendChild(el('div', 'liten-rubrik', 'Byggnader'));
+    h.appendChild(knapp('+ Skapa ny byggnad', 'knapp sekundar liten-knapp', function () {
+      ui.skapar = true;
+      ui.oppet = 1;
+      ui.ny = { namn: '', typ: '', omrade: (DP.omraden[0] || {}).id };
+      rita();
+    }, 'Lägg in en byggnad som inte finns i systemet. Du fyller i den steg för steg.'));
+    w.appendChild(h);
+    P.byggnadsordning.forEach(function (bid) {
+      var b = P.byggnad(bid), aktiv = !ui.skapar && bid === P.aktivId();
+      var rad = el('div', 'bf-byggnad' + (aktiv ? ' aktiv' : ''));
+      rad.dataset.byggnad = bid;
+      var prick = el('span', 'bal-farg', null);
+      prick.style.background = b.farg;
+      rad.appendChild(prick);
+      var txt = el('div', 'bf-btext');
+      txt.appendChild(el('span', 'bf-bnamn', b.namn));
+      txt.appendChild(el('span', 'bf-bstatus', P.byggnadStatus(bid)));
+      rad.appendChild(txt);
+      rad.addEventListener('click', function () {
+        if (bid !== P.aktivId()) { P.vaxlaByggnad(bid); }
+      });
+      w.appendChild(rad);
+    });
+    // Byggnaden som håller på att skapas står med i listan medan planeraren fyller i steg 1,
+    // så att hon ser vart den är på väg och att den kommer efter de andra.
+    if (ui.skapar) {
+      var ny = el('div', 'bf-byggnad aktiv bf-ny');
+      ny.dataset.byggnad = 'ny';
+      ny.appendChild(el('span', 'bal-farg', null));
+      var nytxt = el('div', 'bf-btext');
+      nytxt.appendChild(el('span', 'bf-bnamn', ui.ny.namn || 'Ny byggnad'));
+      nytxt.appendChild(el('span', 'bf-bstatus', 'Fylls i – steg 1'));
+      ny.appendChild(nytxt);
+      w.appendChild(ny);
+    }
+    return w;
+  }
+
+  // ------------------------------------------------------------------
+  // Steg 1: byggnadstyp, namn och område
+  // ------------------------------------------------------------------
+  // Två lägen i samma steg: skapar planeraren en ny byggnad är allt redigerbart, och står hon
+  // i en byggnad som finns visas dess uppgifter med typen låst (beslut 104).
+  function steg1(kropp) {
+    if (ui.skapar) { return nyByggnadsformular(kropp); }
+    return befintligByggnad(kropp);
+  }
+
+  function nyByggnadsformular(kropp) {
+    kropp.appendChild(el('p', 'forklar',
+      'Byggnadstypen är mallen: den avgör hur modellen ritas, vilka rumstyper som känns igen ' +
+      'och vilken standardplanering Planering föreslår. <b>Typen går inte att ändra efteråt</b> – ' +
+      'blir det fel skapar du en ny byggnad och läser in samma fil.'));
+
+    kropp.appendChild(el('div', 'liten-rubrik', 'Byggnadstyp'));
+    var typval = el('div', 'frekvensval');
+    Object.keys(DP.byggnadstyper).forEach(function (id) {
+      var t = DP.byggnadstyper[id];
+      var k = el('button', 'val' + (ui.ny.typ === id ? ' pa' : ''), '<b>' + t.namn + '</b><span>' + t.motivering + '</span>');
+      k.dataset.typ = id;
+      k.addEventListener('click', function () { ui.ny.typ = id; rita(); });
+      typval.appendChild(k);
+    });
+    kropp.appendChild(typval);
+
+    kropp.appendChild(el('div', 'liten-rubrik', 'Namn'));
+    var falt = el('input', 'bf-falt');
+    falt.type = 'text';
+    falt.dataset.falt = 'namn';
+    falt.value = ui.ny.namn;
+    falt.placeholder = 't.ex. Kasern 3';
+    falt.addEventListener('input', function () { ui.ny.namn = falt.value; rita(); });
+    kropp.appendChild(falt);
+    // Beskedet om namnet kommer medan planeraren skriver, inte när hon trycker på knappen
+    // (beslut 103): två byggnader med samma namn hade gett rutintillfällen med samma namn.
+    var hinder = ui.ny.namn ? P.namnHinder(ui.ny.namn) : '';
+    if (hinder) { kropp.appendChild(el('div', 'bf-fel', hinder)); }
+
+    kropp.appendChild(el('div', 'liten-rubrik', 'Område'));
+    var omrval = el('div', 'frekvensval');
+    DP.omraden.forEach(function (o) {
+      var k = el('button', 'val' + (ui.ny.omrade === o.id ? ' pa' : ''), '<b>' + o.namn + '</b><span>' + o.beskrivning + '</span>');
+      k.dataset.omrade = o.id;
+      k.addEventListener('click', function () { ui.ny.omrade = o.id; rita(); });
+      omrval.appendChild(k);
+    });
+    kropp.appendChild(omrval);
+
+    kropp.appendChild(el('div', 'bf-notis',
+      'Färgen väljer systemet: den är bara brickornas färg i Balanseringens tidsaxel och säger ' +
+      'inget om byggnaden, så det finns inget att ta ställning till.'));
+
+    var rad = el('div', 'knapprad hoger');
+    rad.appendChild(knapp('Avbryt', 'knapp sekundar', function () {
+      ui.skapar = false;
+      rita();
+    }));
+    var skapa = knapp('Skapa byggnad', 'knapp', function () { skapaByggnaden(); });
+    skapa.disabled = !!hinder || !ui.ny.namn || !ui.ny.typ || !ui.ny.omrade;
+    if (skapa.disabled) {
+      skapa.title = hinder || (!ui.ny.typ ? 'Välj byggnadstyp först' : 'Ge byggnaden ett namn');
+    }
+    rad.appendChild(skapa);
+    kropp.appendChild(rad);
+  }
+
+  function skapaByggnaden() {
+    var id = P.skapaByggnad({ namn: ui.ny.namn, typ: ui.ny.typ, omrade: ui.ny.omrade });
+    if (!id) { rita(); return; }
+    ui.skapar = false;
+    // Nästa steg är Plan: byggnaden finns, och det som fattas är uppgifterna om den.
+    ui.oppet = 2;
+    rita();
+  }
+
+  // Byggnaden som finns: namnet och området går att läsa, typen står låst (beslut 104).
+  // Att *ändra* dem hör till *Ändra byggnad* och byggs i en senare biljett i spåret.
+  function befintligByggnad(kropp) {
+    var b = P.byggnad();
+    if (!b) { return; }
+    var typ = DP.byggnadstyper[b.typ];
+    var omr = DP.omraden.filter(function (o) { return o.id === b.omrade; })[0];
+    var rutnat = el('div', 'bf-faltrutnat');
+    falt(rutnat, 'Namn', b.namn);
+    falt(rutnat, 'Byggnadstyp', (typ ? typ.namn : b.typ) + ' <span class="tagg">låst</span>');
+    falt(rutnat, 'Område', omr ? omr.namn : '–');
+    falt(rutnat, 'Färg', '<span class="bal-farg" style="background:' + b.farg + '"></span>');
+    kropp.appendChild(rutnat);
+    kropp.appendChild(el('div', 'bf-notis',
+      'Byggnadstypen är låst när byggnaden skapats: den avgör planlösningen, utseendet och ' +
+      'vilka byggnader planeringen kan kopieras mellan. Blir typen fel skapar du en ny byggnad ' +
+      'och läser in samma fil.'));
+  }
+  function falt(rot2, etikett, varde) {
+    var r = el('div', 'falt');
+    r.appendChild(el('div', 'etikett', etikett));
+    r.appendChild(el('div', 'varde', varde));
+    rot2.appendChild(r);
+  }
+
+  // Steg 2–4 byggs i de följande biljetterna i spåret. De syns med sitt läge, så att
+  // planeraren ser hela vägen framför sig – ett tomt steg som inte finns hade gjort flödet
+  // kortare än det är.
+  function stegKommer(kropp, n) {
+    var texter = {
+      2: 'Här läser du in byggnadens plan, eller lägger till dem för hand.',
+      3: 'Här läser du in rummen med NTA och NTV, eller lägger till dem för hand.',
+      4: 'Här läser du in de signifikanta installationerna, eller lägger till dem för hand.'
+    };
+    kropp.appendChild(el('p', 'forklar', texter[n]));
+    kropp.appendChild(el('div', 'bf-notis', 'Steget är inte byggt ännu.'));
+  }
+
+  // ------------------------------------------------------------------
+  // Flödet ritar om sig vid varje ändring och varje byggnadsbyte: statusen, bockarna och
+  // byggnadslistan kommer ur tillståndet, så ångra och gör om sköter sig själva.
+  // ------------------------------------------------------------------
+  P.prenumerera(function () {
+    // Ångras ett *Skapa byggnad* är formuläret inte längre på väg någonstans
+    if (ui.skapar && !P.byggnad()) { ui.skapar = false; }
+    rita();
+  });
+  // Byter planeraren byggnad mitt i ifyllningen är formuläret inte längre på väg någonstans:
+  // det hör till den byggnad hon höll på att skapa, och stegen under det gäller nu en annan.
+  // Lämnades det kvar hade "Ny byggnad" legat i listan och steg 2–4 stått låsta för en
+  // byggnad som är färdig.
+  P.prenumereraByte(function () {
+    ui.skapar = false;
+    rita();
+  });
+  rita();
 })();
 
 </script>

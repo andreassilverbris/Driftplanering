@@ -24,7 +24,12 @@
       <div class="pl-rad">
         <button id="ordlista-knapp" class="knapp sekundar liten-knapp" title="Slå upp ett begrepp utan att lämna steget du står i">Ordlista</button>
       </div>
-      <section id="hs-byggnad" class="hs-innehall" hidden><div id="trad"></div></section>
+      <section id="hs-byggnad" class="hs-innehall" hidden>
+        <!-- Byggnadsflödet: fyra steg i en lodrät lista som Planeringens (beslut 69 och 107).
+             Byggnadsträdet ligger under flödet, som den färdiga byggnadens innehåll. -->
+        <div id="byggnadsflode"></div>
+        <div id="trad"></div>
+      </section>
       <section id="hs-planering" class="hs-innehall"><div id="flode"></div></section>
       <section id="hs-balansering" class="hs-innehall" hidden>
         <div id="balansering"></div>
@@ -59,6 +64,10 @@
           <span id="rumlage-namn"></span>
           <button id="lamna-rum" class="knapp">Lämna rummet (Esc)</button>
         </div>
+
+        <!-- Beskedet när byggnaden inte har några plan ännu: modellen växer fram med
+             stegen (beslut 111), och en tom ruta utan förklaring ser ut som ett fel. -->
+        <div id="tom-byggnad" class="tom-byggnad" hidden></div>
 
         <div id="telefoner" class="telefoner"></div>
         <div id="infokort" class="infokort" hidden></div>
@@ -95,6 +104,7 @@
   <script src="app/spelare.js"></script>
   <script src="app/telefon.js"></script>
   <script src="app/flode.js"></script>
+  <script src="app/byggnadsflode.js"></script>
   <script src="app/vyer.js"></script>
 </body>
 </html>

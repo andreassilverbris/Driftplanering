@@ -84,6 +84,7 @@ Skriptens ordning i `index.html` spelar roll:
 | `app/spelare.js` | Mediaspelaren (ångra/gör om/gå till steg) på en fast plats i toppraden, gemensam för alla tre huvudsteg, med Ctrl+Z och Ctrl+Y. Ritar sig själv ur historiken via `prenumerera`, så den exporterar inget till `DP` (beslut 82) |
 | `app/telefon.js` | `DP.Telefon`: telefonvyer för rutintillfällen, högerklicksmeny |
 | `app/flode.js` | `DP.Flode`: snabbstart, frågeflödet i fem steg, bruttolistan, **reaktionen på alla ändringar** |
+| `app/byggnadsflode.js` | `DP.Byggnadsflode`: huvudsteget Byggnad som vägledd process – byggnadslistan med status, *Skapa ny byggnad* och de fyra stegen Byggnadstyp och namn → Plan → Rum → Installationer (beslut 69 och 107). Steg 1 är byggt; 2–4 syns men är tomma |
 | `app/balansering.js` | `DP.Balansering`: balanseringens uträkningar utan DOM. Belastning per utförare och vecka, och `balansera()` som väljer förskjutningar och formulerar förklaringen i klartext |
 | `app/vyer.js` | `DP.Vyer`: processlinjen Byggnad → Planering → Balansering, Balanseringens frågor, knappen Balansera, förklaringen, tidsaxeln och ordlistan |
 
@@ -97,6 +98,15 @@ Skriptens ordning i `index.html` spelar roll:
   Ändras byggnadens data går det genom `DP.Plan.andraByggnad(text, bid, fn, info)` (`fn` får byggnadens data
   att mutera; `bid` tomt betyder den aktiva) eller `andraFlera`:s `byggnad(id)`, och blir ett steg i
   historiken som allt annat – så ett ångra av en ändring av byggnaden återställer den.
+- **Vilka byggnader som finns ligger också i historiken (beslut 73, biljett #34).** Varje historiksteg bär
+  sin egen `ordning` – listan över byggnads-id – och `DP.Plan.byggnadsordning` läser den ur det aktuella
+  steget (en kopia, så ingen läsare kan ändra ordningen förbi historiken). `DP.Plan.skapaByggnad({ namn,
+  typ, omrade })` lägger till en tom byggnad som ett steg och gör den aktiv; ångrar planeraren förbi
+  steget försvinner byggnaden, och `ga()` byter då till den sista som finns. `namnHinder(namn, utom)` och
+  `namnTaget(namn, utom)` svarar på om namnet går att använda (beslut 103), `byggnadsSteg(bid)` på vilka
+  av byggnadsflödets fyra steg som är klara och `byggnadStatus(bid)` på var byggnaden står i klartext
+  ("Väntar på inläsningsfil", "Inläsning pågår", "Klar för Planering"). Reglerna bor i planeringen och
+  inte i vyn, av samma skäl som balanseringens förklaring (beslut 61).
 - All ändring av planeringen går genom `DP.Plan.andra(text, fn, info)`. `fn` muterar en kopia av den aktiva
   byggnadens tillstånd, och ändringen blir ett steg i historiken.
 - `DP.Plan.andraFlera(text, fn, info)` ändrar flera byggnader och det gemensamma tillståndet i **ett** steg
@@ -265,7 +275,9 @@ förslaget som gällde när planeraren tog ställning, `arvd` att tiden kom med 
 (`nr`, `namn`, `plan`, `typ`, `rect [x0,z0,x1,z1]`, valfri `hojd`), `installationer` (signifikanta med
 id/beteckning m.m. samt ej signifikanta), `stil` (tak platt/sadel, färger, fönster, dekor), `omrade`
 (id i `DP.omraden` – beslut 28) och `farg` (brickornas färg i Balanseringens tidsaxel, beslut 47).
-3D-modellen räknas fram ur detta – en ny byggnad kräver bara en datafil.
+3D-modellen räknas fram ur detta – en ny byggnad kräver bara en datafil. En byggnad planeraren skapar
+själv får `stil` och `konstanter` ur `DP.byggnadstyper[typ]` (beslut 72) och tomma `plan`, `rum` och
+`installationer`; modellen ritar då en tom tomt, och vyn säger att byggnaden inte har några plan ännu.
 
 **Ett rum pekas ut med plan + rumsnummer** (beslut 76, biljett #33). Rumsnumret `nr` löper per plan
 (`'001'`, `'002'` …) som i verkligheten, så det är **inte** unikt i byggnaden: rum 001 finns på varje
@@ -313,9 +325,19 @@ läser `DP.byggnader`. För planeraren ser allt ut som förut; sömmen är förb
 byggnadsflödet. Tredje biljetten, **den nya numreringen** (beslut 76, biljett #33), är byggd: alla fyra
 byggnaderna har plan 01 … och rumsnummer 001 … som löper per plan, rummet visas som **01-001** i modellen,
 trädet, informationskortet och telefonen, och rummet pekas ut med plan + rumsnummer i stället för med
-numret ensamt (se Byggnadsdata ovan).
+numret ensamt (se Byggnadsdata ovan). Fjärde biljetten, **byggnadsflödet och steg 1** (beslut 69, 103 och
+104, biljett #34), är byggd: huvudsteget Byggnad har en lodrät lista med fyra steg – *Byggnadstyp och namn
+→ Plan → Rum → Installationer* – med samma form som Planeringens, en byggnadslista med status per byggnad
+och **Skapa ny byggnad**. Steg 1 väljer typ (de tre som har tabeller), namn (unikt, med besked medan man
+skriver), område och en färg systemet tar; typen är låst efteråt. Skapandet är ett steg i historiken, och
+ångra förbi det tar bort byggnaden. Steg 2–4 syns med sitt läge men är tomma tills de byggs.
 
 Kända begränsningar:
+- Byggnadsflödets steg 2–4 (Plan, Rum, Installationer) är tomma: inläsningsfilen och handpåläggningen
+  byggs i de följande biljetterna i spåret. En skapad byggnad står därför kvar på "Väntar på
+  inläsningsfil" tills dess, och kan inte bli klar i Planering (steg 5 kräver installationer).
+- Byggnadens namn, område och färg går bara att sätta när byggnaden skapas. Att ändra dem hör till
+  *Ändra byggnad*, som byggs senare i spåret.
 - Flytt för hand går bara att göra i **Balanseringens** tidsaxel. Planeringens tidsaxel visar
   resultatet – de förskjutna veckorna och de provisoriska flyttarna – men går inte att dra i.
 - Balanseringens sökning är greedy per byggnad i byggnadsordning, inte uttömmande: den hittar ett bra läge,

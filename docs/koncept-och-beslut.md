@@ -372,6 +372,13 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
     Installationer*. *Skapa ny byggnad* startar flödet med en tom byggnad, *Ändra byggnad* med en befintlig.
     Inläsningsfil och handpåläggning (lägga till, dra och släppa) är två sätt att fylla i **samma** steg,
     inte två spår, och de går att blanda. Det ersätter beslut 42:s "ingen grön bock" när flödet finns.
+
+    **Steglistan och steg 1 byggda i biljett #34** (`app/byggnadsflode.js`): de fyra stegen ligger i
+    `#hs-byggnad` ovanför byggnadsträdet, med samma `.steg-kort` som Planeringens flöde (beslut 107) och
+    en byggnadslista med status per byggnad. *Skapa ny byggnad* ger en tom byggnad som ett steg i
+    historiken (`DP.Plan.skapaByggnad`), och ångra förbi steget tar bort den (beslut 73). Vad som är
+    klart svarar `DP.Plan.byggnadsSteg(bid)` på och var byggnaden står `byggnadStatus(bid)`, båda i
+    planeringen och inte i vyn (beslut 61). Steg 2–4 syns med sitt läge men är tomma tills de byggs.
 70. **En inläsningsfil med tre flikar: Plan, Rum och Installationer.** Ingenting upprepas: ett rum står en
     gång, en installation anger sitt rum. Man fyller i de flikar man har och kan läsa in en i taget. När
     filen tas ut innehåller den **det som redan är inläst**, så efter plan och rum återstår bara
@@ -519,9 +526,21 @@ Ersätter och bygger vidare på idé 4 i `ideer-och-resonemang.md`.
      namn hade gett tillfällen med samma namn. Steg 1 säger till direkt om namnet finns. Namnet går att byta i
      *Ändra byggnad*, och tillfällena byter namn med det. Ett byggnads-id, med namnet som bara en benämning,
      kan införas senare men behövs inte nu.
+
+     *Byggt i biljett #34.* `DP.Plan.namnHinder(namn, utom)` ger skälet i klartext och `namnTaget(namn,
+     utom)` svaret; jämförelsen är på trimmad text utan skillnad på stora och små bokstäver, eftersom
+     "Kasern 1" och "kasern 1" är samma namn för den som läser en lista. Beskedet kommer **medan
+     planeraren skriver**, inte när hon trycker på knappen. Byggnaden får ändå ett eget id som står still
+     (`byggnad1`, `byggnad2` …), så att ett senare namnbyte inte rör något som pekar på byggnaden – det
+     är inte beslutets byggnads-id, bara nyckeln tillståndet redan behöver.
 104. **Byggnadstypen är låst efter steg 1.** Typen avgör planlösningens regel, utseendet och vilka byggnader
      planering kan kopieras mellan. Vid fel typ skapar man en ny byggnad och läser in samma fil, som kan tas ut
      med allt ifyllt.
+
+     *Byggt i biljett #34.* Steg 1 visar typen med märket *låst* och inga typval när byggnaden finns.
+     Typerna som går att välja är de tre som har tabeller i dag – Garage, Kasern och Hangar; de fyra nya
+     i beslut 72 kommer i en senare biljett i spåret. `DP.byggnadstyper` fick `stil` och `konstanter` per
+     typ, så att en skapad byggnad har samma form av data som en handritad.
 
 #### Det prototypen visade (2026-11-24)
 

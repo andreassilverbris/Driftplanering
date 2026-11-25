@@ -121,6 +121,7 @@
     if (tomKort) { viewer.sattByggnad(b); } else { viewer.byggOmByggnad(b); }
     byggPlanKnappar();
     byggTrad();
+    uppdateraTomBesked();
     byggValjare();
     $('#tips').hidden = true;
     if (tomKort || !visades) {
@@ -446,7 +447,26 @@
     f.appendChild(av);
   }
 
+  // ------------------------------------------------------------------
+  // Tom byggnad: beskedet i stället för modellen
+  // ------------------------------------------------------------------
+  // En nyskapad byggnad har inga plan än (beslut 69), och modellen visar då en tom tomt. En
+  // tom ruta utan förklaring ser ut som ett fel, så vyn säger vad som fattas och var det
+  // fylls i. Den ritas av trädets ombyggnad, så den kommer och går med byggnadens data –
+  // också vid ångra och gör om.
+  function uppdateraTomBesked() {
+    var ruta = $('#tom-byggnad');
+    var tom = !b.plan.length;
+    ruta.hidden = !tom;
+    if (!tom) { return; }
+    ruta.innerHTML = '<div class="tb-rubrik">' + b.namn + ' har inga plan ännu</div>' +
+      '<div class="tb-text">Modellen växer fram steg för steg: först planen som ett skal, ' +
+      'sedan rummen och sist installationerna. Fyll i <b>steg 2 Plan</b> i byggnadsflödet ' +
+      'till vänster, med en inläsningsfil eller för hand.</div>';
+  }
+
   byggTrad();
+  uppdateraTomBesked();
   byggForklaring();
 
   // Öppet informationskort ritas om när planeringen ändras

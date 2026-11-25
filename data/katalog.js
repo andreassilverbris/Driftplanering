@@ -50,9 +50,18 @@
 
   // ---------------- Byggnadstyper och standardplanering ----------------
   //   freq: 'bas' = samma som besöken, annars { typ, startManad }
+  //
+  // Byggnadstypen är mallen (beslut 72): den ger standardplaneringen och – för en byggnad
+  // planeraren skapar själv – utseendet och måtten modellen ritas med. `stil` och `konstanter`
+  // har samma form som i datafilerna under `data/`, så en skapad byggnad och en handritad är
+  // samma sorts data. Planlösningens regel (hur rummen placeras ut) hör också till typen, men
+  // byggs i en senare biljett i spåret.
   DP.byggnadstyper = {
     garage: {
       namn: 'Garage',
+      stil: { tak: 'sadel', sadel: { bas: 2.8, hojd: 2.2 }, ytterFarg: 0xc9b89a, takFarg: 0x4d4f52, portSida: 'N',
+        fonster: { bredd: 1.0, steg: 4, hojd: 0.8, brost: 1.4 } },
+      konstanter: { PLANHOJD: 2.8, BJALKLAG: 0.2, FRIHOJD: 2.8 },
       standard: {
         bas: { typ: 'halvar', startManad: 4 },
         ronder: [
@@ -64,6 +73,8 @@
     },
     kasern: {
       namn: 'Kasern',
+      stil: { tak: 'sadel', sadel: { bas: 10.3, hojd: 3.0 }, ytterFarg: 0xd9d2c4, takFarg: 0x6b4b3a },
+      konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
       standard: {
         bas: { typ: 'manad', startManad: null },
         ronder: [
@@ -78,6 +89,8 @@
     },
     hangar: {
       namn: 'Hangar',
+      stil: { tak: 'platt', ytterFarg: 0xb9c0c7, takFarg: 0x8d969e },
+      konstanter: { PLANHOJD: 3.5, BJALKLAG: 0.2, FRIHOJD: 3.3 },
       standard: {
         bas: { typ: 'manad', startManad: null },
         ronder: [
